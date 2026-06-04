@@ -1,0 +1,13 @@
+# Secrets — niemals committen!
+.env
+**/.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.python-version
+
+# ADK lokale Artefakte / Sessions
+*.db
+.adk/

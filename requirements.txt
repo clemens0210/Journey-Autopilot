@@ -1,0 +1,8 @@
+# Google Agent Development Kit (2.x).
+# Version gepinnt, damit alle im Team dieselbe nutzen.
+# Aktuelle 2.x-Version ggf. auf https://pypi.org/project/google-adk/ prüfen
+# und hier anpassen.
+#
+# [extensions] zieht LiteLLM mit rein — nötig für das Uni-Köln-GPT-Backend
+# (OpenAI-kompatibler Endpunkt).
+google-adk[extensions]>=2.0,<3.0
