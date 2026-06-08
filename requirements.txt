@@ -6,3 +6,6 @@
 # [extensions] zieht LiteLLM mit rein — nötig für das Uni-Köln-GPT-Backend
 # (OpenAI-kompatibler Endpunkt).
 google-adk[extensions]>=2.0,<3.0
+
+# HTTP-Client für den db-vendo-client-Sidecar (siehe db_service/ und db_api.py).
+requests>=2.31

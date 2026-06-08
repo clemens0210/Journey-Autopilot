@@ -1,0 +1,15 @@
+{
+  "name": "journey-autopilot-db-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted db-vendo-client sidecar. Exposes Deutsche Bahn live data (live delays, routing, prices) as a small local JSON API that the Python backend consumes. Replaces the dead public v6.db.transport.rest instance.",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "db-vendo-client": "^6.10.11",
+    "fastify": "^5.2.0"
+  }
+}

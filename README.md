@@ -15,6 +15,8 @@ Cologne GPT als Modell-Backend (OpenAI-kompatibler Endpunkt, via LiteLLM).
 - **University of Cologne GPT** (OpenAI-kompatibel) — Key, Endpunkt und
   Modellname vom GPT-Service der Uni. ADK spricht den Endpunkt über LiteLLM an,
   der Agenten-Code bleibt davon unberührt.
+- **Node.js 18+** — nur für den DB-Live-Daten-Sidecar (`db_service/`). Wer ohne
+  echte DB-Daten arbeitet (Mock-Modus), braucht Node nicht.
 
 ## Setup
 
@@ -35,6 +37,9 @@ pip install -r requirements.txt
 # 4. Zugang hinterlegen
 cp .env.example .env        # Windows (PowerShell): copy .env.example .env
 # .env öffnen und die UNI_GPT_*-Werte ausfüllen (siehe unten)
+
+# 5. DB-Live-Daten-Sidecar vorbereiten (Node) — optional, nur für echte DB-Daten
+cd db_service && npm install && cd ..
 ```
 
 ### Backend konfigurieren (Uni-Köln-GPT)
@@ -55,6 +60,37 @@ UNI_GPT_MODEL=dein_uni_modellname # e.g Openai GPT OSS 120B
 > **Agenten-Verzeichnis**. Am einfachsten ist es, die fertige `.env` in den/die
 > Agenten-Ordner zu kopieren (`cp .env <agent>/.env`). Findet `adk` die Datei
 > nicht, hilft ein Blick in die aktuelle ADK-Doku zur `.env`-Discovery.
+
+### DB-Live-Daten (db_service-Sidecar)
+
+Echte DB-Live-Daten (Verspätungen, Routing, Preise) kommen über
+[`db-vendo-client`](https://github.com/public-transport/db-vendo-client) — eine
+Node-Bibliothek mit DB-Navigator-genauen Daten. Da unser Backend Python ist,
+läuft sie als kleiner **Sidecar** (`db_service/`): ein lokaler JSON-Dienst, den
+die Python-Seite über HTTP anspricht.
+
+```
+[ ADK-Agenten ] -> tools.py -> db_api.py --HTTP--> db_service (Node) -> DB
+```
+
+Sidecar starten (eigenes Terminal):
+
+```bash
+cd db_service && npm start      # läuft auf http://127.0.0.1:3000
+```
+
+Anbindung testen (Sidecar muss laufen):
+
+```bash
+python check_db.py              # Health + EVA-Auflösung + eine Verbindung
+```
+
+Endpunkte und Optionen stehen in `db_service/README.md`. Der Python-Client wird
+über `DB_API_URL` / `DB_API_TIMEOUT` in der `.env` konfiguriert.
+
+> **Stand:** Sidecar und Python-Client (`db_api.py`, `stations.py`) sind fertig
+> und eigenständig testbar. Die Agenten laufen aktuell noch auf `mock_data` —
+> `tools.py` wird im nächsten Schritt auf `db_api` umgestellt.
 
 ## Ausführen
 
@@ -88,6 +124,9 @@ und einem Orchestrator nach dem ReAct-Muster**. Daten sind bewusst gemockt.
   Fixtures; die Einstecksstellen für echte DB-/Kalender-/RAG-Quellen.
 - **Modell-Konfiguration** (`config.py`) — ein Ort, an dem das Modell pro Rolle
   gesetzt wird; spricht den Uni-Köln-GPT (OpenAI-kompatibel) via LiteLLM an.
+- **DB-Live-Daten-Sidecar** (`db_service/`, `db_api.py`, `stations.py`) — echte
+  DB-Daten über `db-vendo-client`; eigenständig testbar via `check_db.py`. Noch
+  nicht in die Tools verdrahtet (siehe Hinweis oben).
 
 ### Datei-Layout
 
@@ -97,10 +136,17 @@ journey_autopilot/
   agent.py           # Orchestrator (root_agent, ReAct)
   monitoring.py      # Monitoring Agent
   planner.py         # Planner Agent
-  tools.py           # Function-Tools (gemockt)
+  tools.py           # Function-Tools (aktuell gemockt)
   mock_data.py       # Fixtures (Demo-Reise München->Berlin)
   config.py          # Modell pro Rolle
+  db_api.py          # Python-Client für den db_service-Sidecar (einzige DB-Zugriffsstelle)
+  stations.py        # Stationsname -> EVA-Nummer (mit Cache)
+db_service/          # Node-Sidecar: db-vendo-client als lokale JSON-API
+  index.mjs          # Fastify-Server, ein Endpunkt pro Client-Methode
+  package.json       # gepinnte Deps (db-vendo-client, fastify)
+  README.md          # Endpunkte & Beispiele
 run_demo.py          # Standalone End-to-End-Demo
+check_db.py          # Smoke-Test der DB-Anbindung
 ```
 
 ## Zielbild (noch offen)
