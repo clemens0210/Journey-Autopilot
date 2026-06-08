@@ -44,7 +44,7 @@ In der `.env` werden Key, Endpunkt und Modellname hinterlegt:
 ```ini
 UNI_GPT_API_KEY=dein_uni_key
 UNI_GPT_BASE_URL=https://dein-uni-endpunkt/v1   # inkl. /v1
-UNI_GPT_MODEL=dein_uni_modellname
+UNI_GPT_MODEL=dein_uni_modellname # e.g Openai GPT OSS 120B
 ```
 
 `config.py` baut daraus `LiteLlm`-Modelle für alle drei Rollen — am ReAct-Code
