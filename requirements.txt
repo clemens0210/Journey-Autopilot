@@ -6,3 +6,8 @@
 # [extensions] zieht LiteLLM mit rein — nötig für das Uni-Köln-GPT-Backend
 # (OpenAI-kompatibler Endpunkt).
 google-adk[extensions]>=2.0,<3.0
+google-genai>=1.0,<3.0
+python-dotenv>=1.0,<2.0
+msal>=1.31,<2.0
+httpx>=0.27,<1.0
+msgraph-sdk>=1.0,<2.0

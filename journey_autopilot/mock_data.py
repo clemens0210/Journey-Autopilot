@@ -14,20 +14,20 @@ from __future__ import annotations
 # --- Demo-Reise: Lucas Wild, München -> Berlin (Happy/Edge-Szenario) ---------
 
 DEMO_TRIP = {
-    "trip_id": "DB-2026-0603-MUC-BLN",
+    "trip_id": "DB-2026-0610-MUC-BLN",
     "passenger": "Lucas Wild",
     "origin": "München Hbf",
     "destination": "Berlin Hbf",
     "train": "ICE 1006",
-    "planned_departure": "2026-06-03T08:00:00",
-    "planned_arrival": "2026-06-03T12:04:00",
+    "planned_departure": "2026-06-10T08:00:00",
+    "planned_arrival": "2026-06-10T12:04:00",
 }
 
 # Gemockter Live-Zustand der Reise. Ein Stellwerksproblem bei Nürnberg sorgt für
 # wachsende Verspätung -> das Monitoring soll erhöhtes Risiko erkennen.
 LIVE_TRIP_STATUS = {
-    "DB-2026-0603-MUC-BLN": {
-        "trip_id": "DB-2026-0603-MUC-BLN",
+    "DB-2026-0610-MUC-BLN": {
+        "trip_id": "DB-2026-0610-MUC-BLN",
         "train": "ICE 1006",
         "current_delay_minutes": 28,
         "trend": "steigend",
@@ -40,7 +40,7 @@ LIVE_TRIP_STATUS = {
             }
         ],
         "connection_risk": "Anschluss in Berlin-Spandau gefährdet",
-        "data_timestamp": "2026-06-03T09:42:00",
+        "data_timestamp": "2026-06-10T09:42:00",
     }
 }
 
@@ -51,7 +51,7 @@ NETWORK_DISRUPTIONS = {
             "line": "ICE-Strecke Nürnberg-Erfurt",
             "type": "Stellwerksstörung",
             "severity": "hoch",
-            "expected_resolution": "2026-06-03T11:30:00",
+            "expected_resolution": "2026-06-10T11:30:00",
         }
     ],
     "berlin": [],
@@ -64,7 +64,7 @@ REROUTE_OPTIONS = {
         {
             "option_id": "R1",
             "description": "Umstieg in Erfurt auf ICE 1008 Richtung Berlin",
-            "new_arrival": "2026-06-03T12:38:00",
+            "new_arrival": "2026-06-10T12:38:00",
             "transfers": 1,
             "added_delay_minutes": 34,
             "comfort": "Sitzplatzreservierung übertragbar",
@@ -72,7 +72,7 @@ REROUTE_OPTIONS = {
         {
             "option_id": "R2",
             "description": "Über Leipzig mit ICE 1612, dann RE nach Berlin",
-            "new_arrival": "2026-06-03T13:15:00",
+            "new_arrival": "2026-06-10T13:15:00",
             "transfers": 2,
             "added_delay_minutes": 71,
             "comfort": "Kein reservierter Sitzplatz, mehr Umstiege",
@@ -82,11 +82,11 @@ REROUTE_OPTIONS = {
 
 # Gemockter Kalender der Persona. Das Meeting in Berlin ist die harte Deadline.
 USER_CALENDAR = {
-    "2026-06-03": [
+    "2026-06-10": [
         {
             "title": "Kundentermin Berlin (vor Ort)",
             "location": "Berlin Mitte",
-            "start": "2026-06-03T14:00:00",
+            "start": "2026-06-10T14:00:00",
             "hard_constraint": True,
         }
     ]

@@ -11,7 +11,15 @@ für echte DB-/Kalender-/RAG-Quellen.
 
 from __future__ import annotations
 
+import os
+
 from . import mock_data
+from .calendar import get_calendar_events
+
+
+def _calendar_configured() -> bool:
+    """Return True if MS Entra credentials are present in the environment."""
+    return bool(os.getenv("MS_ENTRA_CLIENT_ID"))
 
 
 # --- Monitoring-Tools ---------------------------------------------------------
@@ -64,21 +72,36 @@ def find_reroute_options(origin: str, destination: str) -> dict:
     return {"origin": origin, "destination": destination, "options": options}
 
 
-def get_user_calendar(date: str) -> dict:
+def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     """Liest die Kalendertermine des Nutzers für ein Datum.
 
     Wird gebraucht, um harte Deadlines (z. B. ein Vor-Ort-Meeting) gegen
     Reroute-Optionen zu prüfen.
 
+    Nutzt Outlook/Microsoft Graph, wenn die Entra-Credentials in der .env
+    hinterlegt sind (MS_ENTRA_CLIENT_ID, MS_ENTRA_TENANT_ID). Ohne
+    Konfiguration wird auf Mock-Daten zurückgegriffen.
+
     Args:
         date: Datum im Format "YYYY-MM-DD", z. B. "2026-06-03".
+        user_email: Optionale E-Mail eines anderen Nutzers, dessen Kalender
+            abgefragt werden soll. Ohne Angabe wird der eigene Kalender des
+            authentifizierten Nutzers verwendet.
 
     Returns:
         Ein Dict mit der Liste der Termine. `hard_constraint=True` markiert
-        unverhandelbare Termine.
+        unverhandelbare Termine. Enthält `source` ("outlook" oder "mock")
+        und ggf. `error`.
     """
+    if _calendar_configured():
+        try:
+            events = get_calendar_events(date, user_email)
+            return {"date": date, "events": events, "source": "outlook"}
+        except Exception as exc:
+            return {"date": date, "events": [], "source": "outlook", "error": str(exc)}
+
     events = mock_data.USER_CALENDAR.get(date, [])
-    return {"date": date, "events": events}
+    return {"date": date, "events": events, "source": "mock"}
 
 
 def get_passenger_rights(delay_minutes: int) -> dict:
