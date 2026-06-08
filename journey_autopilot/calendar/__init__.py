@@ -5,19 +5,17 @@ Public API:
     get_calendar_events(date, user_email=None) -> list[dict]
 
 Returns calendar events in the internal format expected by the Planner Agent.
-Handles authentication (device-code flow), token caching, and data mapping
-internally. Uses Microsoft Graph API via the /me/calendarView or
-/users/{email}/calendarView endpoints.
+Handles authentication (device-code flow via azure.identity with persistent
+token caching) and data mapping internally. Uses the official msgraph-sdk.
 """
 
 from __future__ import annotations
 
-from .auth import acquire_token
-from .client import get_calendar_view
+from .client import get_events
 from .mapper import graph_events_to_internal
 
 
-def get_calendar_events(date: str, user_email: str | None = None) -> list[dict]:
+async def get_calendar_events(date: str, user_email: str | None = None) -> list[dict]:
     """Fetch and map Outlook calendar events for a given date.
 
     Orchestrates the full pipeline: authenticate → query Graph → map to
@@ -33,9 +31,5 @@ def get_calendar_events(date: str, user_email: str | None = None) -> list[dict]:
         A list of event dicts with keys: title, location, start,
         hard_constraint. Returns [] if no events or on recoverable errors.
     """
-    try:
-        token = acquire_token()
-        raw_events = get_calendar_view(token, date, user_email)
-        return graph_events_to_internal(raw_events)
-    except Exception:
-        return []
+    raw_events = await get_events(date, user_email)
+    return graph_events_to_internal(raw_events)

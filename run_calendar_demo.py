@@ -12,9 +12,9 @@ Defaults to 2026-06-10 if no date is given.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
-from datetime import datetime, timezone
 
 try:
     from dotenv import load_dotenv
@@ -28,9 +28,6 @@ from journey_autopilot.calendar import get_calendar_events
 from journey_autopilot import mock_data
 
 
-HC = "Journey-Autopilot/Hard"
-
-
 def _format_event(ev: dict, idx: int) -> str:
     title = ev.get("title", "???")
     loc = ev.get("location", "???")
@@ -41,7 +38,7 @@ def _format_event(ev: dict, idx: int) -> str:
     return f"  {icon} [{idx}] {title}\n       {start} — {loc}  ({label})"
 
 
-def main() -> None:
+async def main() -> None:
     date = sys.argv[1] if len(sys.argv) > 1 else "2026-06-10"
 
     print("=" * 68)
@@ -59,7 +56,7 @@ def main() -> None:
         print(f"  MS_ENTRA_TENANT_ID : {os.getenv('MS_ENTRA_TENANT_ID')}")
         print("\n  Fetching from Microsoft Graph ...\n")
         try:
-            events = get_calendar_events(date)
+            events = await get_calendar_events(date)
             source = "outlook"
         except Exception as exc:
             print(f"\n[!] Graph API error: {exc}")
@@ -91,4 +88,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

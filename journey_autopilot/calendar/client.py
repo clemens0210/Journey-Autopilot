@@ -1,89 +1,71 @@
-"""Microsoft Graph API client for Outlook calendar operations.
+"""Microsoft Graph API client using the official msgraph-sdk.
 
-Provides a lightweight wrapper around the Graph /v1.0/me/calendarView and
-/v1.0/users/{email}/calendarView endpoints using httpx.
+Provides a thin wrapper that queries /me/calendar/events filtered by date
+and returns the raw Event model objects for the mapper to convert.
 """
 
 from __future__ import annotations
 
+from azure.identity import DeviceCodeCredential
 from msgraph import GraphServiceClient
-import httpx
+from msgraph.generated.users.item.calendar.events.events_request_builder import (
+    EventsRequestBuilder,
+)
+from kiota_abstractions.base_request_configuration import RequestConfiguration
 
-GRAPH_BASE = "https://graph.microsoft.com/v1.0"
-
-
-def _build_headers(token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {token}",
-        "Prefer": 'outlook.timezone="Europe/Berlin"',
-    }
+from .auth import SCOPES, acquire_credential
 
 
-def _paginate(client: httpx.Client, url: str, headers: dict[str, str]) -> list[dict]:
-    """Follow @odata.nextLink to collect all events across pages."""
-    events: list[dict] = []
-    while url:
-        resp = client.get(url, headers=headers)
-        resp.raise_for_status()
-        body = resp.json()
-        events.extend(body.get("value", []))
-        url = body.get("@odata.nextLink", "")
-    return events
+def _build_client(credential: DeviceCodeCredential) -> GraphServiceClient:
+    """Build a GraphServiceClient backed by a DeviceCodeCredential."""
+    return GraphServiceClient(credential, scopes=SCOPES)
 
 
-def get_calendar_view(
-    token: str,
-    date: str,
-    user_email: str | None = None,
-) -> list[dict]:
-    """Fetch calendar events for a specific date from Microsoft Graph.
+async def get_events(date: str, user_email: str | None = None) -> list:
+    """Fetch calendar events for a specific date via Microsoft Graph.
+
+    Uses the msgraph-sdk to call /me/calendar/events (or
+    /users/{email}/calendar/events) filtered to the given date.
+
+    Auth happens lazily — the device-code flow triggers only when the
+    SDK first calls get_token() and the persistent cache has no valid token.
 
     Args:
-        token: A valid OAuth 2.0 access token.
         date: Date string in ISO format, e.g. "2026-06-03".
         user_email: If provided, query that user's calendar (requires
-            appropriate permissions). If None, queries the authenticated user.
+            appropriate delegated permissions). If None, queries the
+            authenticated user.
 
     Returns:
-        A list of Graph event dicts. Returns [] if no events or on error.
+        A list of msgraph Event model objects. Returns [] on error.
     """
-    start = f"{date}T00:00:00Z"
-    end = f"{date}T23:59:59Z"
+    credential = acquire_credential()
+    client = _build_client(credential)
 
-    if user_email:
-        url = (
-            f"{GRAPH_BASE}/users/{user_email}/calendarView"
-            f"?startDateTime={start}&endDateTime={end}&$top=50"
-        )
-    else:
-        url = (
-            f"{GRAPH_BASE}/me/calendarView"
-            f"?startDateTime={start}&endDateTime={end}&$top=50"
-        )
+    start_filter = f"{date}T00:00:00"
+    end_filter = f"{date}T23:59:59"
 
-    headers = _build_headers(token)
-    with httpx.Client(timeout=httpx.Timeout(30.0)) as client:
-        if resp := _try_request(client, url, headers):
-            return _paginate(client, url, headers)
-        return []
+    query_params = EventsRequestBuilder.EventsRequestBuilderGetQueryParameters(
+        filter=(
+            f"start/dateTime ge '{start_filter}' "
+            f"and end/dateTime le '{end_filter}'"
+        ),
+        top=50,
+    )
+    config = RequestConfiguration(
+        query_parameters=query_params,
+        headers={"Prefer": 'outlook.timezone="Europe/Berlin"'},
+    )
 
-
-def reauth_needed(status_code: int) -> bool:
-    """Return True if the HTTP status indicates a need for re-authentication."""
-    return status_code == 401
-
-
-def _try_request(
-    client: httpx.Client,
-    url: str,
-    headers: dict[str, str],
-) -> bool:
-    """Probe the endpoint to check connectivity and token validity.
-
-    Returns True if the endpoint is reachable with the current token.
-    """
     try:
-        resp = client.get(url, headers=headers)
-        return resp.status_code != 401
-    except httpx.RequestError:
-        return False
+        if user_email:
+            result = await client.users.by_user_id(user_email).calendar.events.get(
+                request_configuration=config,
+            )
+        else:
+            result = await client.me.calendar.events.get(
+                request_configuration=config,
+            )
+        return result.value if result and result.value else []
+    except Exception:
+        return []

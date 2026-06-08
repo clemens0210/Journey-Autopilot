@@ -72,7 +72,7 @@ def find_reroute_options(origin: str, destination: str) -> dict:
     return {"origin": origin, "destination": destination, "options": options}
 
 
-def get_user_calendar(date: str, user_email: str | None = None) -> dict:
+async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     """Liest die Kalendertermine des Nutzers für ein Datum.
 
     Wird gebraucht, um harte Deadlines (z. B. ein Vor-Ort-Meeting) gegen
@@ -95,7 +95,7 @@ def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     """
     if _calendar_configured():
         try:
-            events = get_calendar_events(date, user_email)
+            events = await get_calendar_events(date, user_email)
             return {"date": date, "events": events, "source": "outlook"}
         except Exception as exc:
             return {"date": date, "events": [], "source": "outlook", "error": str(exc)}

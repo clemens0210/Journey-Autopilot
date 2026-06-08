@@ -25,6 +25,9 @@ including pre-populated Outlook calendars for test users.
    - **Accounts in this organizational directory only** (for Developer tenants)
 5. Redirect URI: leave blank (device-code flow does not need one)
 6. **Register**
+7. After registration, go to **Authentication** → under **Advanced settings**
+   at the bottom → set **"Allow public client flows"** to **Yes** → **Save**
+   *(Required for device-code authentication to work.)*
 
 ### 3. Note the Client ID and Tenant ID
 
@@ -54,9 +57,10 @@ Simpler for local development without enterprise features.
 
 1. Register an app as above, but under "Supported account types" choose:
    **"Personal Microsoft accounts only"**
-2. Tenant ID: `consumers`
-3. API Permission: `Calendars.Read` (delegated)
-4. No admin consent required
+2. After registration, go to **Authentication** → **"Allow public client flows"** → **Yes**
+3. Tenant ID: `consumers`
+4. API Permission: `Calendars.Read` (delegated)
+5. No admin consent required
 
 ```ini
 MS_ENTRA_CLIENT_ID=<Client ID>
