@@ -41,7 +41,8 @@ das Ergebnis, überlege erneut:
 2. Lies die Risiko-Einschätzung.
    - Ist das Risiko NIEDRIG: Gib eine kurze Entwarnung. Rufe den Planner NICHT auf.
    - Ist das Risiko MITTEL oder HOCH: Rufe den `planner_agent` mit Start, Ziel UND
-     Reisedatum auf (z. B. "München Hbf nach Berlin Hbf am 2026-06-10").
+     Reisedatum auf (z. B. "München Hbf nach Berlin Hbf am [DATUM AUS NUTZERANFRAGE]").
+     Verwende das tatsächliche Datum aus der Nutzeranfrage, nicht das Beispiel.
 3. Fasse für den Nutzer verständlich zusammen: aktuelle Lage (vom Monitoring) und,
    falls vorhanden, der empfohlene Plan (vom Planner) inkl. Kalender-Check und
    Entschädigungshinweis.

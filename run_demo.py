@@ -38,7 +38,7 @@ USER_ID = "lucas"
 # Anfrage, mit der die Reise an den Orchestrator übergeben wird.
 PROMPT = (
     f"Bitte überwache meine Reise mit der trip_id {DEMO_TRIP['trip_id']} "
-    f"von {DEMO_TRIP['origin']} nach {DEMO_TRIP['destination']} am 2026-06-10 "
+    f"von {DEMO_TRIP['origin']} nach {DEMO_TRIP['destination']} am 2026-06-19 "
     "und sag mir, ob ich etwas tun muss."
 )
 

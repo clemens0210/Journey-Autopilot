@@ -7,7 +7,7 @@ to the console.
 Usage:
     python run_calendar_demo.py [YYYY-MM-DD]
 
-Defaults to 2026-06-10 if no date is given.
+Defaults to 2026-06-19 if no date is given.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def _format_event(ev: dict, idx: int) -> str:
 
 
 async def main() -> None:
-    date = sys.argv[1] if len(sys.argv) > 1 else "2026-06-10"
+    date = sys.argv[1] if len(sys.argv) > 1 else "2026-06-19"
 
     print("=" * 68)
     print(f"  Outlook Calendar Demo  —  {date}")
