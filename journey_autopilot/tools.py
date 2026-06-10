@@ -90,18 +90,25 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
 
     Returns:
         Ein Dict mit der Liste der Termine. `hard_constraint=True` markiert
-        unverhandelbare Termine. Enthält `source` ("outlook" oder "mock")
-        und ggf. `error`.
+        unverhandelbare Termine. Enthält `source` ("outlook", "mock" oder
+        "mock (Graph-Fallback)") und ggf. `error` bei fehlgeschlagenem
+        Graph-Zugriff (dann wurde auf Mock-Daten zurückgefallen).
     """
+    mock_events = mock_data.USER_CALENDAR.get(date, [])
+
     if _calendar_configured():
         try:
             events = await get_calendar_events(date, user_email)
             return {"date": date, "events": events, "source": "outlook"}
         except Exception as exc:
-            return {"date": date, "events": [], "source": "outlook", "error": str(exc)}
+            return {
+                "date": date,
+                "events": mock_events,
+                "source": "mock (Graph-Fallback)",
+                "error": str(exc),
+            }
 
-    events = mock_data.USER_CALENDAR.get(date, [])
-    return {"date": date, "events": events, "source": "mock"}
+    return {"date": date, "events": mock_events, "source": "mock"}
 
 
 def get_passenger_rights(delay_minutes: int) -> dict:

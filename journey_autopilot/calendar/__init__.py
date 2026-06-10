@@ -27,9 +27,6 @@ async def get_calendar_events(date: str, user_email: str | None = None) -> list[
             Requires appropriate Graph permissions. Defaults to the
             authenticated user's own calendar.
 
-    Returns:
-        A list of event dicts with keys: title, location, start,
-        hard_constraint. Returns [] if no events or on recoverable errors.
     """
     raw_events = await get_events(date, user_email)
     return graph_events_to_internal(raw_events)

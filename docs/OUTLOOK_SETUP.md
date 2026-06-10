@@ -100,7 +100,7 @@ and enter the code: ABC123DEF
 3. Sign in with the account whose calendar you want to query
 4. Click "Next" → "Sign in" → wait for confirmation
 
-The token is saved to `~/.journey-autopilot/msal_cache.bin`. On subsequent
+On subsequent
 runs, authentication happens automatically (silent).
 
 ---
