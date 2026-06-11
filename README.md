@@ -1,9 +1,10 @@
 # Journey Autopilot
 
 Agentisches System, das DB-Bahnreisen proaktiv überwacht, Störungen erkennt,
-Umleitungen plant und den Nutzer transparent informiert — bei voller
-Veto-Kontrolle. Uni-Projekt, gebaut auf **Google ADK 2.x** mit der University of
-Cologne GPT als Modell-Backend (OpenAI-kompatibler Endpunkt, via LiteLLM).
+Umleitungen plant und Betroffene per WhatsApp benachrichtigt — bei voller
+Veto-Kontrolle des Reisenden. Uni-Projekt, gebaut auf **Google ADK 2.x** mit der
+University of Cologne GPT als Modell-Backend (OpenAI-kompatibler Endpunkt, via
+LiteLLM).
 
 ---
 
@@ -15,6 +16,9 @@ Cologne GPT als Modell-Backend (OpenAI-kompatibler Endpunkt, via LiteLLM).
 - **University of Cologne GPT** (OpenAI-kompatibel) — Key, Endpunkt und
   Modellname vom GPT-Service der Uni. ADK spricht den Endpunkt über LiteLLM an,
   der Agenten-Code bleibt davon unberührt.
+- **Twilio-Account** (optional) — nur für den WhatsApp Communicator. Sandbox-Zugang
+  genügt. Ohne Twilio-Konfiguration läuft `run_demo.py` im Trockenlauf und gibt
+  die generierten Nachrichten nur auf der Konsole aus.
 
 ## Setup
 
@@ -34,86 +38,127 @@ pip install -r requirements.txt
 
 # 4. Zugang hinterlegen
 cp .env.example .env        # Windows (PowerShell): copy .env.example .env
-# .env öffnen und die UNI_GPT_*-Werte ausfüllen (siehe unten)
+# .env öffnen und die Werte ausfüllen (UNI_GPT_* Pflicht, Twilio optional)
+
+# 5. .env auch ins Agenten-Verzeichnis kopieren (für adk web / adk run)
+cp .env journey_autopilot/.env
 ```
 
-### Backend konfigurieren (Uni-Köln-GPT)
-
-In der `.env` werden Key, Endpunkt und Modellname hinterlegt:
+### LLM-Backend konfigurieren (Uni-Köln-GPT)
 
 ```ini
 UNI_GPT_API_KEY=dein_uni_key
 UNI_GPT_BASE_URL=https://dein-uni-endpunkt/v1   # inkl. /v1
-UNI_GPT_MODEL=dein_uni_modellname # e.g Openai GPT OSS 120B
+UNI_GPT_MODEL=dein_uni_modellname
 ```
 
-`config.py` baut daraus `LiteLlm`-Modelle für alle drei Rollen — am ReAct-Code
-(`agent.py`, `monitoring.py`, `planner.py`) ändert sich nichts. LiteLLM kommt
-über das `extensions`-Extra in `requirements.txt` (`google-adk[extensions]`) mit.
+`config.py` baut daraus `LiteLlm`-Modelle für alle vier Rollen (Orchestrator,
+Monitoring, Planner, Drafter). LiteLLM kommt über das `extensions`-Extra in
+`requirements.txt` (`google-adk[extensions]`) mit.
 
-> **Hinweis zur `.env`:** ADK lädt die `.env` aus dem jeweiligen
-> **Agenten-Verzeichnis**. Am einfachsten ist es, die fertige `.env` in den/die
-> Agenten-Ordner zu kopieren (`cp .env <agent>/.env`). Findet `adk` die Datei
-> nicht, hilft ein Blick in die aktuelle ADK-Doku zur `.env`-Discovery.
+### WhatsApp Connector konfigurieren (optional)
 
-## Ausführen
+```ini
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your_auth_token
+TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 
-Drei Wege, derselbe `root_agent` (der Orchestrator):
+DEMO_TRAVELER_NUMBER=+49171xxxxxxx   # Muss in Twilio Sandbox registriert sein
+DEMO_CLIENT_NUMBER=+49172xxxxxxx
+DEMO_COLLEAGUE_NUMBER=+49173xxxxxxx
+```
+
+Für eingehende Antworten (YES/NO/EDIT) braucht Twilio eine öffentlich erreichbare
+URL. Lokal am einfachsten mit [ngrok](https://ngrok.com):
 
 ```bash
-python run_demo.py              # End-to-End-Demo im Terminal, streamt den Agenten-Verlauf
-adk web                         # Dev-UI im Browser — Agent auswählen & chatten
-adk run journey_autopilot       # direkt im Terminal, interaktiv
+ngrok http 8000
+# Tunnel-URL in .env als WEBHOOK_BASE_URL eintragen
+# In der Twilio Console: Webhook-URL auf https://<tunnel>/whatsapp/reply setzen
 ```
-
-`run_demo.py` ist der schnellste Weg, die Zusammenarbeit der beiden Agenten zu
-sehen: Es zeigt, wie der Orchestrator zuerst den Monitoring-Agent ruft und —
-nur bei erhöhtem Risiko — den Planner nachzieht.
 
 ---
 
-## Aktueller Stand (Basis)
+## Ausführen
 
-Implementiert ist eine erste lauffähige Grundlage mit **zwei Spezialisten-Agenten
-und einem Orchestrator nach dem ReAct-Muster**. Daten sind bewusst gemockt.
+### Agenten-Demo (Monitoring + Planner)
 
-- **Orchestrator** (`journey_autopilot/agent.py`, `root_agent`) — `LlmAgent`,
-  der die Spezialisten als `AgentTool` einbindet und im ReAct-Loop entscheidet,
-  wen er wann ruft. Ruft immer erst Monitoring, dann (bei Risiko) Planner.
-- **Monitoring Agent** (`monitoring.py`) — liest gemockte Live-Daten und
-  Störungslage, gibt ein Risiko-Level (NIEDRIG/MITTEL/HOCH) zurück.
-- **Planner Agent** (`planner.py`) — generiert Reroute-Optionen, prüft sie gegen
-  harte Termine (Kalender) und nennt Fahrgastrechte. Schlägt vor, bucht nicht.
-- **Tools & Mock-Daten** (`tools.py`, `mock_data.py`) — Function-Tools über
-  Fixtures; die Einstecksstellen für echte DB-/Kalender-/RAG-Quellen.
-- **Modell-Konfiguration** (`config.py`) — ein Ort, an dem das Modell pro Rolle
-  gesetzt wird; spricht den Uni-Köln-GPT (OpenAI-kompatibel) via LiteLLM an.
+```bash
+python run_demo.py        # streamt Agenten-Verlauf + WhatsApp-Demo im Terminal
+adk web                   # Dev-UI im Browser — Agent auswählen & chatten
+adk run journey_autopilot # direkt im Terminal, interaktiv
+```
+
+`run_demo.py` zeigt zuerst den Orchestrator-Durchlauf (Monitoring → Planner) und
+danach — sofern `DEMO_TRAVELER_NUMBER` gesetzt ist — die WhatsApp-Connector-Demo:
+der Drafter-Agent entwirft Nachrichten für jeden konfigurierten Empfänger und
+sendet sie (bei vollständiger Twilio-Konfiguration) zur Freigabe an den Reisenden.
+
+### Webhook-Server (WhatsApp-Antworten empfangen)
+
+```bash
+uvicorn journey_autopilot.whatsapp_connector.webhook:app --port 8000
+```
+
+Twilio schickt die Antworten des Reisenden (YES / NO / EDIT \<text\>) an
+`POST /whatsapp/reply`. Der Server leitet sie an die Genehmigungslogik in
+`queue.py` weiter und dispatcht die Nachricht bei Freigabe per Twilio an den
+eigentlichen Empfänger.
+
+---
+
+## Aktueller Stand
+
+Implementiert ist eine lauffähige Grundlage mit **drei Spezialisten-Agenten,
+einem Orchestrator und einem WhatsApp-Kommunikations-Layer**.
+
+| Komponente | Datei(en) | Beschreibung |
+|---|---|---|
+| Orchestrator | `agent.py` | `LlmAgent` (ReAct), koordiniert Spezialisten via `AgentTool` |
+| Monitoring Agent | `monitoring.py` | Bewertet Störungsrisiko (NIEDRIG / MITTEL / HOCH) |
+| Planner Agent | `planner.py` | Reroute-Optionen, Constraint-Check, Fahrgastrechte |
+| Drafter Agent | `whatsapp_communicator/drafter.py` | Entwirft rollengerechte WhatsApp-Nachrichten (LlmAgent) |
+| Sender | `whatsapp_communicator/sender.py` | Sendet Freigabe-Anfragen und Nachrichten via Twilio |
+| Genehmigungs-Queue | `whatsapp_communicator/queue.py` | Thread-sicherer In-Memory-Store, 5-min-Timeout |
+| Webhook | `whatsapp_communicator/webhook.py` | FastAPI-Endpunkt für YES / NO / EDIT-Antworten |
+| Tools & Mock-Daten | `tools.py`, `mock_data.py` | Function-Tools über Fixtures |
+| Modell-Konfiguration | `config.py` | LiteLlm-Instanz pro Agentenrolle |
 
 ### Datei-Layout
 
 ```
 journey_autopilot/
-  __init__.py        # macht das Paket für adk auffindbar (root_agent)
-  agent.py           # Orchestrator (root_agent, ReAct)
-  monitoring.py      # Monitoring Agent
-  planner.py         # Planner Agent
-  tools.py           # Function-Tools (gemockt)
-  mock_data.py       # Fixtures (Demo-Reise München->Berlin)
-  config.py          # Modell pro Rolle
-run_demo.py          # Standalone End-to-End-Demo
+  __init__.py                      # macht das Paket für adk auffindbar (root_agent)
+  agent.py                         # Orchestrator (root_agent, ReAct)
+  monitoring.py                    # Monitoring Agent
+  planner.py                       # Planner Agent
+  tools.py                         # Function-Tools (gemockt)
+  mock_data.py                     # Fixtures (Demo-Reise München→Berlin)
+  config.py                        # Modell pro Rolle (UNI_GPT_*)
+  whatsapp_communicator/
+    __init__.py
+    models.py                      # Recipient, DisruptionEvent
+    drafter.py                     # Drafter Agent (LlmAgent)
+    queue.py                       # Genehmigungs-Queue (in-memory)
+    sender.py                      # Twilio-Integration
+    webhook.py                     # FastAPI-Webhook (YES/NO/EDIT)
+run_demo.py                        # End-to-End-Demo (Agenten + WhatsApp)
 ```
+
+---
 
 ## Zielbild (noch offen)
 
-Das System wächst modular entlang der Agentenrollen weiter (siehe
-`journey_autopilot_projektgrundlage.md`):
+Das System wächst modular entlang der Agentenrollen weiter:
 
-- **Context Capture** — deterministische Function, friert Constraints ein
+- **Context Capture** — deterministische Funktion, friert Constraints ein
 - **Monitoring Agent** ✅ — pollt (gemockte) Live-Daten, scort Störungsrisiko
-- **Planner Agent** ✅ — generiert Reroute-Optionen unter Constraints (RAG)
+- **Planner Agent** ✅ — generiert Reroute-Optionen unter Constraints
+- **Communicator Agent** ✅ — WhatsApp-Nachrichten mit Freigabe-Workflow (Twilio)
 - **Negotiator Agent** — Multi-Stakeholder-Koordination
-- **Veto-Gate** — Human-in-the-loop, Nutzer behält Veto
-- **Communicator Agent** — Notifications (WhatsApp/Outlook)
+- **Veto-Gate** — Human-in-the-loop, konfigurierbare Autonomiestufen
+- **Booking Agent** — Tickets, Hotels, Mobilitätsoptionen buchen (reversibel)
+- **Memory & Learning** — Präferenzen persistent speichern (SQLite)
 
 State: ADK `SessionService` (flüchtig, innerhalb Run) + SQLite (persistente
 Präferenzen, harte Constraints, Trip-Historie).
@@ -122,6 +167,5 @@ Präferenzen, harte Constraints, Trip-Historie).
 
 - ADK **2.0** hat Breaking Changes ggü. 1.x (Agent-API, Event-Modell,
   Session-Schema). Viele Tutorials zeigen noch 1.x — auf die Version achten.
-- Daten werden bewusst gemockt (kein echter DB-API-Zugang) — als ADR und im
-  Context Record festhalten.
+- Alle Daten sind bewusst gemockt (kein echter DB-API-Zugang).
 - Offizielle Doku: https://google.github.io/adk-docs/ und https://adk.dev/

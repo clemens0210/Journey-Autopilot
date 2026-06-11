@@ -16,6 +16,19 @@ from __future__ import annotations
 
 import asyncio
 
+# Windows certificate store sometimes contains malformed certs that cause
+# ssl.SSLError: [ASN1: NOT_ENOUGH_DATA] when aiohttp calls ssl.create_default_context()
+# at module-load time. Patching load_default_certs to swallow that error lets the
+# rest of the store (and certifi's bundle) still work fine.
+import ssl as _ssl
+_orig_load_default_certs = _ssl.SSLContext.load_default_certs
+def _patched_load_default_certs(self, purpose=_ssl.Purpose.SERVER_AUTH):
+    try:
+        _orig_load_default_certs(self, purpose)
+    except _ssl.SSLError:
+        pass
+_ssl.SSLContext.load_default_certs = _patched_load_default_certs
+
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
@@ -30,7 +43,9 @@ except ImportError:
     pass
 
 from journey_autopilot.agent import root_agent
-from journey_autopilot.mock_data import DEMO_TRIP
+from journey_autopilot.mock_data import DEMO_TRIP, DEMO_EVENT_FIELDS
+from journey_autopilot.whatsapp_communicator.models import DisruptionEvent, Recipient
+from journey_autopilot.whatsapp_communicator import drafter, sender
 
 APP_NAME = "journey_autopilot"
 USER_ID = "lucas"
@@ -61,6 +76,84 @@ def _describe_event(event) -> None:
             print(f"  [{author}] <- Ergebnis von: {response.name}")
         elif text and text.strip():
             print(f"  [{author}] {text.strip()}")
+
+
+async def _demo_whatsapp() -> None:
+    """WhatsApp-Communicator-Demo: Nachrichten entwerfen und (optional) per Twilio versenden."""
+    import os
+
+    traveler_number = os.getenv("DEMO_TRAVELER_NUMBER", "")
+    client_number = os.getenv("DEMO_CLIENT_NUMBER", "")
+    colleague_number = os.getenv("DEMO_COLLEAGUE_NUMBER", "")
+    private_number = os.getenv("DEMO_PRIVATE_NUMBER", "")
+
+    print("\n" + "=" * 72)
+    print("Journey Autopilot — WhatsApp Communicator Demo")
+    print("=" * 72)
+
+    if not traveler_number:
+        print(
+            "[!] DEMO_TRAVELER_NUMBER nicht in .env gesetzt.\n"
+            "    Setze DEMO_TRAVELER_NUMBER (und optional DEMO_CLIENT_NUMBER,\n"
+            "    DEMO_COLLEAGUE_NUMBER, DEMO_PRIVATE_NUMBER) um die Demo zu aktivieren."
+        )
+        return
+
+    recipients: list[Recipient] = [
+        Recipient(name="Lucas Wild", role="traveler", whatsapp_number=traveler_number),
+    ]
+    if client_number:
+        recipients.append(Recipient(name="Frau Dr. Bauer", role="client", whatsapp_number=client_number))
+    if colleague_number:
+        recipients.append(Recipient(name="Thomas Müller", role="colleague", whatsapp_number=colleague_number))
+    if private_number:
+        recipients.append(Recipient(name="Anna Wild", role="private", whatsapp_number=private_number))
+
+    event = DisruptionEvent(**DEMO_EVENT_FIELDS, recipients=recipients)
+
+    twilio_ready = bool(
+        os.getenv("TWILIO_ACCOUNT_SID")
+        and os.getenv("TWILIO_AUTH_TOKEN")
+        and os.getenv("TWILIO_WHATSAPP_FROM")
+    )
+
+    print(f"\nSzenario : {event.traveler_name} | {event.original_train} | +{event.delay_minutes} min")
+    print(f"Reroute  : {event.reroute_summary}")
+    print(f"Termin   : {event.meeting_time_original} (unverändert — Ankunft 12:38 liegt vor 14:00)")
+
+    non_traveler = [r for r in recipients if r.role != "traveler"]
+    if not non_traveler:
+        print("\nKeine weiteren Empfänger konfiguriert (DEMO_CLIENT_NUMBER etc. fehlen).")
+    else:
+        print(f"Entwürfe : {', '.join(r.name for r in non_traveler)}\n")
+
+    for recipient in non_traveler:
+        print(f"--- Entwurf für {recipient.name} ({recipient.role}) " + "-" * 30)
+        try:
+            draft = await drafter.draft_message_async(event, recipient)
+            print(draft)
+        except Exception as exc:
+            print(f"[!] Entwurf fehlgeschlagen: {type(exc).__name__}: {exc}")
+            continue
+
+        if twilio_ready:
+            print(f"\n  → Sende Freigabe-Anfrage an Lucas ({traveler_number}) ...")
+            try:
+                msg_id = sender.send_for_approval(event, draft, recipient)
+                print(f"  → Gesendet. message_id={msg_id}")
+                print("  → Lucas antwortet per WhatsApp mit YES / NO / EDIT <text>.")
+            except Exception as exc:
+                print(f"  [!] Twilio-Fehler: {type(exc).__name__}: {exc}")
+        else:
+            print(
+                "\n  [Trockenlauf] TWILIO_* nicht konfiguriert — "
+                "Nachricht würde als Freigabe-Anfrage an Lucas gesendet."
+            )
+
+    print("\n--- Webhook-Server ---")
+    print("Empfangsserver für Lucas' Antworten starten:")
+    print("  uvicorn journey_autopilot.whatsapp_communicator.webhook:app --port 8000")
+    print("Twilio leitet YES / NO / EDIT-Nachrichten an POST /whatsapp/reply weiter.")
 
 
 async def main() -> None:
@@ -98,6 +191,8 @@ async def main() -> None:
 
     print("\n--- Antwort an den Nutzer -------------------------------------------")
     print(final_text or "(keine Textantwort)")
+
+    await _demo_whatsapp()
 
 
 if __name__ == "__main__":

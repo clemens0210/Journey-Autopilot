@@ -6,3 +6,8 @@
 # [extensions] zieht LiteLLM mit rein — nötig für das Uni-Köln-GPT-Backend
 # (OpenAI-kompatibler Endpunkt).
 google-adk[extensions]>=2.0,<3.0
+
+# WhatsApp Connector
+twilio>=9.0,<10.0
+fastapi>=0.110,<1.0
+uvicorn>=0.29,<1.0

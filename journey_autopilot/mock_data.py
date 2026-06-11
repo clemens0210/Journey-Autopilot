@@ -97,3 +97,21 @@ PASSENGER_RIGHTS = [
     {"min_delay_minutes": 60, "compensation": "25 % des Fahrpreises"},
     {"min_delay_minutes": 120, "compensation": "50 % des Fahrpreises"},
 ]
+
+# --- WhatsApp-Communicator: Event-Felder aus dem bestehenden Mock-Szenario -------
+# Echte Telefonnummern kommen zur Laufzeit aus der .env (run_demo.py).
+# recipients wird dort aus DEMO_TRAVELER_NUMBER / DEMO_CLIENT_NUMBER etc. befüllt.
+_r1 = REROUTE_OPTIONS[("München Hbf", "Berlin Hbf")][0]
+_meeting = USER_CALENDAR["2026-06-03"][0]
+
+DEMO_EVENT_FIELDS: dict = {
+    "traveler_name": DEMO_TRIP["passenger"],
+    "original_train": DEMO_TRIP["train"],
+    "delay_minutes": LIVE_TRIP_STATUS[DEMO_TRIP["trip_id"]]["current_delay_minutes"],
+    "reroute_summary": (
+        f"{_r1['description']} "
+        f"(Ankunft {_r1['new_arrival'][11:16]} Uhr, +{_r1['added_delay_minutes']} min)"
+    ),
+    "meeting_time_original": _meeting["start"][11:16],
+    "meeting_time_new": _meeting["start"][11:16],  # Termin bleibt — Ankunft 12:38 liegt vor 14:00
+}
