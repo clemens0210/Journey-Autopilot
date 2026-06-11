@@ -114,34 +114,34 @@ def _build_demo_context(os_module) -> tuple | None:
     return event, traveler, non_traveler, twilio_ready
 
 
-async def _demo_direct_notify() -> None:
-    """Demo 1 — Direktnachricht: Störungsmeldung ohne Drafter direkt an den Reisenden."""
+async def _demo_direct_notify(text: str) -> None:
+    """Demo 1 — Direktnachricht: Orchestrator-Antwort direkt an den Reisenden senden."""
     import os
 
     print("\n" + "=" * 72)
-    print("WhatsApp Demo 1 — Direktnachricht an Reisenden (kein Drafter)")
+    print("WhatsApp Demo 1 — Orchestrator-Antwort direkt an Reisenden")
     print("=" * 72)
 
-    ctx = _build_demo_context(os)
-    if ctx is None:
+    traveler_number = os.getenv("DEMO_TRAVELER_NUMBER", "")
+    if not traveler_number:
+        print("[!] DEMO_TRAVELER_NUMBER nicht in .env gesetzt — Demo 1 übersprungen.")
         return
-    event, traveler, _, twilio_ready = ctx
 
-    print(f"\nSzenario : {event.traveler_name} | {event.original_train} | +{event.delay_minutes} min")
-
-    notice = (
-        f"*Journey Autopilot — Störungsmeldung*\n\n"
-        f"Zug: {event.original_train}\n"
-        f"Aktuelle Verspätung: {event.delay_minutes} min\n"
-        f"Vorgeschlagene Umleitung: {event.reroute_summary}\n"
-        f"Dein Termin um {event.meeting_time_original} Uhr ist weiterhin haltbar."
+    twilio_ready = bool(
+        os.getenv("TWILIO_ACCOUNT_SID")
+        and os.getenv("TWILIO_AUTH_TOKEN")
+        and os.getenv("TWILIO_WHATSAPP_FROM")
     )
-    print("\n" + notice)
+
+    traveler = Recipient(name="Lucas Wild", role="traveler", whatsapp_number=traveler_number)
+
+    print(f"\nNachricht an {traveler.name} ({traveler.whatsapp_number}):\n")
+    print(text)
 
     if twilio_ready:
         print(f"\n  → Sende direkt an {traveler.name} ({traveler.whatsapp_number}) ...")
         try:
-            sender.dispatch_message(notice, traveler)
+            sender.dispatch_message(text, traveler)
             print("  → Gesendet.")
         except Exception as exc:
             print(f"  [!] Twilio-Fehler: {type(exc).__name__}: {exc}")
@@ -235,7 +235,7 @@ async def main() -> None:
     print("\n--- Antwort an den Nutzer -------------------------------------------")
     print(final_text or "(keine Textantwort)")
 
-    await _demo_direct_notify()
+    await _demo_direct_notify(final_text)
     await _demo_approval_flow()
 
 
