@@ -84,7 +84,7 @@ def send_for_approval(
 
 
 def dispatch_message(draft: str, recipient: Recipient) -> None:
-    """Send the approved message to the final recipient."""
+    """Send a message to a given recipient."""
     try:
         _client().messages.create(
             from_=_from_number(),

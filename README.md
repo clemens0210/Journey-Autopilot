@@ -56,7 +56,7 @@ UNI_GPT_MODEL=dein_uni_modellname
 Monitoring, Planner, Drafter). LiteLLM kommt über das `extensions`-Extra in
 `requirements.txt` (`google-adk[extensions]`) mit.
 
-### WhatsApp Connector konfigurieren (optional)
+### WhatsApp communicator konfigurieren (optional)
 
 ```ini
 TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -90,14 +90,14 @@ adk run journey_autopilot # direkt im Terminal, interaktiv
 ```
 
 `run_demo.py` zeigt zuerst den Orchestrator-Durchlauf (Monitoring → Planner) und
-danach — sofern `DEMO_TRAVELER_NUMBER` gesetzt ist — die WhatsApp-Connector-Demo:
+danach — sofern `DEMO_TRAVELER_NUMBER` gesetzt ist — die WhatsApp-Communicator-Demo:
 der Drafter-Agent entwirft Nachrichten für jeden konfigurierten Empfänger und
 sendet sie (bei vollständiger Twilio-Konfiguration) zur Freigabe an den Reisenden.
 
 ### Webhook-Server (WhatsApp-Antworten empfangen)
 
 ```bash
-uvicorn journey_autopilot.whatsapp_connector.webhook:app --port 8000
+uvicorn journey_autopilot.whatsapp_communicator.webhook:app --port 8000
 ```
 
 Twilio schickt die Antworten des Reisenden (YES / NO / EDIT \<text\>) an
