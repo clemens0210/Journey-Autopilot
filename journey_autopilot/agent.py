@@ -1,16 +1,16 @@
-"""Orchestrator (root_agent) — ReAct-Muster.
+"""Orchestrator (root_agent) — ReAct pattern.
 
-Der Orchestrator ist selbst ein LlmAgent. Er koordiniert die Spezialisten, indem
-er sie als Werkzeuge benutzt: jeder Sub-Agent wird in ein `AgentTool` gewrappt
-und landet in der `tools`-Liste. Das LLM durchläuft dann einen ReAct-Loop —
-Thought (überlegen) -> Action (einen Agenten/Tool aufrufen) -> Observation
-(Ergebnis lesen) -> erneut überlegen — bis es eine Antwort geben kann.
+The Orchestrator is itself an LlmAgent. It coordinates the specialists by
+using them as tools: each sub-agent is wrapped in an `AgentTool` and
+lands in the `tools` list. The LLM then runs through a ReAct loop —
+Thought (reason) -> Action (call an agent/tool) -> Observation
+(read result) -> reason again — until it can provide an answer.
 
-So lässt sich die Zusammenarbeit von Monitoring und Planner testen, ohne den
-Kontrollfluss fest zu verdrahten: Der Orchestrator entscheidet anhand des
-Monitoring-Ergebnisses, ob der Planner überhaupt gebraucht wird.
+This allows testing the collaboration of Monitoring and Planner without
+hard-wiring the control flow: The Orchestrator decides based on the
+Monitoring result whether the Planner is needed at all.
 
-`root_agent` ist der von `adk web` / `adk run` erwartete Einstiegspunkt.
+`root_agent` is the entry point expected by `adk web` / `adk run`.
 """
 
 from __future__ import annotations
@@ -22,43 +22,43 @@ from .config import ORCHESTRATOR_MODEL
 from .monitoring import build_monitoring_agent
 from .planner import build_planner_agent
 
-# Sub-Agenten instanziieren und als Werkzeuge verfügbar machen.
+# Instantiate sub-agents and make them available as tools.
 monitoring_agent = build_monitoring_agent()
 planner_agent = build_planner_agent()
 
 ORCHESTRATOR_INSTRUCTION = """\
-Du bist der **Orchestrator** des Systems "Journey Autopilot". Du löst die Anfrage
-nicht selbst, sondern koordinierst zwei Spezialisten-Agenten, die du als Tools
-aufrufen kannst:
+You are the **Orchestrator** of the "Journey Autopilot" system. You do not solve
+the request yourself, but coordinate two specialist agents that you can call
+as tools:
 
-- `monitoring_agent`: bewertet das aktuelle Störungsrisiko einer Reise.
-- `planner_agent`: erstellt Reroute-Vorschläge unter den harten Terminen des Nutzers.
+- `monitoring_agent`: assesses the current disruption risk of a trip.
+- `planner_agent`: creates reroute proposals under the user's hard deadlines.
 
-Arbeite nach dem ReAct-Prinzip — überlege, handle (rufe einen Agenten auf), lies
-das Ergebnis, überlege erneut:
+Work according to the ReAct principle — think, act (call an agent), read
+the result, think again:
 
-1. Rufe IMMER zuerst den `monitoring_agent` mit der trip_id auf.
-2. Lies die Risiko-Einschätzung.
-   - Ist das Risiko NIEDRIG: Gib eine kurze Entwarnung. Rufe den Planner NICHT auf.
-   - Ist das Risiko MITTEL oder HOCH: Rufe den `planner_agent` mit Start, Ziel UND
-     Reisedatum auf (z. B. "München Hbf nach Berlin Hbf am [DATUM AUS NUTZERANFRAGE]").
-     Verwende das tatsächliche Datum aus der Nutzeranfrage, nicht das Beispiel.
-3. Fasse für den Nutzer verständlich zusammen: aktuelle Lage (vom Monitoring) und,
-   falls vorhanden, der empfohlene Plan (vom Planner) inkl. Kalender-Check und
-   Entschädigungshinweis.
+1. ALWAYS call `monitoring_agent` first with the trip_id.
+2. Read the risk assessment.
+   - If risk is LOW: Give a brief all-clear. Do NOT call the Planner.
+   - If risk is MEDIUM or HIGH: Call `planner_agent` with origin, destination AND
+     travel date (e.g. "Munich Hbf to Berlin Hbf on [DATE FROM USER REQUEST]").
+     Use the actual date from the user request, not the example.
+3. Summarize clearly for the user: current situation (from Monitoring) and,
+   if available, the recommended plan (from Planner) incl. calendar check and
+   compensation note.
 
-Wichtig:
-- Du triffst keine Buchung. Der Plan ist ein Vorschlag — der Nutzer behält das Veto.
-- Gib am Ende transparent an, welcher Agent welchen Beitrag geliefert hat.
-- Stütze dich nur auf die Agenten-Ergebnisse, erfinde nichts.
+Important:
+- You do not make any bookings. The plan is a proposal — the user retains veto power.
+- At the end, transparently state which agent contributed what.
+- Rely only on the agent results, invent nothing.
 """
 
 root_agent = LlmAgent(
     name="journey_autopilot_orchestrator",
     model=ORCHESTRATOR_MODEL,
     description=(
-        "ReAct-Orchestrator, der Monitoring- und Planner-Agent koordiniert, um "
-        "gestörte Bahnreisen zu erkennen und Umleitungen vorzuschlagen."
+        "ReAct Orchestrator that coordinates Monitoring and Planner Agents to "
+        "detect disrupted train journeys and propose reroutes."
     ),
     instruction=ORCHESTRATOR_INSTRUCTION,
     tools=[

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from msgraph.generated.models.event import Event
 
-DEFAULT_LOCATION = "Kein Ort"
+DEFAULT_LOCATION = "No location"
 HARD_CONSTRAINT_CATEGORY = "Journey-Autopilot/Hard"
 
 
@@ -31,7 +31,7 @@ def graph_events_to_internal(graph_events: list[Event]) -> list[dict]:
     """
     result: list[dict] = []
     for event in graph_events:
-        title = event.subject or "Kein Titel"
+        title = event.subject or "No title"
 
         location = DEFAULT_LOCATION
         if event.location and event.location.display_name:
