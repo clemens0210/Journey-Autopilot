@@ -45,6 +45,9 @@ Key, endpoint, and model name are stored in `.env`:
 UNI_GPT_API_KEY=your_uni_key
 UNI_GPT_BASE_URL=https://your-uni-endpoint/v1   # incl. /v1
 UNI_GPT_MODEL=your_uni_model_name
+UNI_GPT_API_KEY=dein_uni_key
+UNI_GPT_BASE_URL=https://dein-uni-endpunkt/v1   # inkl. /v1
+UNI_GPT_MODEL=dein_uni_modellname # e.g Openai GPT OSS 120B
 ```
 
 `config.py` builds `LiteLlm` models for all three roles from these — the ReAct code

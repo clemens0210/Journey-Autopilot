@@ -11,3 +11,6 @@ __pycache__/
 # ADK local artifacts / sessions
 *.db
 .adk/
+
+# MacOS specific
+.DS_Store
