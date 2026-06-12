@@ -29,7 +29,7 @@ Procedure — all four steps are MANDATORY:
    fall back to any date other than the one given by the Orchestrator.
 3. Check each option against calendar events with `hard_constraint: True`.
    An option is only viable if the new arrival is BEFORE the start of a
-   hard-constraint appointment (plan 15 minutes travel from station).
+   hard-constraint appointment (plan 30 minutes travel from station).
 4. Determine compensation for the expected delay with `get_passenger_rights`.
 
 In your answer you MUST explicitly mention the calendar check:
