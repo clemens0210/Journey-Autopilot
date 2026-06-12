@@ -9,3 +9,7 @@ google-adk[extensions]>=2.0,<3.0
 
 # HTTP-Client für den db-vendo-client-Sidecar (siehe db_service/ und db_api.py).
 requests>=2.31
+
+# Onboarding-Web-App (onboarding/): JSON-API + DB-Navigator-Style-UI.
+fastapi>=0.110
+uvicorn>=0.29

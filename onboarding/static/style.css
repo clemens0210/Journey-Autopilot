@@ -1,0 +1,542 @@
+/* Journey Autopilot Onboarding — Look & Feel des DB Navigators (Dark Mode).
+   Farbwelt aus dem DB-Navigator-Screendesign: dunkle Slate-Flächen, DB-Rot
+   #EC0016 als Marken-/Aktionsfarbe, weiße Schrift, grüne Status-Punkte.
+   "DB Sans" ist lizenzpflichtig — Fallback auf Systemfonts. */
+
+:root {
+  --db-red: #EC0016;
+  --db-red-dark: #C50014;
+  --coral: #F87171;            /* hellroter Akzent (aktiver Tab-Unterstrich) */
+
+  --bg: #0E141C;               /* tiefster App-Hintergrund */
+  --surface: #1A212B;          /* Kopf-/Tableiste, erhöhte Panels */
+  --card: #242C38;             /* Karten */
+  --card-2: #2C3542;           /* verschachtelte Kachel/Banner */
+  --field: #151B23;            /* Eingabefelder, dunkle Insets */
+
+  --ink: #F4F6F8;              /* Primärtext */
+  --ink-soft: #98A0AC;         /* Sekundärtext */
+  --ink-faint: #6B7280;        /* sehr dezent */
+  --line: #313A47;             /* Trennlinien/Rahmen */
+
+  --green: #74C422;            /* Status-Punkte */
+  --green-badge-bg: #16361C;
+  --green-badge-ink: #6FCF60;
+  --blue: #2F93D6;             /* Lesezeichen/Links */
+  --blue-badge-bg: #15293F;
+
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #05080c;
+  font-family: "DB Sans", "DB Screen Sans", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Telefon-Rahmen: am Desktop wirkt die App wie der DB Navigator am Handy */
+.phone {
+  max-width: 430px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 60px rgba(0,0,0,.55);
+}
+
+/* --- iOS-Statusleiste (Mock) ------------------------------------------- */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 22px 4px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .2px;
+}
+.sb-icons { display: inline-flex; align-items: center; gap: 6px; }
+.sb-ic { fill: var(--ink); color: var(--ink); }
+.sb-batt {
+  position: relative;
+  width: 24px; height: 12px;
+  border: 1.4px solid var(--ink);
+  border-radius: 3px;
+  display: inline-block;
+}
+.sb-batt::after {
+  content: "";
+  position: absolute;
+  right: -3px; top: 3.5px;
+  width: 2px; height: 5px;
+  background: var(--ink);
+  border-radius: 0 1px 1px 0;
+}
+.sb-batt-fill {
+  position: absolute;
+  inset: 1.6px;
+  width: 75%;
+  background: var(--ink);
+  border-radius: 1.5px;
+}
+
+/* --- Kopfzeile --------------------------------------------------------- */
+
+.topbar {
+  background: var(--surface);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 14px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.db-logo { width: 42px; height: 29px; flex-shrink: 0; display: block; }
+.db-logo svg { width: 100%; height: 100%; display: block; }
+
+.topbar-title { display: flex; flex-direction: column; line-height: 1.15; }
+.app-name { font-weight: 800; font-size: 17px; letter-spacing: .2px; }
+.app-sub { font-size: 12px; color: var(--ink-soft); }
+
+.topbar-account {
+  margin-left: auto;
+  background: rgba(255,255,255,.10);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+/* --- Fortschritt -------------------------------------------------------- */
+
+.progress { padding: 12px 16px 2px; background: var(--surface); }
+.progress-bar { height: 5px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--db-red);
+  border-radius: 999px;
+  transition: width .35s ease;
+}
+.progress-label { font-size: 11.5px; color: var(--ink-soft); margin-top: 6px; }
+
+/* --- Screens & Karten ----------------------------------------------------- */
+
+.screen { flex: 1; padding: 16px; padding-bottom: 96px; }
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 14px;
+}
+
+h1 { font-size: 22px; margin: 4px 0 8px; font-weight: 800; }
+h2 { font-size: 17px; margin: 0 0 10px; font-weight: 800; }
+p  { font-size: 14px; line-height: 1.5; margin: 8px 0; }
+.muted { color: var(--ink-soft); font-size: 12.5px; }
+
+.hero { text-align: center; padding: 28px 18px; }
+.hero-logo { width: 132px; height: auto; margin: 0 auto 12px; display: block; }
+
+.feature-list { list-style: none; padding: 0; margin: 14px 0 0; text-align: left; }
+.feature-list li {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.feature-list li:last-child { border-bottom: none; }
+.feature-icon { font-size: 18px; line-height: 1.2; }
+
+.badge {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  border-radius: 5px;
+  padding: 3px 8px;
+  vertical-align: middle;
+}
+.badge.required { background: #3A1417; color: #FF8A93; }
+.badge.optional { background: var(--blue-badge-bg); color: #6FB7EF; }
+.badge.live { background: var(--green-badge-bg); color: var(--green-badge-ink); }
+
+/* --- Formulare -------------------------------------------------------------- */
+
+label.field { display: block; margin: 12px 0; font-size: 13px; font-weight: 700; }
+label.field span.hint { display: block; font-weight: 400; color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
+
+input[type="text"], input[type="email"], input[type="password"], input[type="tel"], input[type="time"] {
+  width: 100%;
+  margin-top: 8px;
+  padding: 13px;
+  font-size: 15px;
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--ink);
+}
+input::placeholder { color: var(--ink-faint); }
+input[type="time"] { color-scheme: dark; }
+input:focus { outline: none; border-color: var(--db-red); }
+code { background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+.code-input { letter-spacing: 14px; text-align: center; font-size: 24px !important; font-weight: 800; }
+
+/* Auswahl-Kacheln (Klasse, Sitzplatz, Autonomie ...) */
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 8px; }
+.choices.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.choices.cols-1 { grid-template-columns: 1fr; }
+
+.choice {
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: var(--field);
+  padding: 12px;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  font-family: inherit;
+  transition: border-color .12s, background .12s;
+}
+.choice .choice-title { font-weight: 700; display: block; font-size: 13.5px; }
+.choice .choice-sub { font-size: 11.5px; color: var(--ink-soft); display: block; margin-top: 2px; }
+.choice.selected {
+  border-color: var(--db-red);
+  background: #2A1A1D;
+  box-shadow: inset 0 0 0 1px var(--db-red);
+}
+
+/* Schieberegler Tempo vs. Komfort */
+.slider-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.slider-row .end { font-size: 11.5px; color: var(--ink-soft); width: 64px; }
+.slider-row .end.right { text-align: right; }
+input[type="range"] { flex: 1; accent-color: var(--db-red); }
+.slider-value { text-align: center; font-size: 12.5px; font-weight: 700; margin-top: 6px; color: var(--coral); }
+
+/* Schalter */
+.switch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.switch-row:last-child { border-bottom: none; }
+.switch-row .sub { color: var(--ink-soft); font-size: 11.5px; display: block; margin-top: 1px; }
+
+.switch { position: relative; width: 46px; height: 26px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .track {
+  position: absolute; inset: 0;
+  background: var(--line);
+  border-radius: 999px;
+  transition: background .2s;
+  cursor: pointer;
+}
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 20px; height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform .2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.switch input:checked + .track { background: var(--green); }
+.switch input:checked + .track::after { transform: translateX(20px); }
+
+/* Autocomplete Heimatbahnhof */
+.autocomplete { position: relative; }
+.suggestions {
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-top: 4px;
+  z-index: 10;
+  overflow: hidden;
+  box-shadow: 0 10px 24px rgba(0,0,0,.5);
+}
+.suggestions button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+}
+.suggestions button:hover { background: rgba(255,255,255,.06); }
+
+/* --- Reise-Karten (wie "Meine Reisen" im Navigator) ---------------------------- */
+
+.trip-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.trip-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 10px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.trip-head .db-logo { width: 34px; height: 23px; }
+.trip-head .train { font-weight: 800; color: var(--ink); }
+.trip-head .trip-head-right { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.trip-head .qr { width: 26px; height: 26px; background: #fff; border-radius: 6px; padding: 4px; }
+.trip-fare {
+  padding: 0 16px 12px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.trip-divider { border: none; border-top: 1px dashed var(--line); margin: 0 16px; }
+.trip-body { padding: 14px 16px; }
+
+/* Route mit Start-Punkt und Ziel-Pin (Navigator-Stil) */
+.route { display: grid; grid-template-columns: 22px 1fr; row-gap: 2px; align-items: center; }
+.route .marker { display: flex; justify-content: center; color: var(--ink-soft); }
+.route .dots { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px 0; }
+.route .dots i { width: 2px; height: 2px; border-radius: 50%; background: var(--ink-faint); display: block; }
+.route .station { font-weight: 800; font-size: 15px; color: var(--ink); }
+
+.trip-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.trip-meta-row .ic { color: var(--ink-soft); flex-shrink: 0; }
+.trip-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px dashed var(--line);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+.trip-foot.live { color: var(--green-badge-ink); }
+.ic { width: 16px; height: 16px; display: inline-block; vertical-align: middle; }
+
+/* Terminliste (Outlook-Vorschau) */
+.event-row {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  align-items: baseline;
+}
+.event-row:last-child { border-bottom: none; }
+.event-when { color: var(--ink-soft); font-size: 11.5px; white-space: nowrap; width: 86px; flex-shrink: 0; }
+.event-title { font-weight: 700; }
+.event-loc { color: var(--ink-soft); font-size: 11.5px; display: block; }
+.event-hard { color: #FF8A93; font-size: 10.5px; font-weight: 800; text-transform: uppercase; }
+
+/* Zusammenfassung / Profil-Zeilen */
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.summary-row:last-child { border-bottom: none; }
+.summary-row .k { color: var(--ink-soft); }
+.summary-row .v { font-weight: 700; text-align: right; }
+
+/* --- Buttons & Navigation ------------------------------------------------------ */
+
+.navbar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  z-index: 5;
+}
+
+.btn {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 13px 22px;
+  border: none;
+  cursor: pointer;
+}
+.btn.primary { background: var(--db-red); color: #fff; margin-left: auto; }
+.btn.primary:hover { background: var(--db-red-dark); }
+.btn.primary:disabled { background: var(--line); color: var(--ink-faint); cursor: not-allowed; }
+.btn.ghost { background: none; border: 1.5px solid var(--line); color: var(--ink); }
+.btn.link { background: none; color: var(--ink-soft); font-weight: 700; padding: 13px 6px; }
+.btn.block { display: block; width: 100%; }
+.btn.danger { background: none; border: 1.5px solid var(--db-red); color: #FF8A93; }
+
+.error { color: #FF8A93; font-size: 13px; margin: 8px 0 0; min-height: 18px; }
+
+.demo-hint {
+  background: rgba(255,255,255,.05);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 13px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-top: 14px;
+}
+.demo-hint code { color: var(--ink); }
+
+.success-banner {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--green-badge-bg);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--green-badge-ink);
+  margin-bottom: 12px;
+}
+
+/* --- DB-Navigator-Tableiste (Mock) --------------------------------------------- */
+
+.tabbar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 5;
+}
+.tab {
+  flex: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 9px 4px 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-faint);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tab-ic { width: 24px; height: 24px; }
+.tab.active { color: var(--ink); }
+
+/* --- Toast & Modal ---------------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  background: #0b0f15;
+  color: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 12px 20px;
+  font-size: 13.5px;
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(0,0,0,.6);
+  max-width: 90vw;
+}
+
+/* display:flex schlägt das hidden-Attribut — explizit ausblenden */
+.modal-backdrop[hidden], .toast[hidden], .navbar[hidden], .tabbar[hidden] { display: none !important; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4,6,10,.66);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  padding: 18px;
+}
+.modal {
+  background: #fff;
+  color: #1b1b1b;
+  border-radius: 8px;
+  max-width: 360px;
+  width: 100%;
+  padding: 22px;
+  font-size: 13.5px;
+}
+.modal h3 { margin: 14px 0 4px; font-size: 17px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+/* Microsoft-Look für den Consent-Dialog (bewusst hell, echtes MS-Login-Gefühl) */
+.modal.ms { font-family: "Segoe UI", -apple-system, Roboto, sans-serif; border-radius: 2px; }
+.modal.ms p { color: #1b1b1b; }
+.ms-logo { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 15px; color: #5E5E5E; }
+.ms-logo .sq { width: 10px; height: 10px; display: inline-block; }
+.ms-logo .sq.r { background: #F25022; }
+.ms-logo .sq.g { background: #7FBA00; margin-right: -4px; }
+.ms-logo .sq.b { background: #00A4EF; }
+.ms-logo .sq.y { background: #FFB900; margin-left: -4px; }
+.ms-mail { color: #5E5E5E; margin: 0 0 10px; }
+.ms-scopes { padding-left: 20px; margin: 6px 0; }
+.ms-scopes li { margin: 5px 0; }
+.ms-hint { color: #5E5E5E; font-size: 12px; }
+.modal.ms .btn.ghost { border-color: #d0d0d0; color: #1b1b1b; }
+.btn.ms-accept { background: #0067B8; color: #fff; border-radius: 2px; font-weight: 600; }
+
+/* Dashboard */
+.dash-greeting { margin: 2px 0 14px; }
+.dash-greeting h1 { margin-bottom: 2px; }
+.section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 20px 0 9px;
+}
+.section-title h2 { margin: 0; font-size: 15.5px; }
+.section-title button { background: none; border: none; color: var(--blue); font-weight: 700; font-size: 12.5px; cursor: pointer; font-family: inherit; }
+
+@media (max-width: 470px) {
+  body { background: var(--bg); }
+  .phone { box-shadow: none; max-width: none; }
+}

@@ -16,24 +16,30 @@ A locked snapshot of all decisions, constraints, and open questions captured dur
 
 ### Onboarding & Profile 
 
-**Status:** `planned` | **Priority:** Must | **Responsible Person:** Hendrik
+**Status:** `implemented (prototype)` | **Priority:** Must | **Responsible Person:** Hendrik
 
 **Description:** Capture a personal preference profile (class, seat, speed-vs-comfort trade-off, home constraints) via quick onboarding; import existing DB / BahnBonus account.
 
 #### Decisions
-- 
+- **Standalone web app in DB Navigator look & feel** (`onboarding/`, FastAPI + vanilla JS), not an actual DB Navigator integration: DB offers no official API or extension point for third parties. The UI replicates the Navigator design (DB red, card layout, phone frame) so the demo conveys the "integrated into DB Navigator" vision.
+- **DB account login and trip import are simulated** (`onboarding/accounts.py`) behind realistic API contracts (`POST /api/auth/db-login` returns account + booked trips). A real integration would swap only this module. Same for Outlook OAuth consent and SMS verification (no registered Microsoft app / SMS gateway in a uni project).
+- **Mandatory vs. voluntary:** DB account login is mandatory (source of trips = the product's reason to exist). Mobile number verification and Outlook calendar are optional/skippable; travel preferences, home constraints, notifications and autonomy level have sensible defaults so the wizard is never blocking.
+- **Onboarding captures:** DB account (+BahnCard/BahnBonus), upcoming trips, verified mobile number, Outlook calendar consent, class, seat (window/aisle, open/compartment, quiet zone), speed-vs-comfort (0–100 slider), max transfers, home station (live DB autocomplete via db_service sidecar), latest arrival home, hotel/taxi acceptance, notification channels + quiet hours, autonomy level (notify-only / approve-each / auto-within-limits).
+- **Persistence:** SQLite (`data/journey_autopilot.db`, `onboarding/store.py`), profile as JSON blob (prototype-friendly, no migrations). Agents read it via `get_user_profile` / `get_upcoming_trips` tools — the Planner ranks reroute options against the onboarded profile.
+- **GDPR:** one-click full deletion (`DELETE /api/profile`) and a privacy note on the welcome screen.
 
 #### Constraints
-- 
+- No official DB API for account login / ticket import → simulation is the only honest option; keep the swap surface small (one module).
+- Single-user prototype: agent tools read "the latest" profile (`store.any_profile()`); multi-user needs a session/user context through the agent stack.
 
 #### Open Questions
-- How do we integrate our tool into the DB Navigator technically and logically? 
-- What is all part of the inboarding? What is mandatory and what is voluntary?
-- In which UI happens the onboarding? Integrated into the DB Navigator?
-
+- ~~How do we integrate our tool into the DB Navigator technically and logically?~~ → Not possible officially; standalone app with Navigator UX (see decisions).
+- ~~What is all part of the onboarding? What is mandatory and what is voluntary?~~ → See decisions.
+- ~~In which UI happens the onboarding?~~ → Own web app, DB Navigator look & feel.
+- How to pass the logged-in user's identity into the agent runs (ADK session state)?
 
 #### Justification
-- 
+- Simulated integrations with real API contracts keep the demo honest and the path to production clear: each mock module is the single swap point for a real integration.
 
 ### Disruption Monitoring & Risk Prediction
 

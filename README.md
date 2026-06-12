@@ -92,6 +92,36 @@ Endpunkte und Optionen stehen in `db_service/README.md`. Der Python-Client wird
 > und eigenständig testbar. Die Agenten laufen aktuell noch auf `mock_data` —
 > `tools.py` wird im nächsten Schritt auf `db_api` umgestellt.
 
+## Onboarding & Profil (Web-App)
+
+Das Onboarding läuft als eigene Web-App im **DB-Navigator-Look** (FastAPI +
+SQLite, `onboarding/`):
+
+```bash
+python run_onboarding.py        # -> http://127.0.0.1:8000
+```
+
+Demo-Zugang: `lucas.wild@example.com` / `demo123` (steht auch auf dem
+Login-Screen). Der Wizard führt durch: DB-Konto-Login mit Trip-Import →
+Mobilnummer-Verifizierung (SMS-Code, simuliert) → Outlook-Kalender (simulierter
+OAuth-Consent) → Reisepräferenzen (Klasse, Sitzplatz, Tempo-vs-Komfort) →
+Zuhause-Constraints (Heimatbahnhof, späteste Heimkehr, Hotel/Taxi) →
+Benachrichtigungen & Autonomie-Level → Zusammenfassung → Dashboard.
+
+- **Pflicht** ist nur der DB-Login; Mobilnummer und Outlook sind überspringbar,
+  alle Präferenzen haben Defaults.
+- **Simuliert** sind DB-Login/Trip-Import, Microsoft-Consent und SMS-Versand
+  (keine offiziellen APIs für ein Uni-Projekt) — die API-Verträge entsprechen
+  aber dem, was eine echte Anbindung liefern müsste (Austauschpunkt:
+  `onboarding/accounts.py`). Begründung im Context Record.
+- **Echt** ist die Heimatbahnhof-Suche: Läuft der `db_service`-Sidecar, kommen
+  die Stationsvorschläge live aus der DB-API (grüner Punkt), sonst greift eine
+  statische Fallback-Liste.
+- **Persistenz:** SQLite unter `data/journey_autopilot.db`. Die Agenten lesen
+  das Profil über die Tools `get_user_profile` / `get_upcoming_trips` — der
+  Planner gewichtet Reroute-Optionen damit. DSGVO-Löschung mit einem Klick im
+  Dashboard.
+
 ## Ausführen
 
 Drei Wege, derselbe `root_agent` (der Orchestrator):
@@ -145,7 +175,13 @@ db_service/          # Node-Sidecar: db-vendo-client als lokale JSON-API
   index.mjs          # Fastify-Server, ein Endpunkt pro Client-Methode
   package.json       # gepinnte Deps (db-vendo-client, fastify)
   README.md          # Endpunkte & Beispiele
+onboarding/          # Onboarding & Profil: FastAPI-App im DB-Navigator-Look
+  server.py          # JSON-API (Login, Trips, Profil, Stationssuche) + statische UI
+  store.py           # SQLite-Store (Profile, Constraints, importierte Reisen)
+  accounts.py        # simulierte DB-Konten, Buchungen, Outlook-Termine
+  static/            # UI: Wizard + Dashboard (index.html, style.css, app.js)
 run_demo.py          # Standalone End-to-End-Demo
+run_onboarding.py    # Startet die Onboarding-Web-App (Port 8000)
 check_db.py          # Smoke-Test der DB-Anbindung
 ```
 
