@@ -21,32 +21,40 @@ from google.adk.tools.agent_tool import AgentTool
 from .config import ORCHESTRATOR_MODEL
 from .monitoring import build_monitoring_agent
 from .planner import build_planner_agent
+from .risk import build_risk_agent
 
 # Sub-Agenten instanziieren und als Werkzeuge verfügbar machen.
 monitoring_agent = build_monitoring_agent()
 planner_agent = build_planner_agent()
+risk_agent = build_risk_agent()
 
 ORCHESTRATOR_INSTRUCTION = """\
 Du bist der **Orchestrator** des Systems "Journey Autopilot". Du löst die Anfrage
-nicht selbst, sondern koordinierst zwei Spezialisten-Agenten, die du als Tools
-aufrufen kannst:
+nicht selbst, sondern koordinierst Spezialisten-Agenten, die du als Tools aufrufen
+kannst:
 
-- `monitoring_agent`: bewertet das aktuelle Störungsrisiko einer Reise.
+- `risk_agent`: schätzt VOR Reisebeginn das Verspätungsrisiko einer Verbindung und
+  prognostiziert die voraussichtliche Ankunft (ETA).
+- `monitoring_agent`: bewertet das aktuelle Störungsrisiko einer LAUFENDEN Reise.
 - `planner_agent`: erstellt Reroute-Vorschläge unter den harten Terminen des Nutzers.
 
 Arbeite nach dem ReAct-Prinzip — überlege, handle (rufe einen Agenten auf), lies
-das Ergebnis, überlege erneut:
+das Ergebnis, überlege erneut. Wähle zuerst den passenden Pfad:
 
-1. Rufe IMMER zuerst den `monitoring_agent` mit der trip_id auf.
-2. Lies die Risiko-Einschätzung.
-   - Ist das Risiko NIEDRIG: Gib eine kurze Entwarnung. Rufe den Planner NICHT auf.
-   - Ist das Risiko MITTEL oder HOCH: Rufe den `planner_agent` mit Start und Ziel
-     der Reise auf, um Umleitungsoptionen zu erhalten.
-3. Fasse für den Nutzer verständlich zusammen: aktuelle Lage (vom Monitoring) und,
-   falls vorhanden, der empfohlene Plan (vom Planner) inkl. Entschädigungshinweis.
+A) **Reise hat noch NICHT begonnen** (Vorab-Bewertung einer Buchung, "wie riskant
+   ist meine Verbindung", "wann komme ich voraussichtlich an"):
+   1. Rufe den `risk_agent` mit Start, Ziel und (falls bekannt) Zug/Abfahrt auf.
+   2. Gib seine Score- und ETA-Einschätzung verständlich an den Nutzer weiter. Bei
+      hohem Vorab-Risiko darfst du zusätzlich den `planner_agent` für Alternativen rufen.
+
+B) **Laufende Reise überwachen** (es gibt eine trip_id, die Reise ist unterwegs):
+   1. Rufe IMMER zuerst den `monitoring_agent` mit der trip_id auf.
+   2. Ist das Risiko NIEDRIG: kurze Entwarnung, den Planner NICHT rufen.
+      Ist das Risiko MITTEL oder HOCH: rufe den `planner_agent` mit Start und Ziel.
+   3. Fasse aktuelle Lage und ggf. empfohlenen Plan inkl. Entschädigungshinweis zusammen.
 
 Wichtig:
-- Du triffst keine Buchung. Der Plan ist ein Vorschlag — der Nutzer behält das Veto.
+- Du triffst keine Buchung. Vorschläge bleiben Vorschläge — der Nutzer behält das Veto.
 - Gib am Ende transparent an, welcher Agent welchen Beitrag geliefert hat.
 - Stütze dich nur auf die Agenten-Ergebnisse, erfinde nichts.
 """
@@ -55,11 +63,12 @@ root_agent = LlmAgent(
     name="journey_autopilot_orchestrator",
     model=ORCHESTRATOR_MODEL,
     description=(
-        "ReAct-Orchestrator, der Monitoring- und Planner-Agent koordiniert, um "
-        "gestörte Bahnreisen zu erkennen und Umleitungen vorzuschlagen."
+        "ReAct-Orchestrator, der Risk-, Monitoring- und Planner-Agent koordiniert: "
+        "Vorab-Risiko/ETA vor der Reise sowie Störungserkennung und Umleitungen unterwegs."
     ),
     instruction=ORCHESTRATOR_INSTRUCTION,
     tools=[
+        AgentTool(agent=risk_agent),
         AgentTool(agent=monitoring_agent),
         AgentTool(agent=planner_agent),
     ],

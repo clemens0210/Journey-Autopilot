@@ -42,4 +42,5 @@ def _uni_model() -> LiteLlm:
 # anbietet, kann hier pro Rolle ein anderer Modellname gesetzt werden.
 MONITORING_MODEL = _uni_model()
 PLANNER_MODEL = _uni_model()
+RISK_MODEL = _uni_model()
 ORCHESTRATOR_MODEL = _uni_model()

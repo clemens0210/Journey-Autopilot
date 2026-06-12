@@ -15,18 +15,30 @@ from __future__ import annotations
 from google.adk.agents import LlmAgent
 
 from .config import PLANNER_MODEL
-from .tools import find_reroute_options, get_passenger_rights, get_user_calendar
+from .tools import (
+    find_reroute_options,
+    get_passenger_rights,
+    get_user_calendar,
+    get_user_profile,
+)
 
 PLANNER_INSTRUCTION = """\
 Du bist der **Planner Agent** im System "Journey Autopilot". Du wirst gerufen,
 wenn eine Reise gefährdet ist, und sollst die beste Umleitung vorschlagen.
 
 Vorgehen:
-1. Hole mit `find_reroute_options` die Alternativen für Start und Ziel.
-2. Prüfe mit `get_user_calendar` die harten Termine am Reisetag. Eine Option ist
+1. Hole mit `get_user_profile` das Präferenzprofil aus dem Onboarding: Klasse,
+   Sitzplatzwünsche, Tempo-vs-Komfort (0 = maximaler Komfort, 100 = schnellste
+   Ankunft), maximale Umstiege, späteste Heimkehr. Fehlt das Profil, nimm
+   neutrale Annahmen und sag das dazu.
+2. Hole mit `find_reroute_options` die Alternativen für Start und Ziel.
+3. Prüfe mit `get_user_calendar` die harten Termine am Reisetag. Eine Option ist
    nur tauglich, wenn die neue Ankunft VOR dem Start eines `hard_constraint`-Termins
    liegt (Weg vom Bahnhof grob einplanen).
-3. Ermittle mit `get_passenger_rights` die Entschädigung für die erwartete
+4. Gewichte die tauglichen Optionen nach dem Profil: Bei hohem Tempo-Wert zählt
+   die früheste Ankunft, bei hohem Komfort-Wert wenige Umstiege und erhaltene
+   Reservierung. Optionen über `max_transfers` scheiden aus.
+5. Ermittle mit `get_passenger_rights` die Entschädigung für die erwartete
    Verspätung.
 
 Antworte strukturiert:
@@ -51,5 +63,10 @@ def build_planner_agent() -> LlmAgent:
             "Nutzers und nennt Fahrgastrechte. Schlägt vor, bucht nicht."
         ),
         instruction=PLANNER_INSTRUCTION,
-        tools=[find_reroute_options, get_user_calendar, get_passenger_rights],
+        tools=[
+            get_user_profile,
+            find_reroute_options,
+            get_user_calendar,
+            get_passenger_rights,
+        ],
     )

@@ -128,26 +128,36 @@ Drei Wege, derselbe `root_agent` (der Orchestrator):
 
 ```bash
 python run_demo.py              # End-to-End-Demo im Terminal, streamt den Agenten-Verlauf
+python run_risk_demo.py         # Fokus-Demo: Vorab-Risiko & ETA (Risk Agent)
 adk web                         # Dev-UI im Browser — Agent auswählen & chatten
 adk run journey_autopilot       # direkt im Terminal, interaktiv
 ```
 
-`run_demo.py` ist der schnellste Weg, die Zusammenarbeit der beiden Agenten zu
+`run_demo.py` ist der schnellste Weg, die Zusammenarbeit der Agenten zu
 sehen: Es zeigt, wie der Orchestrator zuerst den Monitoring-Agent ruft und —
-nur bei erhöhtem Risiko — den Planner nachzieht.
+nur bei erhöhtem Risiko — den Planner nachzieht. `run_risk_demo.py` zeigt den
+**Risk Agent** isoliert: Vorab-Verspätungsrisiko (Score 0–100) und prognostizierte
+Ankunft (ETA), **bevor** die Reise begonnen hat.
 
 ---
 
 ## Aktueller Stand (Basis)
 
-Implementiert ist eine erste lauffähige Grundlage mit **zwei Spezialisten-Agenten
-und einem Orchestrator nach dem ReAct-Muster**. Daten sind bewusst gemockt.
+Implementiert ist eine erste lauffähige Grundlage mit **drei Spezialisten-Agenten
+und einem Orchestrator nach dem ReAct-Muster**. Live-Daten kommen über den
+db_service-Sidecar, mit Mock-Fallback wenn er nicht läuft.
 
 - **Orchestrator** (`journey_autopilot/agent.py`, `root_agent`) — `LlmAgent`,
   der die Spezialisten als `AgentTool` einbindet und im ReAct-Loop entscheidet,
-  wen er wann ruft. Ruft immer erst Monitoring, dann (bei Risiko) Planner.
+  wen er wann ruft. Vor der Reise: Risk Agent (Vorab-Risiko/ETA). Unterwegs:
+  erst Monitoring, dann (bei Risiko) Planner.
 - **Monitoring Agent** (`monitoring.py`) — liest gemockte Live-Daten und
   Störungslage, gibt ein Risiko-Level (NIEDRIG/MITTEL/HOCH) zurück.
+- **Risk Agent** (`risk.py`) — bewertet **vor Reisebeginn** das Verspätungsrisiko
+  einer Verbindung anhand ihrer Pünktlichkeits-Historie und prognostiziert die
+  voraussichtliche Ankunft (Score 0–100 + ETA). Kennzahlen kommen deterministisch
+  aus `delay_stats.py` (echte DB-Ankunftstafel via Sidecar, sonst Mock-Historie);
+  der Agent bewertet und begründet.
 - **Planner Agent** (`planner.py`) — generiert Reroute-Optionen, prüft sie gegen
   harte Termine (Kalender) und nennt Fahrgastrechte. Schlägt vor, bucht nicht.
 - **Tools & Mock-Daten** (`tools.py`, `mock_data.py`) — Function-Tools über
@@ -165,11 +175,13 @@ journey_autopilot/
   __init__.py        # macht das Paket für adk auffindbar (root_agent)
   agent.py           # Orchestrator (root_agent, ReAct)
   monitoring.py      # Monitoring Agent
+  risk.py            # Risk Agent (Vorab-Risiko & ETA vor Reisebeginn)
   planner.py         # Planner Agent
-  tools.py           # Function-Tools (aktuell gemockt)
-  mock_data.py       # Fixtures (Demo-Reise München->Berlin)
+  tools.py           # Function-Tools (Live via db_api mit Mock-Fallback)
+  mock_data.py       # Fixtures (Demo-Reise München->Berlin, Verspätungs-Historie)
   config.py          # Modell pro Rolle
   db_api.py          # Python-Client für den db_service-Sidecar (einzige DB-Zugriffsstelle)
+  delay_stats.py     # Verspätungs-Kennzahlen einer Verbindung (für den Risk Agent)
   stations.py        # Stationsname -> EVA-Nummer (mit Cache)
 db_service/          # Node-Sidecar: db-vendo-client als lokale JSON-API
   index.mjs          # Fastify-Server, ein Endpunkt pro Client-Methode
@@ -180,7 +192,8 @@ onboarding/          # Onboarding & Profil: FastAPI-App im DB-Navigator-Look
   store.py           # SQLite-Store (Profile, Constraints, importierte Reisen)
   accounts.py        # simulierte DB-Konten, Buchungen, Outlook-Termine
   static/            # UI: Wizard + Dashboard (index.html, style.css, app.js)
-run_demo.py          # Standalone End-to-End-Demo
+run_demo.py          # Standalone End-to-End-Demo (Orchestrator)
+run_risk_demo.py     # Standalone-Demo des Risk Agent (Vorab-Risiko & ETA)
 run_onboarding.py    # Startet die Onboarding-Web-App (Port 8000)
 check_db.py          # Smoke-Test der DB-Anbindung
 ```
@@ -191,7 +204,8 @@ Das System wächst modular entlang der Agentenrollen weiter (siehe
 `journey_autopilot_projektgrundlage.md`):
 
 - **Context Capture** — deterministische Function, friert Constraints ein
-- **Monitoring Agent** ✅ — pollt (gemockte) Live-Daten, scort Störungsrisiko
+- **Risk Agent** ✅ — scort Verspätungsrisiko & ETA vor Reisebeginn (Historie)
+- **Monitoring Agent** ✅ — pollt Live-Daten, scort Störungsrisiko unterwegs
 - **Planner Agent** ✅ — generiert Reroute-Optionen unter Constraints (RAG)
 - **Negotiator Agent** — Multi-Stakeholder-Koordination
 - **Veto-Gate** — Human-in-the-loop, Nutzer behält Veto

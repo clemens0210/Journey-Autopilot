@@ -12,8 +12,6 @@ npm install        # once
 npm start          # serves on http://127.0.0.1:3000
 ```
 
-Or from the repo root: `make db-install` then `make db-service`.
-
 ## Configuration (env vars)
 
 | Variable | Default | Meaning |

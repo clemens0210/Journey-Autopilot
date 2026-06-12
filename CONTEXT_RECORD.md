@@ -43,21 +43,26 @@ A locked snapshot of all decisions, constraints, and open questions captured dur
 
 ### Disruption Monitoring & Risk Prediction
 
-**Status:** `planned` | **Priority:** Must | **Responsible Person:** Clemens & Hendrik
+**Status:** `in progress` | **Priority:** Must | **Responsible Person:** Clemens & Hendrik
 
 **Description:** Continuously ingest live ops data; score disruption risk **hours in advance** using live data, weather, historical patterns and large events. (Basic systems only react; prediction is the differentiator.)
 
 #### Decisions
-- 
+- **Pre-trip risk is its own agent** (`journey_autopilot/risk.py`, `risk_agent`), separate from the live Monitoring Agent: it scores delay risk and predicts an ETA **before the route starts**, the Monitoring Agent watches a running trip. The Orchestrator branches on this (pre-trip → Risk, en route → Monitoring → Planner).
+- **Split of labor — deterministic stats, agentic scoring:** `delay_stats.py` computes the punctuality KPIs (mean/median/p90 delay, on-time rate, cancellations, top causes) in pure Python; the LLM agent only *interprets* them into a 0–100 score, a NIEDRIG/MITTEL/HOCH band and an ETA (planned arrival + expected delay). Keeps the math robust and the verdict explainable.
+- **"Past data of the connection" via the DB arrival board:** `db-vendo-client` has no historical-delay archive (the API is forward-looking), so the real signal is the destination's arrivals board sampled over a window — every long-distance arrival carries its realized delay. Honest proxy, real DB numbers; a true punctuality archive would later replace just `delay_stats.connection_delay_history`.
+- **Live-with-mock-fallback,** like the rest of the tools: tools try the db_service sidecar, fall back to a simulated history (`mock_data.CONNECTION_DELAY_HISTORY` / `PLANNED_CONNECTIONS`) when it is down, and tag the output with `source` so the agent (and user) see whether the basis is live or simulated.
 
 #### Constraints
-- 
+- No historical-delay archive in `db-vendo-client` → the arrival-board sample is a same-day corridor proxy, not a true multi-week history (documented in `delay_stats.py`).
+- Weather and large-events signals are not yet wired in — current score rests on punctuality history + known causes only.
 
 #### Open Questions
 - Which DB ops APIs are actually available?
+- How to add weather / large-event signals to the score, and a real punctuality archive?
 
 #### Justification
-- 
+- Scoring delay risk and ETA before departure is the product's differentiator ("basic systems only react"); building it on real DB punctuality data with an honest proxy keeps the demo credible and the path to a real archive a one-module swap.
 
 ### Replanning / Rerouting
 
