@@ -137,7 +137,7 @@ async def _demo_direct_notify() -> None:
         f"Your appointment at {event.meeting_time_original} is still achievable."
     )
 
-    print(f"\nNachricht an {traveler.name} ({traveler.whatsapp_number}):\n")
+    print(f"\nMessage to {traveler.name} ({traveler.whatsapp_number}):\n")
     print(notice)
 
     if twilio_ready:
