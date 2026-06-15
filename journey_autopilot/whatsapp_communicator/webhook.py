@@ -1,7 +1,10 @@
 import logging
+import os
 
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
+from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
 from . import tools
@@ -19,16 +22,30 @@ def _twiml(text: str) -> Response:
 
 @app.post("/whatsapp/reply")
 async def whatsapp_reply(
+    request: Request,
     Body: str = Form(...),
     From: str = Form(...),
 ):
+    # Validate Twilio signature to prevent spoofed approvals/edits.
+    signature = request.headers.get("X-Twilio-Signature", "")
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+    if not auth_token:
+        logger.error("TWILIO_AUTH_TOKEN is not set; cannot validate Twilio signature")
+        return _twiml("Server misconfigured. Please try again later.")
+
+    form = await request.form()
+    validator = RequestValidator(auth_token)
+    if not signature or not validator.validate(str(request.url), dict(form), signature):
+        logger.warning("Invalid Twilio signature for inbound reply from %s", From)
+        # Return 200 so Twilio doesn't retry; do not process the command.
+        return _twiml("Invalid request.")
+
     # Always return 200 — Twilio retries on non-2xx, causing duplicate sends.
     try:
-        return _handle_reply(Body=Body, From=From)
+        return await run_in_threadpool(_handle_reply, Body=Body, From=From)
     except Exception:
         logger.exception("Unhandled error processing reply from %s", From)
         return _twiml("An internal error occurred. Please try again.")
-
 
 def _handle_reply(*, Body: str, From: str) -> Response:
     # Twilio sends From as "whatsapp:+49171..."
