@@ -118,8 +118,7 @@ einem Orchestrator und einem WhatsApp-Kommunikations-Layer**.
 | Monitoring Agent | `monitoring.py` | Bewertet Störungsrisiko (NIEDRIG / MITTEL / HOCH) |
 | Planner Agent | `planner.py` | Reroute-Optionen, Constraint-Check, Fahrgastrechte |
 | Drafter Agent | `whatsapp_communicator/drafter.py` | Entwirft rollengerechte WhatsApp-Nachrichten (LlmAgent) |
-| Sender | `whatsapp_communicator/sender.py` | Sendet Freigabe-Anfragen und Nachrichten via Twilio |
-| Genehmigungs-Queue | `whatsapp_communicator/queue.py` | Thread-sicherer In-Memory-Store, 5-min-Timeout |
+| Communicator-Tools | `whatsapp_communicator/tools.py` | Sender (Twilio) + Genehmigungs-Queue (in-memory, 5-min-Timeout) |
 | Webhook | `whatsapp_communicator/webhook.py` | FastAPI-Endpunkt für YES / NO / EDIT-Antworten |
 | Tools & Mock-Daten | `tools.py`, `mock_data.py` | Function-Tools über Fixtures |
 | Modell-Konfiguration | `config.py` | LiteLlm-Instanz pro Agentenrolle |
@@ -139,8 +138,7 @@ journey_autopilot/
     __init__.py
     models.py                      # Recipient, DisruptionEvent
     drafter.py                     # Drafter Agent (LlmAgent)
-    queue.py                       # Genehmigungs-Queue (in-memory)
-    sender.py                      # Twilio-Integration
+    tools.py                       # Sender (Twilio) + Genehmigungs-Queue
     webhook.py                     # FastAPI-Webhook (YES/NO/EDIT)
 run_demo.py                        # End-to-End-Demo (Agenten + WhatsApp)
 ```

@@ -1,7 +1,11 @@
-"""Drafter Agent — entwirft kontextgerechte WhatsApp-Nachrichten.
+"""Drafter Agent — drafts context-aware WhatsApp messages.
 
-Folgt demselben Muster wie planner.py und monitoring.py: LlmAgent aus dem
-Google ADK, Modell aus config.DRAFTER_MODEL (Uni-GPT-Endpunkt via LiteLLM).
+The communicator's only agent. Follows the same pattern as planner.py and
+monitoring.py: LlmAgent from the Google ADK, model from config.DRAFTER_MODEL
+(Uni-GPT endpoint via LiteLLM).
+
+The remaining functionality (Twilio sending, approval queue) lives in
+`tools.py`; inbound YES/NO/EDIT traffic is handled by `webhook.py`.
 """
 
 from __future__ import annotations
@@ -20,38 +24,38 @@ _USER_ID = "drafter"
 
 _ROLE_INSTRUCTION: dict[str, str] = {
     "traveler": (
-        "Du bist ein Reise-Assistent, der direkt an den Reisenden schreibt. "
-        "Sei knapp und handlungsorientiert — zeige den neuen Reiseplan klar, "
-        "damit er genau weiß, was zu tun ist."
+        "You are a travel assistant writing directly to the traveler. "
+        "Be concise and action-oriented — show the new travel plan clearly, "
+        "so they know exactly what to do."
     ),
     "colleague": (
-        "Du schreibst im Namen des Reisenden an einen Arbeitskollegen. "
-        "Halte es locker. Erwähne die Verspätung und ob der Kollege etwas tun muss."
+        "You are writing on behalf of the traveler to a work colleague. "
+        "Keep it casual. Mention the delay and whether the colleague needs to do anything."
     ),
     "client": (
-        "Du schreibst im Namen des Reisenden an einen Geschäftskunden. "
-        "Sei professionell und entschuldigend. Nenne nur die relevante Zeitänderung — "
-        "interne Umleitungsdetails weglassen."
+        "You are writing on behalf of the traveler to a business client. "
+        "Be professional and apologetic. Mention only the relevant time change — "
+        "leave out internal rerouting details."
     ),
     "private": (
-        "Du schreibst im Namen des Reisenden an eine Person aus dem Privatleben. "
-        "Halte es herzlich, informell und kurz."
+        "You are writing on behalf of the traveler to someone from their private life. "
+        "Keep it warm, informal and short."
     ),
 }
 
 
 def _build_prompt(event: DisruptionEvent, recipient: Recipient) -> str:
     return (
-        f"Zugstörungsdetails:\n"
-        f"- Reisender: {event.traveler_name}\n"
-        f"- Zug: {event.original_train}\n"
-        f"- Verspätung: {event.delay_minutes} Minuten\n"
-        f"- Umleitung: {event.reroute_summary}\n"
-        f"- Meeting ursprünglich: {event.meeting_time_original} Uhr\n"
-        f"- Meeting neu erwartet: {event.meeting_time_new} Uhr\n"
-        f"- Empfänger: {recipient.name}\n\n"
-        "Schreibe eine WhatsApp-Nachricht. Maximal 3 Sätze. "
-        "Kein formelles 'Sehr geehrte/r' o. Ä. — direkt zur Sache."
+        f"Train disruption details:\n"
+        f"- Traveler: {event.traveler_name}\n"
+        f"- Train: {event.original_train}\n"
+        f"- Delay: {event.delay_minutes} minutes\n"
+        f"- Reroute: {event.reroute_summary}\n"
+        f"- Meeting originally: {event.meeting_time_original}\n"
+        f"- Meeting now expected: {event.meeting_time_new}\n"
+        f"- Recipient: {recipient.name}\n\n"
+        "Write a WhatsApp message. At most 3 sentences. "
+        "No formal 'Dear Sir/Madam' or similar — get straight to the point."
     )
 
 
@@ -64,7 +68,7 @@ def _build_agent(role: str) -> LlmAgent:
 
 
 async def draft_message_async(event: DisruptionEvent, recipient: Recipient) -> str:
-    """Entwirft eine WhatsApp-Nachricht über den LlmAgent."""
+    """Drafts a WhatsApp message via the LlmAgent."""
     agent = _build_agent(recipient.role)
     runner = InMemoryRunner(agent=agent, app_name=_APP_NAME)
     session = await runner.session_service.create_session(
@@ -86,5 +90,5 @@ async def draft_message_async(event: DisruptionEvent, recipient: Recipient) -> s
 
 
 def draft_message(event: DisruptionEvent, recipient: Recipient) -> str:
-    """Synchroner Wrapper — nur aus reinem Sync-Kontext aufrufen."""
+    """Synchronous wrapper — only call from a pure sync context."""
     return asyncio.run(draft_message_async(event, recipient))

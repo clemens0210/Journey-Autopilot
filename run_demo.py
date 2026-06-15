@@ -45,7 +45,7 @@ except ImportError:
 from journey_autopilot.agent import root_agent
 from journey_autopilot.mock_data import DEMO_TRIP, DEMO_EVENT_FIELDS
 from journey_autopilot.whatsapp_communicator.models import DisruptionEvent, Recipient
-from journey_autopilot.whatsapp_communicator import drafter, sender
+from journey_autopilot.whatsapp_communicator import drafter, tools
 
 APP_NAME = "journey_autopilot"
 USER_ID = "lucas"
@@ -79,17 +79,17 @@ def _describe_event(event) -> None:
 
 
 def _build_demo_context(os_module) -> tuple | None:
-    """Gemeinsame Setup-Logik für beide WhatsApp-Demos.
+    """Shared setup logic for both WhatsApp demos.
 
-    Gibt (event, traveler, non_traveler, twilio_ready) zurück oder None wenn
-    DEMO_TRAVELER_NUMBER fehlt.
+    Returns (event, traveler, non_traveler, twilio_ready) or None if
+    DEMO_TRAVELER_NUMBER is missing.
     """
     traveler_number = os_module.getenv("DEMO_TRAVELER_NUMBER", "")
     if not traveler_number:
         print(
-            "[!] DEMO_TRAVELER_NUMBER nicht in .env gesetzt.\n"
-            "    Setze DEMO_TRAVELER_NUMBER (und optional DEMO_CLIENT_NUMBER,\n"
-            "    DEMO_COLLEAGUE_NUMBER, DEMO_PRIVATE_NUMBER) um die Demo zu aktivieren."
+            "[!] DEMO_TRAVELER_NUMBER not set in .env.\n"
+            "    Set DEMO_TRAVELER_NUMBER (and optionally DEMO_CLIENT_NUMBER,\n"
+            "    DEMO_COLLEAGUE_NUMBER, DEMO_PRIVATE_NUMBER) to enable the demo."
         )
         return None
 
@@ -115,11 +115,11 @@ def _build_demo_context(os_module) -> tuple | None:
 
 
 async def _demo_direct_notify(text: str) -> None:
-    """Demo 1 — Direktnachricht: Orchestrator-Antwort direkt an den Reisenden senden."""
+    """Demo 1 — Direct message: orchestrator response sent straight to the traveler, no drafter."""
     import os
 
     print("\n" + "=" * 72)
-    print("WhatsApp Demo 1 — Orchestrator-Antwort direkt an Reisenden")
+    print("WhatsApp Demo 1 — Direct message to traveler (no drafter)")
     print("=" * 72)
 
     traveler_number = os.getenv("DEMO_TRAVELER_NUMBER", "")
@@ -139,22 +139,22 @@ async def _demo_direct_notify(text: str) -> None:
     print(text)
 
     if twilio_ready:
-        print(f"\n  → Sende direkt an {traveler.name} ({traveler.whatsapp_number}) ...")
+        print(f"\n  → Sending directly to {traveler.name} ({traveler.whatsapp_number}) ...")
         try:
-            sender.dispatch_message(text, traveler)
-            print("  → Gesendet.")
+            tools.dispatch_message(text, traveler)
+            print("  → Sent.")
         except Exception as exc:
-            print(f"  [!] Twilio-Fehler: {type(exc).__name__}: {exc}")
+            print(f"  [!] Twilio error: {type(exc).__name__}: {exc}")
     else:
-        print("\n  [Trockenlauf] TWILIO_* nicht konfiguriert — Nachricht würde direkt gesendet.")
+        print("\n  [Dry run] TWILIO_* not configured — message would be sent directly.")
 
 
 async def _demo_approval_flow() -> None:
-    """Demo 2 — Freigabe-Workflow: Drafter entwirft, Reisender genehmigt per WhatsApp."""
+    """Demo 2 — Approval workflow: drafter drafts, traveler approves via WhatsApp."""
     import os
 
     print("\n" + "=" * 72)
-    print("WhatsApp Demo 2 — Drafter + Freigabe-Workflow")
+    print("WhatsApp Demo 2 — Drafter + approval workflow")
     print("=" * 72)
 
     ctx = _build_demo_context(os)
@@ -162,41 +162,40 @@ async def _demo_approval_flow() -> None:
         return
     event, traveler, non_traveler, twilio_ready = ctx
 
-    print(f"\nSzenario : {event.traveler_name} | {event.original_train} | +{event.delay_minutes} min")
+    print(f"\nScenario : {event.traveler_name} | {event.original_train} | +{event.delay_minutes} min")
 
-    if not non_traveler:
-        print("\nKeine weiteren Empfänger konfiguriert (DEMO_CLIENT_NUMBER etc. fehlen).")
+    # Demo only drafts and asks approval for a single message — the client.
+    recipient = next((r for r in non_traveler if r.role == "client"), None)
+    if recipient is None:
+        print("\nNo client recipient configured (DEMO_CLIENT_NUMBER missing).")
         return
 
-    print(f"Entwürfe für: {', '.join(r.name for r in non_traveler)}\n")
+    print(f"--- Draft for {recipient.name} ({recipient.role}) " + "-" * 30)
+    try:
+        draft = await drafter.draft_message_async(event, recipient)
+        print(draft)
+    except Exception as exc:
+        print(f"[!] Draft failed: {type(exc).__name__}: {exc}")
+        return
 
-    for recipient in non_traveler:
-        print(f"--- Entwurf für {recipient.name} ({recipient.role}) " + "-" * 30)
+    if twilio_ready:
+        print(f"\n  → Sending approval request to {traveler.name} ({traveler.whatsapp_number}) ...")
         try:
-            draft = await drafter.draft_message_async(event, recipient)
-            print(draft)
+            msg_id = tools.send_for_approval(event, draft, recipient)
+            print(f"  → Sent. message_id={msg_id}")
+            print("  → Reply via WhatsApp: YES / NO / EDIT <text>")
         except Exception as exc:
-            print(f"[!] Entwurf fehlgeschlagen: {type(exc).__name__}: {exc}")
-            continue
+            print(f"  [!] Twilio error: {type(exc).__name__}: {exc}")
+    else:
+        print(
+            "\n  [Dry run] TWILIO_* not configured — "
+            "approval request would be sent to the traveler."
+        )
 
-        if twilio_ready:
-            print(f"\n  → Sende Freigabe-Anfrage an {traveler.name} ({traveler.whatsapp_number}) ...")
-            try:
-                msg_id = sender.send_for_approval(event, draft, recipient)
-                print(f"  → Gesendet. message_id={msg_id}")
-                print("  → Antwort per WhatsApp: YES / NO / EDIT <text>")
-            except Exception as exc:
-                print(f"  [!] Twilio-Fehler: {type(exc).__name__}: {exc}")
-        else:
-            print(
-                "\n  [Trockenlauf] TWILIO_* nicht konfiguriert — "
-                "Freigabe-Anfrage würde an Reisenden gesendet."
-            )
-
-    print("\n--- Webhook-Server ---")
-    print("Empfangsserver für YES/NO/EDIT-Antworten starten:")
+    print("\n--- Webhook server ---")
+    print("Start the receiver for YES/NO/EDIT replies:")
     print("  uvicorn journey_autopilot.whatsapp_communicator.webhook:app --port 8000")
-    print("Twilio leitet eingehende Nachrichten an POST /whatsapp/reply weiter.")
+    print("Twilio forwards inbound messages to POST /whatsapp/reply.")
 
 
 async def main() -> None:

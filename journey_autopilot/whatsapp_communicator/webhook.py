@@ -4,8 +4,7 @@ from fastapi import FastAPI, Form
 from fastapi.responses import Response
 from twilio.twiml.messaging_response import MessagingResponse
 
-from . import queue as msg_queue
-from . import sender
+from . import tools
 
 logger = logging.getLogger(__name__)
 
@@ -35,21 +34,20 @@ def _handle_reply(*, Body: str, From: str) -> Response:
     # Twilio sends From as "whatsapp:+49171..."
     traveler_number = From.removeprefix("whatsapp:")
 
-    # Auto-dispatch any messages that timed out since the last webhook
-    for expired in msg_queue.cleanup_expired():
-        sender.dispatch_message(expired.draft, expired.recipient)
+    # Drop (do NOT send) any messages that timed out since the last webhook
+    for expired in tools.cleanup_expired():
         logger.info(
-            "action=auto_dispatched message_id=%s recipient=%s",
+            "action=auto_cancelled message_id=%s recipient=%s",
             expired.message_id,
             expired.recipient.name,
         )
         if expired.traveler_number == traveler_number:
             return _twiml(
-                f"Your message to {expired.recipient.name} was sent automatically "
-                f"(5-min timeout reached)."
+                f"Your message to {expired.recipient.name} was NOT sent "
+                f"(5-min timeout reached without approval)."
             )
 
-    pending = msg_queue.get(traveler_number)
+    pending = tools.get(traveler_number)
     if pending is None:
         return _twiml(
             "No pending messages found. Send a disruption alert via "
@@ -60,8 +58,8 @@ def _handle_reply(*, Body: str, From: str) -> Response:
     cmd = text.upper()
 
     if cmd == "YES":
-        sender.dispatch_message(pending.draft, pending.recipient)
-        msg_queue.remove(traveler_number)
+        tools.dispatch_message(pending.draft, pending.recipient)
+        tools.remove(traveler_number)
         logger.info(
             "action=approved message_id=%s recipient=%s",
             pending.message_id,
@@ -70,7 +68,7 @@ def _handle_reply(*, Body: str, From: str) -> Response:
         return _twiml(f"Message sent to {pending.recipient.name}.")
 
     if cmd == "NO":
-        msg_queue.remove(traveler_number)
+        tools.remove(traveler_number)
         logger.info(
             "action=cancelled message_id=%s recipient=%s",
             pending.message_id,
@@ -80,7 +78,7 @@ def _handle_reply(*, Body: str, From: str) -> Response:
 
     if cmd.startswith("EDIT "):
         new_draft = text[5:].strip()
-        msg_queue.update_draft(traveler_number, new_draft)
+        tools.update_draft(traveler_number, new_draft)
         logger.info(
             "action=edited message_id=%s recipient=%s",
             pending.message_id,
