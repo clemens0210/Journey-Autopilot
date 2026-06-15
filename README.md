@@ -1,169 +1,180 @@
 # Journey Autopilot
 
-Agentisches System, das DB-Bahnreisen proaktiv überwacht, Störungen erkennt,
-Umleitungen plant und Betroffene per WhatsApp benachrichtigt — bei voller
-Veto-Kontrolle des Reisenden. Uni-Projekt, gebaut auf **Google ADK 2.x** mit der
-University of Cologne GPT als Modell-Backend (OpenAI-kompatibler Endpunkt, via
-LiteLLM).
+Agent-based system that proactively monitors DB train journeys, detects
+disruptions, plans reroutes, and notifies affected parties via WhatsApp — with
+full veto control by the traveler. University project, built on **Google ADK 2.x**
+with the University of Cologne GPT as the model backend (OpenAI-compatible
+endpoint, via LiteLLM).
 
 ---
 
-## Voraussetzungen
+## Prerequisites
 
-- **Miniconda/Anaconda** oder `venv` — die Python-Version zieht ihr euch in die
-  Umgebung, ein systemweites Python ist nicht nötig.
-- Python **3.11+** (von ADK 2.0 verlangt).
-- **University of Cologne GPT** (OpenAI-kompatibel) — Key, Endpunkt und
-  Modellname vom GPT-Service der Uni. ADK spricht den Endpunkt über LiteLLM an,
-  der Agenten-Code bleibt davon unberührt.
-- **Twilio-Account** (optional) — nur für den WhatsApp Communicator. Sandbox-Zugang
-  genügt. Ohne Twilio-Konfiguration läuft `run_demo.py` im Trockenlauf und gibt
-  die generierten Nachrichten nur auf der Konsole aus.
+- **Miniconda/Anaconda** or `venv` — pull the Python version into the
+  environment; a system-wide Python install is not required.
+- Python **3.11+** (required by ADK 2.0).
+- **University of Cologne GPT** (OpenAI-compatible) — Key, endpoint, and
+  model name from the Uni GPT service. ADK talks to the endpoint via LiteLLM;
+  the agent code remains untouched by this.
+- **Twilio account** (optional) — only for the WhatsApp Communicator. Sandbox
+  access suffices. Without Twilio configuration, `run_demo.py` runs in dry-run
+  mode and only prints the generated messages to the console.
 
 ## Setup
 
 ```bash
-# 1. Ins Projektverzeichnis
+# 1. Into the project directory
 cd journey-autopilot
 
-# 2. Umgebung anlegen & aktivieren (Conda)
+# 2. Create & activate environment (Conda)
 conda create -n journey-autopilot python=3.11
 conda activate journey-autopilot
-#   ... oder venv:
+#   ... or venv:
 #   python -m venv .venv
 #   source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
-# 3. Abhängigkeiten (google-adk liegt nur auf PyPI → per pip)
+# 3. Dependencies (google-adk is only on PyPI → via pip)
 pip install -r requirements.txt
 
-# 4. Zugang hinterlegen
+# 4. Store credentials
 cp .env.example .env        # Windows (PowerShell): copy .env.example .env
-# .env öffnen und die Werte ausfüllen (UNI_GPT_* Pflicht, Twilio optional)
-
-# 5. .env auch ins Agenten-Verzeichnis kopieren (für adk web / adk run)
-cp .env journey_autopilot/.env
+# Open .env and fill in the values (UNI_GPT_* required, Twilio optional)
 ```
 
-### LLM-Backend konfigurieren (Uni-Köln-GPT)
+### Configure Backend (Uni-Cologne-GPT)
+
+Key, endpoint, and model name are stored in `.env`:
 
 ```ini
-UNI_GPT_API_KEY=dein_uni_key
-UNI_GPT_BASE_URL=https://dein-uni-endpunkt/v1   # inkl. /v1
-UNI_GPT_MODEL=dein_uni_modellname
+UNI_GPT_API_KEY=your_uni_key
+UNI_GPT_BASE_URL=https://your-uni-endpoint/v1   # incl. /v1
+UNI_GPT_MODEL=your_uni_model_name
 ```
 
-`config.py` baut daraus `LiteLlm`-Modelle für alle vier Rollen (Orchestrator,
-Monitoring, Planner, Drafter). LiteLLM kommt über das `extensions`-Extra in
-`requirements.txt` (`google-adk[extensions]`) mit.
+`config.py` builds `LiteLlm` models for all four roles (Orchestrator,
+Monitoring, Planner, Drafter) from these. LiteLLM comes with the `extensions`
+extra in `requirements.txt` (`google-adk[extensions]`).
 
-### WhatsApp communicator konfigurieren (optional)
+> **Note on `.env`:** ADK loads `.env` from the respective
+> **agent directory**. The easiest approach is to copy the completed `.env` into the
+> agent folder(s) (`cp .env <agent>/.env`). If `adk` cannot find the file, check
+> the current ADK docs on `.env` discovery.
+
+### Configure WhatsApp Communicator (optional)
 
 ```ini
 TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_AUTH_TOKEN=your_auth_token
 TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 
-DEMO_TRAVELER_NUMBER=+49171xxxxxxx   # Muss in Twilio Sandbox registriert sein
+DEMO_TRAVELER_NUMBER=+49171xxxxxxx   # Must be registered in the Twilio Sandbox
 DEMO_CLIENT_NUMBER=+49172xxxxxxx
 DEMO_COLLEAGUE_NUMBER=+49173xxxxxxx
 ```
 
-Für eingehende Antworten (YES/NO/EDIT) braucht Twilio eine öffentlich erreichbare
-URL. Lokal am einfachsten mit [ngrok](https://ngrok.com):
+For incoming replies (YES/NO/EDIT), Twilio needs a publicly reachable URL.
+Locally, the easiest option is [ngrok](https://ngrok.com):
 
 ```bash
 ngrok http 8000
-# Tunnel-URL in .env als WEBHOOK_BASE_URL eintragen
-# In der Twilio Console: Webhook-URL auf https://<tunnel>/whatsapp/reply setzen
+# Enter the tunnel URL in .env as WEBHOOK_BASE_URL
+# In the Twilio Console: set the webhook URL to https://<tunnel>/whatsapp/reply
 ```
 
----
+## Running
 
-## Ausführen
+### Agent demo (Monitoring + Planner)
 
-### Agenten-Demo (Monitoring + Planner)
+Three ways, same `root_agent` (the Orchestrator):
 
 ```bash
-python run_demo.py        # streamt Agenten-Verlauf + WhatsApp-Demo im Terminal
-adk web                   # Dev-UI im Browser — Agent auswählen & chatten
-adk run journey_autopilot # direkt im Terminal, interaktiv
+python run_demo.py              # End-to-End demo in terminal, streams agent trace
+adk web                         # Dev UI in browser — select agent & chat
+adk run journey_autopilot       # directly in terminal, interactive
 ```
 
-`run_demo.py` zeigt zuerst den Orchestrator-Durchlauf (Monitoring → Planner) und
-danach — sofern `DEMO_TRAVELER_NUMBER` gesetzt ist — die WhatsApp-Communicator-Demo:
-der Drafter-Agent entwirft Nachrichten für jeden konfigurierten Empfänger und
-sendet sie (bei vollständiger Twilio-Konfiguration) zur Freigabe an den Reisenden.
+`run_demo.py` first shows the Orchestrator run (Monitoring → Planner) and then —
+provided `DEMO_TRAVELER_NUMBER` is set — the WhatsApp Communicator demo: the
+Drafter Agent drafts messages for each configured recipient and (with a complete
+Twilio configuration) sends them to the traveler for approval.
 
-### Webhook-Server (WhatsApp-Antworten empfangen)
+### Webhook server (receive WhatsApp replies)
 
 ```bash
 uvicorn journey_autopilot.whatsapp_communicator.webhook:app --port 8000
 ```
 
-Twilio schickt die Antworten des Reisenden (YES / NO / EDIT \<text\>) an
-`POST /whatsapp/reply`. Der Server leitet sie an die Genehmigungslogik in
-`whatsapp_communicator/tools.py` weiter und dispatcht die Nachricht bei Freigabe per Twilio an den
-eigentlichen Empfänger.
+Twilio sends the traveler's replies (YES / NO / EDIT \<text\>) to
+`POST /whatsapp/reply`. The server forwards them to the approval logic in
+`whatsapp_communicator/tools.py` and, upon approval, dispatches the message to the
+actual recipient via Twilio.
 
 ---
 
-## Aktueller Stand
+## Current State (Baseline)
 
-Implementiert ist eine lauffähige Grundlage mit **drei Spezialisten-Agenten,
-einem Orchestrator und einem WhatsApp-Kommunikations-Layer**.
+A first runnable foundation is implemented with **three specialist agents, an
+orchestrator, and a WhatsApp communication layer**. Data is deliberately mocked.
 
-| Komponente | Datei(en) | Beschreibung |
-|---|---|---|
-| Orchestrator | `agent.py` | `LlmAgent` (ReAct), koordiniert Spezialisten via `AgentTool` |
-| Monitoring Agent | `monitoring.py` | Bewertet Störungsrisiko (NIEDRIG / MITTEL / HOCH) |
-| Planner Agent | `planner.py` | Reroute-Optionen, Constraint-Check, Fahrgastrechte |
-| Drafter Agent | `whatsapp_communicator/drafter.py` | Entwirft rollengerechte WhatsApp-Nachrichten (LlmAgent) |
-| Communicator-Tools | `whatsapp_communicator/tools.py` | Sender (Twilio) + Genehmigungs-Queue (in-memory, 5-min-Timeout) |
-| Webhook | `whatsapp_communicator/webhook.py` | FastAPI-Endpunkt für YES / NO / EDIT-Antworten |
-| Tools & Mock-Daten | `tools.py`, `mock_data.py` | Function-Tools über Fixtures |
-| Modell-Konfiguration | `config.py` | LiteLlm-Instanz pro Agentenrolle |
+- **Orchestrator** (`journey_autopilot/agent.py`, `root_agent`) — `LlmAgent`
+  that wraps the specialists as `AgentTool` and decides in a ReAct loop
+  who to call when. Always calls Monitoring first, then (if risk present) Planner.
+- **Monitoring Agent** (`monitoring.py`) — reads mocked live data and
+  disruption status, returns a risk level (LOW/MEDIUM/HIGH).
+- **Planner Agent** (`planner.py`) — generates reroute options, checks them against
+  hard deadlines (calendar), and cites passenger rights. Proposes, does not book.
+- **Drafter Agent** (`whatsapp_communicator/drafter.py`) — `LlmAgent` that drafts
+  role-appropriate WhatsApp messages for each recipient.
+- **Communicator Tools** (`whatsapp_communicator/tools.py`) — sender (Twilio) plus
+  approval queue (in-memory, 5-minute timeout).
+- **Webhook** (`whatsapp_communicator/webhook.py`) — FastAPI endpoint for
+  YES / NO / EDIT replies.
+- **Tools & Mock Data** (`tools.py`, `mock_data.py`) — Function tools backed by
+  fixtures; the insertion points for real DB/calendar/RAG sources.
+- **Model Configuration** (`config.py`) — a single place where the model is set
+  per role; talks to the Uni-Cologne-GPT (OpenAI-compatible) via LiteLLM.
 
-### Datei-Layout
+### File Layout
 
 ```
 journey_autopilot/
-  __init__.py                      # macht das Paket für adk auffindbar (root_agent)
-  agent.py                         # Orchestrator (root_agent, ReAct)
-  monitoring.py                    # Monitoring Agent
-  planner.py                       # Planner Agent
-  tools.py                         # Function-Tools (gemockt)
-  mock_data.py                     # Fixtures (Demo-Reise München→Berlin)
-  config.py                        # Modell pro Rolle (UNI_GPT_*)
+  __init__.py                  # makes the package discoverable for adk (root_agent)
+  agent.py                     # Orchestrator (root_agent, ReAct)
+  monitoring.py                # Monitoring Agent
+  planner.py                   # Planner Agent
+  tools.py                     # Function Tools (mocked)
+  mock_data.py                 # Fixtures (demo trip Munich→Berlin)
+  config.py                    # Model per role (UNI_GPT_*)
   whatsapp_communicator/
     __init__.py
-    models.py                      # Recipient, DisruptionEvent
-    drafter.py                     # Drafter Agent (LlmAgent)
-    tools.py                       # Sender (Twilio) + Genehmigungs-Queue
-    webhook.py                     # FastAPI-Webhook (YES/NO/EDIT)
-run_demo.py                        # End-to-End-Demo (Agenten + WhatsApp)
+    models.py                  # Recipient, DisruptionEvent
+    drafter.py                 # Drafter Agent (LlmAgent)
+    tools.py                   # Sender (Twilio) + approval queue
+    webhook.py                 # FastAPI webhook (YES/NO/EDIT)
+run_demo.py                    # End-to-End demo (agents + WhatsApp)
 ```
 
----
+## Target Vision (still open)
 
-## Zielbild (noch offen)
+The system grows modularly along the agent roles (see
+`journey_autopilot_projektgrundlage.md`):
 
-Das System wächst modular entlang der Agentenrollen weiter:
+- **Context Capture** — deterministic function, freezes constraints
+- **Monitoring Agent** ✅ — polls (mocked) live data, scores disruption risk
+- **Planner Agent** ✅ — generates reroute options under constraints (RAG)
+- **Communicator Agent** ✅ — WhatsApp messages with approval workflow (Twilio)
+- **Negotiator Agent** — multi-stakeholder coordination
+- **Veto Gate** — human-in-the-loop, user retains veto
+- **Booking Agent** — book tickets, hotels, and mobility options (reversible)
+- **Memory & Learning** — persist preferences (SQLite)
 
-- **Context Capture** — deterministische Funktion, friert Constraints ein
-- **Monitoring Agent** ✅ — pollt (gemockte) Live-Daten, scort Störungsrisiko
-- **Planner Agent** ✅ — generiert Reroute-Optionen unter Constraints
-- **Communicator Agent** ✅ — WhatsApp-Nachrichten mit Freigabe-Workflow (Twilio)
-- **Negotiator Agent** — Multi-Stakeholder-Koordination
-- **Veto-Gate** — Human-in-the-loop, konfigurierbare Autonomiestufen
-- **Booking Agent** — Tickets, Hotels, Mobilitätsoptionen buchen (reversibel)
-- **Memory & Learning** — Präferenzen persistent speichern (SQLite)
+State: ADK `SessionService` (volatile, within run) + SQLite (persistent
+preferences, hard constraints, trip history).
 
-State: ADK `SessionService` (flüchtig, innerhalb Run) + SQLite (persistente
-Präferenzen, harte Constraints, Trip-Historie).
+## Caveats
 
-## Vorbehalte
-
-- ADK **2.0** hat Breaking Changes ggü. 1.x (Agent-API, Event-Modell,
-  Session-Schema). Viele Tutorials zeigen noch 1.x — auf die Version achten.
-- Alle Daten sind bewusst gemockt (kein echter DB-API-Zugang).
-- Offizielle Doku: https://google.github.io/adk-docs/ und https://adk.dev/
+- ADK **2.0** has breaking changes vs. 1.x (Agent API, event model,
+  session schema). Many tutorials still show 1.x — pay attention to the version.
+- Data is deliberately mocked (no real DB API access) — document as an ADR and in
+  the Context Record.
+- Official docs: https://google.github.io/adk-docs/ and https://adk.dev/
