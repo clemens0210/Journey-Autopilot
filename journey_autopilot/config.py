@@ -43,3 +43,4 @@ def _uni_model() -> LiteLlm:
 MONITORING_MODEL = _uni_model()
 PLANNER_MODEL = _uni_model()
 ORCHESTRATOR_MODEL = _uni_model()
+DRAFTER_MODEL = _uni_model()
