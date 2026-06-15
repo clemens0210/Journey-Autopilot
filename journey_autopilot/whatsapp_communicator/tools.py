@@ -195,9 +195,8 @@ def dispatch_message(draft: str, recipient: Recipient) -> None:
         raise
 
     logger.info(
-        "action=dispatched ts=%s recipient=%s number=%s preview=%.80s",
+        "action=dispatched ts=%s recipient=%s number=%s",
         datetime.now(timezone.utc).isoformat(),
         recipient.name,
         recipient.whatsapp_number,
-        draft,
     )
