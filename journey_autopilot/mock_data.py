@@ -104,14 +104,17 @@ PASSENGER_RIGHTS = [
 _r1 = REROUTE_OPTIONS[("München Hbf", "Berlin Hbf")][0]
 _meeting = USER_CALENDAR["2026-06-03"][0]
 
+# The WhatsApp communicator messages the traveler in English, so the event fields
+# carry an English reroute summary (the orchestrator's REROUTE_OPTIONS above stay
+# German for the German orchestrator demo).
 DEMO_EVENT_FIELDS: dict = {
     "traveler_name": DEMO_TRIP["passenger"],
     "original_train": DEMO_TRIP["train"],
     "delay_minutes": LIVE_TRIP_STATUS[DEMO_TRIP["trip_id"]]["current_delay_minutes"],
     "reroute_summary": (
-        f"{_r1['description']} "
-        f"(Ankunft {_r1['new_arrival'][11:16]} Uhr, +{_r1['added_delay_minutes']} min)"
+        f"Change at Erfurt to ICE 1008 toward Berlin "
+        f"(arrival {_r1['new_arrival'][11:16]}, +{_r1['added_delay_minutes']} min)"
     ),
     "meeting_time_original": _meeting["start"][11:16],
-    "meeting_time_new": _meeting["start"][11:16],  # Termin bleibt — Ankunft 12:38 liegt vor 14:00
+    "meeting_time_new": _meeting["start"][11:16],  # Appointment holds — arrival 12:38 is before 14:00
 }

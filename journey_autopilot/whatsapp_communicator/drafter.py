@@ -54,7 +54,7 @@ def _build_prompt(event: DisruptionEvent, recipient: Recipient) -> str:
         f"- Meeting originally: {event.meeting_time_original}\n"
         f"- Meeting now expected: {event.meeting_time_new}\n"
         f"- Recipient: {recipient.name}\n\n"
-        "Write a WhatsApp message. At most 3 sentences. "
+        "Write a WhatsApp message in English. At most 3 sentences. "
         "No formal 'Dear Sir/Madam' or similar — get straight to the point."
     )
 
@@ -63,7 +63,7 @@ def _build_agent(role: str) -> LlmAgent:
     return LlmAgent(
         name="drafter_agent",
         model=DRAFTER_MODEL,
-        instruction=_ROLE_INSTRUCTION[role],
+        instruction=_ROLE_INSTRUCTION[role] + " Always write in English.",
     )
 
 
