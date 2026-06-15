@@ -98,11 +98,11 @@ PASSENGER_RIGHTS = [
     {"min_delay_minutes": 120, "compensation": "50% of ticket price"},
 ]
 
-# --- WhatsApp-Communicator: Event-Felder aus dem bestehenden Mock-Szenario -------
-# Echte Telefonnummern kommen zur Laufzeit aus der .env (run_demo.py).
-# recipients wird dort aus DEMO_TRAVELER_NUMBER / DEMO_CLIENT_NUMBER etc. befüllt.
-_r1 = REROUTE_OPTIONS[("München Hbf", "Berlin Hbf")][0]
-_meeting = USER_CALENDAR["2026-06-03"][0]
+# --- WhatsApp communicator: event fields derived from the existing mock scenario -
+# Real phone numbers come from .env at runtime (run_demo.py).
+# recipients is populated there from DEMO_TRAVELER_NUMBER / DEMO_CLIENT_NUMBER etc.
+_r1 = REROUTE_OPTIONS[("Munich Hbf", "Berlin Hbf")][0]
+_meeting = USER_CALENDAR["2026-06-19"][0]
 
 # The WhatsApp communicator messages the traveler in English, so the event fields
 # carry an English reroute summary (the orchestrator's REROUTE_OPTIONS above stay
