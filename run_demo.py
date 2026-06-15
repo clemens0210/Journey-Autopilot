@@ -114,34 +114,36 @@ def _build_demo_context(os_module) -> tuple | None:
     return event, traveler, non_traveler, twilio_ready
 
 
-async def _demo_direct_notify(text: str) -> None:
-    """Demo 1 — Direct message: orchestrator response sent straight to the traveler, no drafter."""
+async def _demo_direct_notify() -> None:
+    """Demo 1 — Direct message: disruption notice sent straight to the traveler, no drafter."""
     import os
 
     print("\n" + "=" * 72)
     print("WhatsApp Demo 1 — Direct message to traveler (no drafter)")
     print("=" * 72)
 
-    traveler_number = os.getenv("DEMO_TRAVELER_NUMBER", "")
-    if not traveler_number:
-        print("[!] DEMO_TRAVELER_NUMBER nicht in .env gesetzt — Demo 1 übersprungen.")
+    ctx = _build_demo_context(os)
+    if ctx is None:
         return
+    event, traveler, _non_traveler, twilio_ready = ctx
 
-    twilio_ready = bool(
-        os.getenv("TWILIO_ACCOUNT_SID")
-        and os.getenv("TWILIO_AUTH_TOKEN")
-        and os.getenv("TWILIO_WHATSAPP_FROM")
+    print(f"\nScenario : {event.traveler_name} | {event.original_train} | +{event.delay_minutes} min")
+
+    notice = (
+        f"*Journey Autopilot — Disruption Notice*\n\n"
+        f"Train: {event.original_train}\n"
+        f"Current delay: {event.delay_minutes} min\n"
+        f"Proposed reroute: {event.reroute_summary}\n"
+        f"Your appointment at {event.meeting_time_original} is still achievable."
     )
 
-    traveler = Recipient(name="Lucas Wild", role="traveler", whatsapp_number=traveler_number)
-
     print(f"\nNachricht an {traveler.name} ({traveler.whatsapp_number}):\n")
-    print(text)
+    print(notice)
 
     if twilio_ready:
         print(f"\n  → Sending directly to {traveler.name} ({traveler.whatsapp_number}) ...")
         try:
-            tools.dispatch_message(text, traveler)
+            tools.dispatch_message(notice, traveler)
             print("  → Sent.")
         except Exception as exc:
             print(f"  [!] Twilio error: {type(exc).__name__}: {exc}")
@@ -234,7 +236,7 @@ async def main() -> None:
     print("\n--- Antwort an den Nutzer -------------------------------------------")
     print(final_text or "(keine Textantwort)")
 
-    await _demo_direct_notify(final_text)
+    await _demo_direct_notify()
     await _demo_approval_flow()
 
 
