@@ -20,14 +20,21 @@ import asyncio
 # ssl.SSLError: [ASN1: NOT_ENOUGH_DATA] when aiohttp calls ssl.create_default_context()
 # at module-load time. Patching load_default_certs to swallow that error lets the
 # rest of the store (and certifi's bundle) still work fine.
+import sys
 import ssl as _ssl
-_orig_load_default_certs = _ssl.SSLContext.load_default_certs
-def _patched_load_default_certs(self, purpose=_ssl.Purpose.SERVER_AUTH):
-    try:
-        _orig_load_default_certs(self, purpose)
-    except _ssl.SSLError:
-        pass
-_ssl.SSLContext.load_default_certs = _patched_load_default_certs
+
+if sys.platform.startswith("win"):
+    _orig_load_default_certs = _ssl.SSLContext.load_default_certs
+
+    def _patched_load_default_certs(self, purpose=_ssl.Purpose.SERVER_AUTH):
+        try:
+            _orig_load_default_certs(self, purpose)
+        except _ssl.SSLError as exc:
+            # Only swallow the known Windows cert-store parsing issue.
+            if "NOT_ENOUGH_DATA" not in str(exc):
+                raise
+
+    _ssl.SSLContext.load_default_certs = _patched_load_default_certs
 
 from google.adk.runners import InMemoryRunner
 from google.genai import types
