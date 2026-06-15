@@ -102,7 +102,7 @@ uvicorn journey_autopilot.whatsapp_communicator.webhook:app --port 8000
 
 Twilio schickt die Antworten des Reisenden (YES / NO / EDIT \<text\>) an
 `POST /whatsapp/reply`. Der Server leitet sie an die Genehmigungslogik in
-`queue.py` weiter und dispatcht die Nachricht bei Freigabe per Twilio an den
+`whatsapp_communicator/tools.py` weiter und dispatcht die Nachricht bei Freigabe per Twilio an den
 eigentlichen Empfänger.
 
 ---
