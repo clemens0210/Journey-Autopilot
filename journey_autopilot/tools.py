@@ -158,8 +158,8 @@ def get_passenger_rights(
             bahncard_type=bahncard_type,
         )
         legal_context = "\n\n--- Next Section ---\n".join(chunks)
-    except Exception as e:
-        legal_context = f"Knowledge base temporarily unavailable: {e}"
+    except Exception:
+        legal_context = "Knowledge base temporarily unavailable."
 
     return {
         **compensation,
