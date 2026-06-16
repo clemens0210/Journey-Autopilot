@@ -48,4 +48,4 @@ DRAFTER_MODEL = _uni_model()
 
 BASE_DIR = Path(__file__).resolve().parent
 
-CHROMA_PATH = BASE_DIR / "data" / "chromadb"
+CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(BASE_DIR / "data" / "chromadb")))
