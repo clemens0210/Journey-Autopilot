@@ -100,14 +100,15 @@ class FahrgastrechteRAG:
         return results["documents"][0]
     
     def retrieve_for_case(
-    self, 
-    delay_minutes: int, 
-    ticket_type: str, 
-    bahncard_type: str
-) -> list[str]:
+        self,
+        delay_minutes: int,
+        ticket_type: str,
+        bahncard_type: str,
+        n_results: int = 3,
+    ) -> list[str]:
         query = (
-        f"compensation delay {delay_minutes} minutes "
-        f"ticket type: {ticket_type} "
-        f"BahnCard: {bahncard_type}"
-    )
-        return self.retrieve(query)
+            f"compensation delay {delay_minutes} minutes "
+            f"ticket type: {ticket_type} "
+            f"BahnCard: {bahncard_type}"
+        )
+        return self.retrieve(query, n_results=n_results)
