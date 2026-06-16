@@ -148,7 +148,10 @@ def get_passenger_rights(
 
     # 2. RAG context for the agent — semantically matching chunks
     try:
-        rag = FahrgastrechteRAG()
+        rag = getattr(get_passenger_rights, "_rag", None)
+        if rag is None:
+            rag = FahrgastrechteRAG()
+            setattr(get_passenger_rights, "_rag", rag)
         chunks = rag.retrieve_for_case(
             delay_minutes=delay_minutes,
             ticket_type=ticket_type,
