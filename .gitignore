@@ -16,4 +16,5 @@ __pycache__/
 .DS_Store
 
 
-data/chromadb/*
+data/chromadb/
+journey_autopilot/data/chromadb/
