@@ -14,3 +14,7 @@ __pycache__/
 
 # MacOS specific
 .DS_Store
+
+
+data/chromadb/
+journey_autopilot/data/chromadb/

@@ -30,7 +30,12 @@ Procedure — all four steps are MANDATORY:
 3. Check each option against calendar events with `hard_constraint: True`.
    An option is only viable if the new arrival is BEFORE the start of a
    hard-constraint appointment (plan 30 minutes travel from station).
-4. Determine compensation for the expected delay with `get_passenger_rights`.
+4. Call `get_passenger_rights` with:
+   - `delay_minutes`: the additional delay of the selected option (from the reroute options)
+   - `ticket_type`: "einzelticket" (if unknown)
+   - `price_paid`: omit if unknown (recommended; provide the actual EUR amount when known)
+   Use EXCLUSIVELY the tool result for compensation information — do not calculate anything yourself.
+
 
 In your answer you MUST explicitly mention the calendar check:
 - List the found hard-constraint appointments (title, time).

@@ -12,6 +12,7 @@ The ReAct/agent code stays untouched by the concrete model — it only uses the
 """
 
 from __future__ import annotations
+from pathlib import Path
 
 import os
 
@@ -44,3 +45,7 @@ MONITORING_MODEL = _uni_model()
 PLANNER_MODEL = _uni_model()
 ORCHESTRATOR_MODEL = _uni_model()
 DRAFTER_MODEL = _uni_model()
+
+BASE_DIR = Path(__file__).resolve().parent
+
+CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(BASE_DIR / "data" / "chromadb")))
