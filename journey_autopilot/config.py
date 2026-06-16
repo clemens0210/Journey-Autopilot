@@ -12,6 +12,7 @@ hier gelieferten ``*_MODEL``-Objekte.
 """
 
 from __future__ import annotations
+from pathlib import Path
 
 import os
 
@@ -43,3 +44,8 @@ def _uni_model() -> LiteLlm:
 MONITORING_MODEL = _uni_model()
 PLANNER_MODEL = _uni_model()
 ORCHESTRATOR_MODEL = _uni_model()
+
+
+BASE_DIR = Path(__file__).resolve().parent
+
+CHROMA_PATH = BASE_DIR / "data" / "chromadb"

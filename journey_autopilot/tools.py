@@ -12,6 +12,8 @@ für echte DB-/Kalender-/RAG-Quellen.
 from __future__ import annotations
 
 from . import mock_data
+from .passenger_rights.rag_store import FahrgastrechteRAG
+from .passenger_rights.rights_service import calculate_compensation
 
 
 # --- Monitoring-Tools ---------------------------------------------------------
@@ -81,25 +83,52 @@ def get_user_calendar(date: str) -> dict:
     return {"date": date, "events": events}
 
 
-def get_passenger_rights(delay_minutes: int) -> dict:
-    """Ermittelt die Fahrgastrechte-/Entschädigungsstufe für eine Verspätung.
+def get_passenger_rights(
+    delay_minutes: int,
+    ticket_type: str = "einzelticket",
+    price_paid: float = 0.0,
+    travel_class: int = 2,
+    bahncard_type: str = "keine",
+) -> dict:
+    """Determines passenger rights and calculates the concrete compensation claim.
+
+    Combines two sources:
+      1. Deterministic rule logic (rights_service) → exact EUR amount
+      2. RAG search in ChromaDB → legal context chunks from bahn.de
 
     Args:
-        delay_minutes: Erwartete Ankunftsverspätung in Minuten.
+        delay_minutes:  Expected arrival delay at destination in minutes.
+        ticket_type:    Ticket type: "einzelticket" | "zeitkarte_fv" |
+                        "zeitkarte_nv" | "bc100" | "deutschland_ticket".
+        price_paid:     Ticket price paid in EUR (relevant for single tickets).
+        travel_class:   Travel class, 1 or 2 (default: 2).
+        bahncard_type:  User's BahnCard: "keine" | "bc25" | "bc50" | "bc100".
 
     Returns:
-        Ein Dict mit der zutreffenden Entschädigung (oder einem Hinweis, dass
-        unterhalb der Schwelle kein Anspruch besteht).
+        Dict with calculated compensation claim and legal context.
     """
-    applicable = [
-        rule
-        for rule in mock_data.PASSENGER_RIGHTS
-        if delay_minutes >= rule["min_delay_minutes"]
-    ]
-    if not applicable:
-        return {
-            "delay_minutes": delay_minutes,
-            "compensation": "Unter 60 Minuten — kein Entschädigungsanspruch.",
-        }
-    best = max(applicable, key=lambda rule: rule["min_delay_minutes"])
-    return {"delay_minutes": delay_minutes, "compensation": best["compensation"]}
+    # 1. Deterministic calculation — no LLM, no network
+    compensation = calculate_compensation(
+        delay_minutes=delay_minutes,
+        ticket_type=ticket_type,
+        price_paid=price_paid,
+        travel_class=travel_class,
+        bahncard_type=bahncard_type,
+    )
+
+    # 2. RAG context for the agent — semantically matching chunks
+    try:
+        rag = FahrgastrechteRAG()
+        chunks = rag.retrieve_for_case(
+            delay_minutes=delay_minutes,
+            ticket_type=ticket_type,
+            bahncard_type=bahncard_type,
+        )
+        legal_context = "\n\n--- Next Section ---\n".join(chunks)
+    except Exception as e:
+        legal_context = f"Knowledge base temporarily unavailable: {e}"
+
+    return {
+        **compensation,
+        "legal_context": legal_context,
+    }

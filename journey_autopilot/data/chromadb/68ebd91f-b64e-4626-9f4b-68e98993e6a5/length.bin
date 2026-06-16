@@ -1,0 +1,11 @@
+HTTP/1.1 416 Range Not Satisfiable
+Date: Thu, 11 Jun 2026 17:54:07 GMT
+Content-Type: text/plain; charset=utf-8
+Content-Length: 58
+Connection: keep-alive
+vary: accept-encoding
+vary: origin, access-control-request-method, access-control-request-headers
+x-request-id: 01KTVX3SQN06MBV16DHZPR1JWT
+access-control-allow-credentials: true
+
+request_id: 01KTVX3SQN06MBV16DHZPR1JWT; (12) invalid range

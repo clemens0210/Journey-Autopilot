@@ -26,8 +26,11 @@ Vorgehen:
 2. Prüfe mit `get_user_calendar` die harten Termine am Reisetag. Eine Option ist
    nur tauglich, wenn die neue Ankunft VOR dem Start eines `hard_constraint`-Termins
    liegt (Weg vom Bahnhof grob einplanen).
-3. Ermittle mit `get_passenger_rights` die Entschädigung für die erwartete
-   Verspätung.
+3. Rufe `get_passenger_rights` auf mit:
+   - `delay_minutes`: die zusätzliche Verspätung der gewählten Option (aus den Reroute-Optionen)
+   - `ticket_type`: "einzelticket" (falls unbekannt)
+   - `price_paid`: 0.0 (falls unbekannt)
+   Nutze AUSSCHLIESSLICH das Tool-Ergebnis für Entschädigungsangaben — berechne nichts selbst.
 
 Antworte strukturiert:
 - Empfohlene Option (ID + kurze Begründung, warum sie die harten Constraints hält)
