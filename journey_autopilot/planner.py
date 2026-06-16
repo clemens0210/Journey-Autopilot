@@ -32,8 +32,8 @@ Procedure — all four steps are MANDATORY:
    hard-constraint appointment (plan 30 minutes travel from station).
 4. Call `get_passenger_rights` with:
    - `delay_minutes`: the additional delay of the selected option (from the reroute options)
-   - `ticket_type`: "single_ticket" (if unknown)
-   - `price_paid`: 0.0 (if unknown)
+   - `ticket_type`: "einzelticket" (if unknown)
+   - `price_paid`: omit if unknown (recommended; provide the actual EUR amount when known)
    Use EXCLUSIVELY the tool result for compensation information — do not calculate anything yourself.
 
 
