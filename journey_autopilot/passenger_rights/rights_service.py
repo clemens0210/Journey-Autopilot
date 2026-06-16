@@ -149,9 +149,22 @@ def _calculate(
 
     # --- Standard single ticket ---
     if ticket_type == "einzelticket":
+        if price_paid <= 0:
+            percentage = 0.50 if delay_minutes >= 120 else 0.25
+            return CompensationResult(
+                eligible=True,
+                compensation_eur=0.0,
+                reason=(
+                    f"Single ticket, {delay_minutes} min delay — compensation is {int(percentage*100)}% "
+                    "of the fare paid (minimum 4€). Provide price_paid to calculate the exact amount."
+                ),
+                notes=[
+                    f"Rule of thumb: {int(percentage*100)}% of fare paid (min 4€).",
+                ],
+            )
+
         percentage = 0.50 if delay_minutes >= 120 else 0.25
         amount = round(price_paid * percentage, 2)
-
         # Minimum threshold
         if amount < 4.0:
             return CompensationResult(
