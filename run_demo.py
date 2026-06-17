@@ -15,6 +15,22 @@ adk run journey_autopilot
 from __future__ import annotations
 
 import asyncio
+import os
+
+try:
+    from dotenv import load_dotenv
+
+    # Load .env before importing ADK/LiteLLM so logging settings and credentials
+    # are visible during model initialization.
+    load_dotenv()
+    load_dotenv("journey_autopilot/.env")
+except ImportError:
+    # python-dotenv is an ADK dependency; if absent, set .env manually.
+    pass
+
+# Keep LiteLLM's background logging worker from printing best-effort telemetry
+# timeouts into the terminal demo. Set LITELLM_LOG explicitly to see them again.
+os.environ.setdefault("LITELLM_LOG", "CRITICAL")
 
 # Windows certificate store sometimes contains malformed certs that cause
 # ssl.SSLError: [ASN1: NOT_ENOUGH_DATA] when aiohttp calls ssl.create_default_context()
@@ -38,16 +54,6 @@ if sys.platform.startswith("win"):
 
 from google.adk.runners import InMemoryRunner
 from google.genai import types
-
-try:
-    from dotenv import load_dotenv
-
-    # Load .env from the project root and from the agent package.
-    load_dotenv()
-    load_dotenv("journey_autopilot/.env")
-except ImportError:
-    # python-dotenv is an ADK dependency; if absent, set .env manually.
-    pass
 
 from journey_autopilot.agent import root_agent
 from journey_autopilot.mock_data import DEMO_TRIP, DEMO_EVENT_FIELDS
@@ -225,11 +231,12 @@ async def main() -> None:
         async for event in runner.run_async(
             user_id=USER_ID, session_id=session.id, new_message=message
         ):
-            _describe_event(event)
             if event.is_final_response() and event.content and event.content.parts:
                 final_text = "".join(
                     p.text for p in event.content.parts if getattr(p, "text", None)
                 )
+                continue
+            _describe_event(event)
     except Exception as exc:
         # Falls through here e.g. for LiteLLM/Uni-GPT errors: wrong endpoint,
         # key or model name each have their own exception types.

@@ -16,6 +16,11 @@ from pathlib import Path
 
 import os
 
+# LiteLLM's background logging/telemetry worker can emit timeout stack traces
+# after otherwise successful demo runs. Keep it quiet by default; override with
+# LITELLM_LOG=ERROR or LITELLM_LOG=DEBUG when diagnosing LiteLLM itself.
+os.environ.setdefault("LITELLM_LOG", "CRITICAL")
+
 # University of Cologne GPT: OpenAI-compatible endpoint via LiteLLM.
 # Requires google-adk[extensions] (litellm); if missing, ADK gives a clear
 # ImportError message with install instructions.

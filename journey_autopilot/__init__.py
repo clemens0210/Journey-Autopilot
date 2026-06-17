@@ -4,6 +4,4 @@
 an `agent` module that defines `root_agent`.
 """
 
-from . import agent
-
 __all__ = ["agent"]

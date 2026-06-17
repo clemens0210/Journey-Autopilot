@@ -15,9 +15,9 @@ def crawl_all() -> list[dict]:
             doc = _crawl_page(url)
             if doc:
                 documents.append(doc)
-                print(f"✓ Crawled: {url}")
+                print(f"Crawled: {url}")
         except Exception as e:
-            print(f"✗ Error crawling {url}: {e}")
+            print(f"Error crawling {url}: {e}")
     return documents
 
 def _crawl_page(url: str) -> dict | None:

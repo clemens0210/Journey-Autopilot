@@ -1,11 +1,15 @@
 import chromadb
 from chromadb.utils import embedding_functions
-import journey_autopilot.config as config
+from pathlib import Path
+import os
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(BASE_DIR / "data" / "chromadb")))
 
 class FahrgastrechteRAG:
     
     def __init__(self):
-        self.client = chromadb.PersistentClient(path=str(config.CHROMA_PATH))
+        self.client = chromadb.PersistentClient(path=str(CHROMA_PATH))
         
         # Multilinguales Modell wegen deutschen Texten
         self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
@@ -60,7 +64,7 @@ class FahrgastrechteRAG:
             metadatas=all_metadata
         )
         
-        print(f"✓ Index built: {len(all_chunks)} chunks from {len(documents)} pages")
+        print(f"Index built: {len(all_chunks)} chunks from {len(documents)} pages")
     
     def _chunk_text(self, text: str, chunk_size: int = 400) -> list[str]:
         """Text an Absatzgrenzen aufteilen, nicht mitten im Satz"""
