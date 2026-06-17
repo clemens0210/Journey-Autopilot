@@ -152,6 +152,38 @@ def get_passenger_rights(delay_minutes: int) -> dict:
 # --- Risk-Tools (Vorab-Risiko, vor Reisebeginn) -------------------------------
 
 
+def get_connection_delay_reference(origin: str, destination: str, train: str = "") -> dict:
+    """Liefert die historische Pünktlichkeits-Referenz der Verbindung (Monats-Archiv).
+
+    Die belastbare Baseline für die Risikobewertung: Wie pünktlich kommen Züge
+    dieses Typs am Zielbahnhof über MEHRERE MONATE an? Quelle ist ein echtes
+    Verspätungs-Archiv (piebro/deutsche-bahn-data, DB-Daten, CC BY 4.0), vorab zu
+    Kennzahlen je Bahnhof und Zugtyp verdichtet. Ergänzt `get_connection_delay_history`
+    (nur letzte Stunden, aktuelle Lage): das Archiv liefert den langfristigen
+    Normalfall, die Live-Historie die heutige Situation.
+
+    Args:
+        origin: Start-Bahnhof (nur Kontext; gewertet wird die Ankunft am Ziel).
+        destination: Ziel-Bahnhof, z. B. "Berlin Hbf".
+        train: Optionaler Zugname (z. B. "ICE 1006") — bestimmt den Zugtyp.
+
+    Returns:
+        Ein Dict mit `sample_count`, mittlerer/median/p90-Verspätung,
+        Pünktlichkeitsquote, Ausfallquote, der verwendeten `basis` (Zugtyp),
+        den abgedeckten `months` und `source="db_history_archive"`. Enthält
+        "error", wenn der Bahnhof nicht im Archiv liegt.
+    """
+    ref = delay_stats.historical_reference(destination, train=train)
+    if ref is None:
+        return {
+            "origin": origin,
+            "destination": destination,
+            "error": "Keine historische Referenz für diesen Zielbahnhof verfügbar.",
+        }
+    ref["origin"] = origin
+    return ref
+
+
 def get_connection_delay_history(origin: str, destination: str, train: str = "") -> dict:
     """Liefert Verspätungs-Kennzahlen einer Verbindung aus Vergangenheitsdaten.
 

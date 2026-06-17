@@ -13,3 +13,8 @@ requests>=2.31
 # Onboarding-Web-App (onboarding/): JSON-API + DB-Navigator-Style-UI.
 fastapi>=0.110
 uvicorn>=0.29
+
+# Optional, NUR zum (Neu-)Bauen der historischen Verspätungs-Referenz mit
+# scripts/build_db_delay_reference.py (Parquet von Hugging Face verdichten).
+# Die Laufzeit braucht das nicht — sie liest nur die fertige JSON.
+#   pip install pyarrow huggingface_hub

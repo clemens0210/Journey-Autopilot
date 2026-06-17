@@ -22,12 +22,22 @@ die Schnittstelle bliebe gleich.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import datetime, timedelta
+from functools import lru_cache
+from pathlib import Path
 from statistics import mean, median
 from typing import Any
 
 from . import db_api, stations
+
+# Fernverkehr — für die Auswahl der passenden Kennzahlen-Gruppe im Archiv.
+_LONG_DISTANCE = {"ICE", "IC", "EC", "ECE", "RJ", "RJX", "TGV", "NJ", "EN"}
+
+# Historische Verspätungs-Referenz (vorab gebaut aus piebro/deutsche-bahn-data,
+# siehe scripts/build_db_delay_reference.py). Liegt als kompakte JSON im Paket.
+_REFERENCE_PATH = Path(__file__).resolve().parent / "data" / "db_delay_reference.json"
 
 # Schwellen (in Minuten) für die abgeleiteten Quoten.
 _PUNCTUAL_MAX_MINUTES = 5      # bis 5 Min gilt als pünktlich (DB-Konvention < 6 Min)
@@ -249,4 +259,102 @@ def scheduled_connection(
         "planned_arrival": last.get("plannedArrival") or last.get("arrival"),
         "transfers": max(len(legs) - 1, 0),
         "realtime_arrival_delay_minutes": _to_minutes(last.get("arrivalDelay")),
+    }
+
+
+# --- Historische Referenz (Mehr-Monats-Archiv, offline) -----------------------
+#
+# Anders als die Live-Tafel (~5–6 h Echtzeit) ist das ein echtes Pünktlichkeits-
+# ARCHIV über Monate — die belastbare Baseline für den Risiko-Score. Quelle:
+# piebro/deutsche-bahn-data (CC BY 4.0). Vorab verdichtet je (EVA, Zugtyp); zur
+# Laufzeit nur ein kleiner JSON-Read, keine schweren Abhängigkeiten.
+
+
+@lru_cache(maxsize=1)
+def _load_reference() -> dict:
+    """Lädt die committete Referenz-JSON einmalig (oder {} wenn nicht vorhanden)."""
+    if not _REFERENCE_PATH.exists():
+        return {}
+    try:
+        return json.loads(_REFERENCE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _norm_name(name: str) -> str:
+    """Stationsname robust normalisieren ('Berlin Hbf' ~ 'Berlin Hauptbahnhof')."""
+    n = (name or "").lower().strip().replace("hauptbahnhof", "hbf")
+    for ch in " .,()-/":
+        n = n.replace(ch, "")
+    return n
+
+
+@lru_cache(maxsize=1)
+def _name_index() -> dict:
+    """{normalisierter Name -> EVA} aus der Referenz — Fallback ohne Sidecar."""
+    index: dict[str, str] = {}
+    for eva, entry in _load_reference().get("stations", {}).items():
+        key = _norm_name(entry.get("station_name") or "")
+        if key:
+            index.setdefault(key, eva)
+    return index
+
+
+def _train_type(train: str) -> str | None:
+    """'ICE 1006' -> 'ICE'."""
+    tokens = (train or "").strip().split()
+    return tokens[0].upper() if tokens else None
+
+
+def historical_reference(destination: str, train: str = "") -> dict | None:
+    """Historische Verspätungs-Kennzahlen am Zielbahnhof aus dem Archiv.
+
+    Wählt die passende Kennzahlen-Gruppe: erst der konkrete Zugtyp (aus ``train``),
+    sonst Fernverkehr-Sammelwert, sonst der Gesamtwert des Bahnhofs. Auflösung des
+    Bahnhofs zuerst über die EVA (Sidecar), sonst über einen Namensindex — die
+    Referenz funktioniert damit auch offline.
+
+    Returns:
+        Dict mit Kennzahlen + Metadaten (Monate, Quelle), oder ``None`` wenn der
+        Bahnhof nicht im Archiv ist / keine Referenz vorliegt.
+    """
+    ref = _load_reference()
+    stations_ = ref.get("stations") or {}
+    if not stations_:
+        return None
+
+    eva = None
+    try:
+        resolved = stations.resolve_eva(destination)
+        eva = str(int(resolved)) if resolved else None
+    except Exception:
+        eva = None  # Sidecar nicht erreichbar -> Namensindex versuchen
+
+    entry = stations_.get(eva) if eva else None
+    if entry is None:
+        entry = stations_.get(_name_index().get(_norm_name(destination), ""))
+    if entry is None:
+        return None
+
+    ttype = _train_type(train)
+    by_type = entry.get("by_train_type") or {}
+    if ttype and ttype in by_type:
+        kpis, basis = by_type[ttype], ttype
+    elif ttype in _LONG_DISTANCE and entry.get("long_distance"):
+        kpis, basis = entry["long_distance"], "Fernverkehr"
+    elif entry.get("long_distance"):
+        kpis, basis = entry["long_distance"], "Fernverkehr"
+    else:
+        kpis, basis = entry["overall"], "alle Zugtypen"
+
+    meta = ref.get("_meta") or {}
+    return {
+        "destination": destination,
+        "station_name": entry.get("station_name"),
+        "basis": basis,
+        "months": meta.get("months"),
+        "source": "db_history_archive",
+        "source_url": meta.get("source_url"),
+        "license": meta.get("license"),
+        **kpis,
     }

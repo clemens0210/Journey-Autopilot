@@ -114,11 +114,27 @@ def _fetch_history_verbose() -> dict:
 
 
 def print_data_basis() -> tuple[dict, dict]:
-    """Abschnitte 1–3: berücksichtigte Verbindungen, Kennzahlen, ETA-Anker."""
+    """Abschnitte 0–3: Baseline-Archiv, berücksichtigte Verbindungen, Kennzahlen, ETA."""
+    reference = tools.get_connection_delay_reference(ORIGIN, DESTINATION, TRAIN)
     history = _fetch_history_verbose()
     planned = tools.get_planned_connection(ORIGIN, DESTINATION, DEPARTURE)
 
-    print("--- 1) Datenbasis: berücksichtigte Verbindungen ---------------------")
+    print("--- 0) Historische Pünktlichkeits-Referenz (Baseline, Monats-Archiv) -")
+    if "error" in reference:
+        print(f"  ({reference['error']})")
+    else:
+        print(f"  Zielbahnhof: {reference.get('station_name')}  |  Basis: {reference.get('basis')}"
+              f"  |  Monate: {', '.join(reference.get('months') or [])}")
+        print(f"  Stichprobe (Fahrten)      : {reference.get('sample_count'):,}")
+        print(f"  Pünktlich (≤5 Min)        : {reference.get('on_time_rate_pct')} %")
+        print(f"  Median / p90 / Ø          : {reference.get('median_delay_minutes')} / "
+              f"{reference.get('p90_delay_minutes')} / {reference.get('mean_delay_minutes')} Min")
+        print(f"  Ausfallquote              : {reference.get('cancellation_rate_pct')} %")
+        print(f"  Quelle                    : {reference.get('source')} "
+              f"({reference.get('source_url')}, {reference.get('license')})")
+    print()
+
+    print("--- 1) Aktuelle Lage: berücksichtigte Verbindungen (letzte Stunden) --")
     print(f"Quelle: {history.get('source')}  |  Fenster: {history.get('window', '—')}")
     samples = history.get("samples")
     if samples:

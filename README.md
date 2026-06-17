@@ -92,6 +92,27 @@ Endpunkte und Optionen stehen in `db_service/README.md`. Der Python-Client wird
 > und eigenständig testbar. Die Agenten laufen aktuell noch auf `mock_data` —
 > `tools.py` wird im nächsten Schritt auf `db_api` umgestellt.
 
+### Historische Verspätungs-Referenz (Risk Agent)
+
+Der Risk Agent stützt seine Baseline auf ein echtes Pünktlichkeits-**Archiv** über
+Monate. Das committete `journey_autopilot/data/db_delay_reference.json` (~370 kB)
+ist vorab aus dem Datensatz
+[`piebro/deutsche-bahn-data`](https://github.com/piebro/deutsche-bahn-data)
+(echte DB-Halte, **CC BY 4.0**) verdichtet — je Bahnhof und Zugtyp die
+Ankunftsverspätungs-Kennzahlen. Zur Laufzeit wird nur diese JSON gelesen (keine
+schweren Abhängigkeiten, offline nutzbar).
+
+Neu bauen/aktualisieren (lädt Parquet von Hugging Face, braucht zusätzlich
+`pyarrow` und `huggingface_hub`):
+
+```bash
+python scripts/build_db_delay_reference.py 2025-08 2025-09 2025-10
+```
+
+> **Lizenz/Attribution:** Daten © Deutsche Bahn, bereitgestellt von
+> `piebro/deutsche-bahn-data` unter CC BY 4.0. Die `_meta`-Sektion der JSON hält
+> Quelle, Lizenz und abgedeckte Monate fest.
+
 ## Onboarding & Profil (Web-App)
 
 Das Onboarding läuft als eigene Web-App im **DB-Navigator-Look** (FastAPI +
@@ -154,10 +175,13 @@ db_service-Sidecar, mit Mock-Fallback wenn er nicht läuft.
 - **Monitoring Agent** (`monitoring.py`) — liest gemockte Live-Daten und
   Störungslage, gibt ein Risiko-Level (NIEDRIG/MITTEL/HOCH) zurück.
 - **Risk Agent** (`risk.py`) — bewertet **vor Reisebeginn** das Verspätungsrisiko
-  einer Verbindung anhand ihrer Pünktlichkeits-Historie und prognostiziert die
-  voraussichtliche Ankunft (Score 0–100 + ETA). Kennzahlen kommen deterministisch
-  aus `delay_stats.py` (echte DB-Ankunftstafel via Sidecar, sonst Mock-Historie);
-  der Agent bewertet und begründet.
+  einer Verbindung und prognostiziert die voraussichtliche Ankunft (Score 0–100 +
+  ETA). Zwei Datenquellen: eine **historische Baseline über Monate** (echtes
+  Pünktlichkeits-Archiv, [piebro/deutsche-bahn-data](https://github.com/piebro/deutsche-bahn-data),
+  vorab verdichtet in `journey_autopilot/data/db_delay_reference.json`) und die
+  **aktuelle Lage** der letzten Stunden (DB-Ankunftstafel via Sidecar). Kennzahlen
+  rechnet `delay_stats.py` deterministisch; der Agent kombiniert Baseline + heutige
+  Abweichung, bewertet und begründet.
 - **Planner Agent** (`planner.py`) — generiert Reroute-Optionen, prüft sie gegen
   harte Termine (Kalender) und nennt Fahrgastrechte. Schlägt vor, bucht nicht.
 - **Tools & Mock-Daten** (`tools.py`, `mock_data.py`) — Function-Tools über
@@ -181,8 +205,10 @@ journey_autopilot/
   mock_data.py       # Fixtures (Demo-Reise München->Berlin, Verspätungs-Historie)
   config.py          # Modell pro Rolle
   db_api.py          # Python-Client für den db_service-Sidecar (einzige DB-Zugriffsstelle)
-  delay_stats.py     # Verspätungs-Kennzahlen einer Verbindung (für den Risk Agent)
+  delay_stats.py     # Verspätungs-Kennzahlen: Live-Tafel + historisches Archiv (Risk Agent)
   stations.py        # Stationsname -> EVA-Nummer (mit Cache)
+  data/              # db_delay_reference.json — vorab gebautes Pünktlichkeits-Archiv
+scripts/             # build_db_delay_reference.py — baut data/ aus piebro/deutsche-bahn-data
 db_service/          # Node-Sidecar: db-vendo-client als lokale JSON-API
   index.mjs          # Fastify-Server, ein Endpunkt pro Client-Methode
   package.json       # gepinnte Deps (db-vendo-client, fastify)

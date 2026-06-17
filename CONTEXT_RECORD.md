@@ -50,19 +50,24 @@ A locked snapshot of all decisions, constraints, and open questions captured dur
 #### Decisions
 - **Pre-trip risk is its own agent** (`journey_autopilot/risk.py`, `risk_agent`), separate from the live Monitoring Agent: it scores delay risk and predicts an ETA **before the route starts**, the Monitoring Agent watches a running trip. The Orchestrator branches on this (pre-trip → Risk, en route → Monitoring → Planner).
 - **Split of labor — deterministic stats, agentic scoring:** `delay_stats.py` computes the punctuality KPIs (mean/median/p90 delay, on-time rate, cancellations, top causes) in pure Python; the LLM agent only *interprets* them into a 0–100 score, a NIEDRIG/MITTEL/HOCH band and an ETA (planned arrival + expected delay). Keeps the math robust and the verdict explainable.
-- **"Past data of the connection" via the DB arrival board:** `db-vendo-client` has no historical-delay archive (the API is forward-looking), so the real signal is the destination's arrivals board sampled over a window — every long-distance arrival carries its realized delay. Honest proxy, real DB numbers; a true punctuality archive would later replace just `delay_stats.connection_delay_history`.
-- **Live-with-mock-fallback,** like the rest of the tools: tools try the db_service sidecar, fall back to a simulated history (`mock_data.CONNECTION_DELAY_HISTORY` / `PLANNED_CONNECTIONS`) when it is down, and tag the output with `source` so the agent (and user) see whether the basis is live or simulated.
+- **Two complementary "past data" sources:**
+  - **Historical baseline (months) — the reference:** a real punctuality *archive* from [piebro/deutsche-bahn-data](https://github.com/piebro/deutsche-bahn-data) (DB data, CC BY 4.0). Pre-aggregated once into compact arrival-delay KPIs per `(station EVA, train_type)` (`scripts/build_db_delay_reference.py` → `journey_autopilot/data/db_delay_reference.json`, ~370 kB). Runtime reads only the JSON — no heavy deps, works offline (EVA via sidecar, else a name index). This is the long-run normal case the score is anchored on.
+  - **Live recent past (~5 h) — today's situation:** the destination's DB arrival board, sampled backward in ~1 h chunks (single call is API-capped to ~1 h), realized delays of trains that already arrived. Catches today's disruptions on top of the baseline.
+- **Split of labor — deterministic stats, agentic scoring:** `delay_stats.py` computes both sets of KPIs in pure Python; the Risk Agent combines baseline + today's deviation into a 0–100 score, a NIEDRIG/MITTEL/HOCH band and an ETA — it interprets, it does not do the math.
+- **Live-with-mock-fallback,** like the rest of the tools: tools try the archive/sidecar, fall back to a simulated history (`mock_data.CONNECTION_DELAY_HISTORY` / `PLANNED_CONNECTIONS`), and tag the output with `source` (`db_history_archive` / `db_service_live` / `mock_*`) so the agent and user see what the basis is.
 
 #### Constraints
-- No historical-delay archive in `db-vendo-client` → the arrival-board sample is a same-day corridor proxy, not a true multi-week history (documented in `delay_stats.py`).
-- Weather and large-events signals are not yet wired in — current score rests on punctuality history + known causes only.
+- The empirical realtime horizon of the live board is only ~5–6 h (older queries return the static timetable, no delays) — hence the archive for the long-run baseline.
+- `db-vendo-client` itself has no historical archive; we depend on the piebro dataset for history. The committed reference is a static snapshot (currently 2025-08…10) — refresh by re-running the build script.
+- Weather and large-events signals are not yet wired in — current score rests on punctuality history (archive + live) only.
 
 #### Open Questions
 - Which DB ops APIs are actually available?
-- How to add weather / large-event signals to the score, and a real punctuality archive?
+- How to add weather / large-event signals to the score?
+- Refresh cadence for the historical reference (re-run the build script monthly? automate?).
 
 #### Justification
-- Scoring delay risk and ETA before departure is the product's differentiator ("basic systems only react"); building it on real DB punctuality data with an honest proxy keeps the demo credible and the path to a real archive a one-module swap.
+- Scoring delay risk and ETA before departure is the product's differentiator ("basic systems only react"). Anchoring it on a real months-long DB punctuality archive (baseline) and adjusting with today's live board makes the score both robust and current; pre-aggregating the archive keeps the runtime light and offline-capable.
 
 ### Replanning / Rerouting
 
@@ -77,7 +82,8 @@ A locked snapshot of all decisions, constraints, and open questions captured dur
 - 
 
 #### Open Questions
-- 
+- How to reroute? Using the alternative routes from the Navigator? Advanced with risk score? Just mockking the data?
+
 
 #### Justification
 - 
@@ -201,7 +207,15 @@ A locked snapshot of all decisions, constraints, and open questions captured dur
 
 ## Tech Stack & Tool Architecture
 
+### 
+**Responsible Person:** Clemens
+
+
 ### Decisions
+
+- **Agent Architecture and Tool Calls**
+  - number of agents
+  - number of tool calls
 
 - **Language & Framework:**
   - Backend: Python
