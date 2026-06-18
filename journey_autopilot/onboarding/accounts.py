@@ -14,6 +14,14 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
+# Lucas' first booked trip is the canonical demo scenario (Munich → Berlin).
+# Its fields are kept identical to ``journey_autopilot.mock_data.DEMO_TRIP``
+# (same trip_id, route, date) so the dashboard chat drives the very same
+# monitoring/reroute/calendar flow as ``run_demo.py``: the orchestrator's live
+# status, reroute options, and calendar mock are all pinned to this date.
+DEMO_DATE = date(2026, 6, 19)
+DEMO_TRIP_ID = "DB-2026-0619-MUC-BLN"
+
 # --- Demo accounts ---------------------------------------------------------------
 # Passwords in plain text because this is simulated: these are public demo
 # credentials shown on the login screen. There is no real account.
@@ -63,26 +71,31 @@ def _iso(day: date, hhmm: str) -> str:
 
 
 def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
-    """Upcoming bookings for an account — generated dynamically relative to today.
+    """Upcoming bookings for an account.
 
-    Structure follows ``mock_data.DEMO_TRIP``, extended with the fields that
-    the DB Navigator shows per order (order number, coach/seat, price).
+    Most trips are generated relative to today (so the demo always shows
+    upcoming trips); Lucas' first trip is pinned to the canonical demo
+    scenario (see ``DEMO_DATE``) so the dashboard chat exercises the full
+    monitoring/reroute flow. Structure follows ``mock_data.DEMO_TRIP``,
+    extended with the fields the DB Navigator shows per order (order number,
+    coach/seat, price).
     """
     today = today or date.today()
-    d1 = today + timedelta(days=3)
     d2 = today + timedelta(days=5)
     d3 = today + timedelta(days=12)
 
     if user_id == "u-lucas-wild":
         return [
             {
-                "trip_id": f"DB-{d1:%Y-%m%d}-MUC-BLN",
+                # Canonical demo trip — kept in sync with mock_data.DEMO_TRIP so
+                # the dashboard chat triggers the full disruption/reroute flow.
+                "trip_id": DEMO_TRIP_ID,
                 "order_number": "QX7K2P",
-                "origin": "München Hbf",
+                "origin": "Munich Hbf",
                 "destination": "Berlin Hbf",
                 "train": "ICE 1006",
-                "planned_departure": _iso(d1, "08:00"),
-                "planned_arrival": _iso(d1, "12:04"),
+                "planned_departure": _iso(DEMO_DATE, "08:00"),
+                "planned_arrival": _iso(DEMO_DATE, "12:04"),
                 "platform": "Platform 18",
                 "coach": "Coach 9",
                 "seat": "Seat 64, window",
@@ -94,7 +107,7 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "trip_id": f"DB-{d2:%Y-%m%d}-BLN-MUC",
                 "order_number": "QX7K2P",
                 "origin": "Berlin Hbf",
-                "destination": "München Hbf",
+                "destination": "Munich Hbf",
                 "train": "ICE 1003",
                 "planned_departure": _iso(d2, "16:28"),
                 "planned_arrival": _iso(d2, "20:33"),
@@ -108,8 +121,8 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
             {
                 "trip_id": f"DB-{d3:%Y-%m%d}-MUC-CGN",
                 "order_number": "MR4T9A",
-                "origin": "München Hbf",
-                "destination": "Köln Hbf",
+                "origin": "Munich Hbf",
+                "destination": "Cologne Hbf",
                 "train": "ICE 518",
                 "planned_departure": _iso(d3, "07:28"),
                 "planned_arrival": _iso(d3, "11:58"),
@@ -154,28 +167,29 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
     the hard constraint that the planner agent checks reroutes against.
     """
     today = today or date.today()
-    d1 = today + timedelta(days=3)
     d3 = today + timedelta(days=12)
 
     if user_id == "u-lucas-wild":
+        # The Berlin meeting sits on the demo date and is the hard constraint the
+        # planner checks the Munich → Berlin reroute against (see mock_data).
         return [
             {
                 "title": "Client meeting Berlin (on-site)",
                 "location": "Berlin Mitte, Friedrichstraße 100",
-                "start": _iso(d1, "14:00"),
-                "end": _iso(d1, "17:00"),
+                "start": _iso(DEMO_DATE, "14:00"),
+                "end": _iso(DEMO_DATE, "17:00"),
                 "hard_constraint": True,
             },
             {
                 "title": "Team sync (Teams call)",
                 "location": "online",
-                "start": _iso(d1, "10:30"),
-                "end": _iso(d1, "11:00"),
+                "start": _iso(DEMO_DATE, "10:30"),
+                "end": _iso(DEMO_DATE, "11:00"),
                 "hard_constraint": False,
             },
             {
                 "title": "Workshop Agentic Systems",
-                "location": "Köln, MediaPark 5",
+                "location": "Cologne, MediaPark 5",
                 "start": _iso(d3, "13:00"),
                 "end": _iso(d3, "18:00"),
                 "hard_constraint": True,

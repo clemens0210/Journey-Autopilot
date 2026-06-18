@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from .rerouting import db_api
+from . import db_api
 
 
 @lru_cache(maxsize=256)

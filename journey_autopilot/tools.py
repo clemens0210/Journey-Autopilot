@@ -161,183 +161,6 @@ def get_upcoming_trips() -> dict:
     return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
 
 
-def get_user_profile() -> dict:
-    """Reads the user's personal preference profile from onboarding.
-
-    Contains class, seat preferences, the speed-vs-comfort tradeoff (0 = maximum
-    comfort, 100 = fastest arrival), maximum number of transfers, home station,
-    latest return time, and the autonomy level. Reroute options should be
-    evaluated against this profile.
-
-    Returns:
-        A dict with the profile, or with "error" if onboarding has not been
-        completed yet.
-    """
-    try:
-        # Lazy import: keeps the ADK package independent of the onboarding
-        # package as long as the tool is not called.
-        from journey_autopilot.onboarding import store
-
-        profile = store.any_profile()
-    except Exception as exc:  # Onboarding package/DB not available
-        return {"error": f"Profile not readable: {exc}"}
-    if profile is None:
-        return {"error": "No user profile available — onboarding has not been completed yet."}
-    return profile
-
-
-def get_upcoming_trips() -> dict:
-    """Returns the user's upcoming trips imported during onboarding.
-
-    Returns:
-        A dict with the list of monitored trips (trip_id, origin, destination,
-        train, scheduled times). Falls back to the demo trip if onboarding has
-        not been completed yet.
-    """
-    try:
-        from journey_autopilot.onboarding import store
-
-        profile = store.any_profile()
-        if profile is not None:
-            return {"trips": store.get_trips(profile["user_id"])}
-    except Exception:
-        pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
-
-
-def get_user_profile() -> dict:
-    """Reads the user's personal preference profile from onboarding.
-
-    Contains class, seat preferences, the speed-vs-comfort tradeoff (0 = maximum
-    comfort, 100 = fastest arrival), maximum number of transfers, home station,
-    latest return time, and the autonomy level. Reroute options should be
-    evaluated against this profile.
-
-    Returns:
-        A dict with the profile, or with "error" if onboarding has not been
-        completed yet.
-    """
-    try:
-        # Lazy import: keeps the ADK package independent of the onboarding
-        # package as long as the tool is not called.
-        from journey_autopilot.onboarding import store
-
-        profile = store.any_profile()
-    except Exception as exc:  # Onboarding package/DB not available
-        return {"error": f"Profile not readable: {exc}"}
-    if profile is None:
-        return {"error": "No user profile available — onboarding has not been completed yet."}
-    return profile
-
-
-def get_upcoming_trips() -> dict:
-    """Returns the user's upcoming trips imported during onboarding.
-
-    Returns:
-        A dict with the list of monitored trips (trip_id, origin, destination,
-        train, scheduled times). Falls back to the demo trip if onboarding has
-        not been completed yet.
-    """
-    try:
-        from journey_autopilot.onboarding import store
-
-        profile = store.any_profile()
-        if profile is not None:
-            return {"trips": store.get_trips(profile["user_id"])}
-    except Exception:
-        pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
-
-
-def get_user_profile() -> dict:
-    """Reads the user's personal preference profile from onboarding.
-
-    Contains class, seat preferences, the speed-vs-comfort tradeoff (0 = maximum
-    comfort, 100 = fastest arrival), maximum number of transfers, home station,
-    latest return time, and the autonomy level. Reroute options should be
-    evaluated against this profile.
-
-    Returns:
-        A dict with the profile, or with "error" if onboarding has not been
-        completed yet.
-    """
-    try:
-        # Lazy import: keeps the ADK package independent of the onboarding
-        # package as long as the tool is not called.
-        from journey_autopilot.onboarding import store
-
-        profile = store.any_profile()
-    except Exception as exc:  # Onboarding package/DB not available
-        return {"error": f"Profile not readable: {exc}"}
-    if profile is None:
-        return {"error": "No user profile available — onboarding has not been completed yet."}
-    return profile
-
-
-def get_upcoming_trips() -> dict:
-    """Returns the user's upcoming trips imported during onboarding.
-
-    Returns:
-        A dict with the list of monitored trips (trip_id, origin, destination,
-        train, scheduled times). Falls back to the demo trip if onboarding has
-        not been completed yet.
-    """
-    try:
-        from journey_autopilot.onboarding import store
-
-        profile = store.any_profile()
-        if profile is not None:
-            return {"trips": store.get_trips(profile["user_id"])}
-    except Exception:
-        pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
-
-
-def get_user_profile() -> dict:
-    """Reads the user's personal preference profile from onboarding.
-
-    Contains class, seat preferences, the speed-vs-comfort tradeoff (0 = maximum
-    comfort, 100 = fastest arrival), maximum number of transfers, home station,
-    latest return time, and the autonomy level. Reroute options should be
-    evaluated against this profile.
-
-    Returns:
-        A dict with the profile, or with "error" if onboarding has not been
-        completed yet.
-    """
-    try:
-        # Lazy import: keeps the ADK package independent of the onboarding
-        # package as long as the tool is not called.
-        from journey_autopilot.onboarding import store
-
-        profile = store.any_profile()
-    except Exception as exc:  # Onboarding package/DB not available
-        return {"error": f"Profile not readable: {exc}"}
-    if profile is None:
-        return {"error": "No user profile available — onboarding has not been completed yet."}
-    return profile
-
-
-def get_upcoming_trips() -> dict:
-    """Returns the user's upcoming trips imported during onboarding.
-
-    Returns:
-        A dict with the list of monitored trips (trip_id, origin, destination,
-        train, scheduled times). Falls back to the demo trip if onboarding has
-        not been completed yet.
-    """
-    try:
-        from journey_autopilot.onboarding import store
-
-        profile = store.any_profile()
-        if profile is not None:
-            return {"trips": store.get_trips(profile["user_id"])}
-    except Exception:
-        pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
-
-
-
 def get_passenger_rights(
     delay_minutes: int,
     ticket_type: str = "einzelticket",
@@ -390,3 +213,123 @@ def get_passenger_rights(
         **compensation,
         "legal_context": legal_context,
     }
+
+
+# --- Risk tools (pre-trip delay assessment) -----------------------------------
+
+
+def get_connection_delay_reference(origin: str, destination: str, train: str = "") -> dict:
+    """Returns the historical punctuality reference for a connection (monthly archive).
+
+    The reliable baseline for the risk assessment: how punctually do trains of
+    this type arrive at the destination station over SEVERAL MONTHS? The source
+    is a real delay archive (piebro/deutsche-bahn-data, DB data, CC BY 4.0),
+    pre-aggregated into metrics per station and train type. Complements
+    ``get_connection_delay_history`` (only the last few hours, current situation):
+    the archive provides the long-term normal case, the live history today's
+    situation.
+
+    Args:
+        origin: Departure station (context only; the arrival at the destination is scored).
+        destination: Destination station, e.g. "Berlin Hbf".
+        train: Optional train name (e.g. "ICE 1006") — determines the train type.
+
+    Returns:
+        A dict with ``sample_count``, mean/median/p90 delay, punctuality rate,
+        cancellation rate, the ``basis`` used (train type), the covered ``months``
+        and ``source="db_history_archive"``. Contains "error" if the station is
+        not in the archive.
+    """
+    ref = delay_stats.historical_reference(destination, train=train)
+    if ref is None:
+        return {
+            "origin": origin,
+            "destination": destination,
+            "error": "No historical reference available for this destination station.",
+        }
+    ref["origin"] = origin
+    return ref
+
+
+def get_connection_delay_history(origin: str, destination: str, train: str = "") -> dict:
+    """Returns delay metrics for a connection from past data.
+
+    The data basis for the upfront risk assessment: how punctually have the
+    trains on this connection arrived in the past? First tries real DB data via
+    the db_service sidecar (arrival board at the destination); if the sidecar is
+    unreachable or returns no sample, a simulated history is used. The ``source``
+    field makes transparent where the numbers come from.
+
+    Args:
+        origin: Departure station, e.g. "Munich Hbf".
+        destination: Destination station, e.g. "Berlin Hbf".
+        train: Optional train name (e.g. "ICE 1006"), context only.
+
+    Returns:
+        A dict with ``sample_count``, mean/median/p90 delay, punctuality rate,
+        cancellations, most common causes, and ``source`` ("db_service_live" |
+        "mock_history"). Contains "error" if neither live nor mock data is
+        available for the connection.
+    """
+    try:
+        stats = delay_stats.connection_delay_history(origin, destination, train=train)
+        if stats.get("sample_count", 0) > 0:
+            stats["source"] = "db_service_live"
+            return stats
+    except db_api.DBServiceError:
+        pass  # sidecar unreachable -> simulated history
+    except Exception:
+        pass  # unexpected parsing problem -> simulated history
+
+    mock = mock_data.CONNECTION_DELAY_HISTORY.get((origin, destination))
+    if mock is None:
+        return {
+            "origin": origin,
+            "destination": destination,
+            "error": "No delay history available for this connection.",
+        }
+    result = dict(mock)
+    result.update(
+        {"origin": origin, "destination": destination, "train": train or None, "source": "mock_history"}
+    )
+    return result
+
+
+def get_planned_connection(origin: str, destination: str, departure: str = "") -> dict:
+    """Returns the planned connection (scheduled times) as the anchor for the ETA.
+
+    The risk module needs the scheduled arrival time to derive the expected
+    arrival (ETA = scheduled arrival + expected delay). Tries real DB data via
+    the db_service sidecar; otherwise falls back to simulated scheduled times.
+
+    Args:
+        origin: Departure station, e.g. "Munich Hbf".
+        destination: Destination station, e.g. "Berlin Hbf".
+        departure: Optional departure time (ISO "YYYY-MM-DDTHH:MM:SS"); empty =
+            next connection.
+
+    Returns:
+        A dict with ``train``, ``planned_departure``, ``planned_arrival``,
+        ``transfers``, any real-time arrival delay, and ``source``. Contains
+        "error" if no connection was found.
+    """
+    try:
+        conn = delay_stats.scheduled_connection(origin, destination, departure or None)
+        if conn:
+            conn["source"] = "db_service_live"
+            return conn
+    except db_api.DBServiceError:
+        pass  # sidecar unreachable -> simulated scheduled times
+    except Exception:
+        pass
+
+    mock = mock_data.PLANNED_CONNECTIONS.get((origin, destination))
+    if mock is None:
+        return {
+            "origin": origin,
+            "destination": destination,
+            "error": "No planned connection found for this route.",
+        }
+    result = dict(mock)
+    result.update({"origin": origin, "destination": destination, "source": "mock_planned"})
+    return result

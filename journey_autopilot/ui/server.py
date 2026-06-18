@@ -1,8 +1,13 @@
-"""Onboarding server — FastAPI app with a JSON API and DB Navigator-style UI.
+"""Web app server — FastAPI app with a JSON API and DB Navigator-style UI.
 
 Start:
     python run_onboarding.py            # http://127.0.0.1:8000
-    # or: uvicorn onboarding.server:app --reload
+    # or: uvicorn journey_autopilot.ui.server:app --reload
+
+This is the presentation layer. The onboarding *logic* (simulated DB
+accounts/trips and the SQLite profile store) lives in
+``journey_autopilot.onboarding`` and is imported here. The chat endpoint
+(``/api/chat``) runs the same ReAct orchestrator as ``run_demo.py``.
 
 What's simulated here (and why) is documented in the Context Record: DB
 (Deutsche Bahn) offers no official API for account login / ticket import,
@@ -27,12 +32,14 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from . import store
 from pydantic import BaseModel
 
-from . import accounts
+# Onboarding logic ("the functions") lives in a separate package; the UI only
+# imports it. The chat module is local to this UI package.
+from journey_autopilot.onboarding import accounts, store
+from . import chat
 
-app = FastAPI(title="Journey Autopilot — Onboarding", version="0.1.0")
+app = FastAPI(title="Journey Autopilot — Web App", version="0.1.0")
 
 _STATIC = Path(__file__).resolve().parent / "static"
 
@@ -64,6 +71,12 @@ class PhoneConfirmRequest(BaseModel):
 
 class OutlookConnectRequest(BaseModel):
     consent: bool = False
+
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    trip: dict | None = None
 
 
 # --- Auth helpers ---------------------------------------------------------------------
@@ -232,6 +245,35 @@ def stations(query: str = "") -> dict:
         needle = query.lower()
         hits = [s for s in accounts.FALLBACK_STATIONS if needle in s["name"].lower()]
         return {"stations": hits[:6], "source": "fallback"}
+
+
+# --- Chat (runs the ReAct orchestrator, like run_demo.py) --------------------------------
+
+
+@app.post("/api/chat")
+async def chat_endpoint(
+    body: ChatRequest, authorization: str | None = Header(default=None)
+) -> dict:
+    """Drives the ReAct orchestrator from the chat UI.
+
+    Clicking a trip opens a chat; each message is handed to ``root_agent``
+    (the same orchestrator ``run_demo.py`` uses). On the first message the
+    selected trip is added as context so the orchestrator monitors it. The
+    agent/tool trace and the final answer are returned for display.
+
+    ADK + a configured Uni-GPT backend (.env) are required here; errors are
+    returned as ``error`` (HTTP 200) so the chat UI can show them inline.
+    """
+    _user_id(authorization)  # chat is behind the login like the rest of the API
+    try:
+        return await chat.chat_turn(body.session_id, body.message, body.trip)
+    except Exception as exc:  # surfaced inline in the chat instead of a 500
+        return {
+            "session_id": body.session_id,
+            "reply": None,
+            "trace": [],
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 # --- Static UI ----------------------------------------------------------------------------

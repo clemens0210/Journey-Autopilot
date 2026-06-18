@@ -21,6 +21,7 @@ const state = {
   step: "welcome",
   editReturn: false, // true = we came from the dashboard ("Edit")
   phone: { sent: false, verifiedThisSession: false },
+  chat: null, // { sessionId, trip, messages: [...], busy } when a trip chat is open
 };
 
 const STEPS = [
@@ -59,6 +60,12 @@ function el(html) {
   return t.content;
 }
 
+// Escape user/agent text before injecting it into chat bubbles.
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 // Inline SVGs in DB Navigator style — brand mark and icons for the trip cards.
 const SVG = {
   dbLogo: `<svg viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>`,
@@ -73,9 +80,11 @@ const SVG = {
 
 // A trip card in DB Navigator layout: DB logo + train, purpose of travel,
 // origin/destination with dot/pin markers, date/time, and a footer status.
-function tripCardHTML(t, { foot, live = false } = {}) {
+// When `index` is given the card becomes clickable (opens the trip chat).
+function tripCardHTML(t, { foot, live = false, index = null } = {}) {
+  const clickable = index !== null;
   return `
-    <div class="trip-card">
+    <div class="trip-card${clickable ? " clickable" : ""}"${clickable ? ` data-trip-index="${index}"` : ""}>
       <div class="trip-head">
         <span class="db-logo">${SVG.dbLogo}</span>
         <span class="train">${t.train}</span>
@@ -580,7 +589,7 @@ const renderers = {
     const pref = p.preferences;
     const nextTrip = state.trips[0];
     const cards = state.trips
-      .map((t) => tripCardHTML(t, { foot: "Monitored by the autopilot", live: true }))
+      .map((t, i) => tripCardHTML(t, { foot: "Monitored by the autopilot · tap to chat", live: true, index: i }))
       .join("");
 
     screen.replaceChildren(el(`
@@ -619,6 +628,11 @@ const renderers = {
     $("#progress").hidden = true;
     $("#tabbar").hidden = false; // mock tab bar of the DB Navigator
 
+    // Clicking a monitored trip opens the chat that runs the orchestrator demo.
+    screen.querySelectorAll(".trip-card.clickable").forEach((cardEl) => {
+      cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
+    });
+
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = true; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = true; go("phone"); });
     $("#delete-profile").addEventListener("click", async () => {
@@ -631,7 +645,115 @@ const renderers = {
       go("welcome");
     });
   },
+
+  // -- Trip chat: runs the ReAct orchestrator (the run_demo.py flow) ------------
+  chat() {
+    const trip = state.chat.trip;
+    screen.replaceChildren(el(`
+      <div class="chat-head">
+        <button class="chat-back" id="chat-back" type="button" aria-label="Back">‹</button>
+        <div class="chat-trip">
+          <span class="chat-route">${trip.origin} → ${trip.destination}</span>
+          <span class="chat-sub">${trip.train} · ${fmtDate(trip.planned_departure)} · ${fmtTime(trip.planned_departure)}</span>
+        </div>
+        <span class="chat-live">● live</span>
+      </div>
+      <div class="chat-log" id="chat-log"></div>
+      <form class="chat-input" id="chat-form">
+        <input type="text" id="chat-text" placeholder="Ask the autopilot about this trip…" autocomplete="off">
+        <button class="chat-send" id="chat-send" type="submit" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M4 12 20 4l-4 16-4-7-8-1Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        </button>
+      </form>
+    `));
+    // The chat owns the full screen — hide the wizard chrome.
+    $("#navbar").hidden = true;
+    $("#tabbar").hidden = true;
+    $("#progress").hidden = true;
+
+    renderChatLog();
+    $("#chat-back").addEventListener("click", () => { state.chat = null; go("dashboard"); });
+    $("#chat-form").addEventListener("submit", onChatSubmit);
+    $("#chat-text").focus();
+  },
 };
+
+// ---------------------------------------------------------------------------
+// Chat: send messages to the orchestrator and render the conversation
+// ---------------------------------------------------------------------------
+
+function openChat(trip) {
+  state.chat = {
+    sessionId: null,
+    trip,
+    busy: false,
+    messages: [{
+      role: "assistant",
+      text: `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip. `
+        + `Ask me anything — or just say "monitor my trip" to run a live check.`,
+    }],
+  };
+  go("chat");
+}
+
+function renderTrace(trace) {
+  const lines = trace.map((t) => {
+    if (t.kind === "call") return `<div class="trace-line"><span class="ag">${escapeHtml(t.author)}</span> → calls <b>${escapeHtml(t.name)}()</b></div>`;
+    if (t.kind === "result") return `<div class="trace-line"><span class="ag">${escapeHtml(t.author)}</span> ← result of <b>${escapeHtml(t.name)}</b></div>`;
+    return `<div class="trace-line"><span class="ag">${escapeHtml(t.author)}</span>: ${escapeHtml(t.text)}</div>`;
+  }).join("");
+  return `<details class="chat-trace"><summary>Agent trace (${trace.length})</summary>${lines}</details>`;
+}
+
+function renderChatLog() {
+  const log = $("#chat-log");
+  if (!log) return;
+  const parts = state.chat.messages.map((m) => {
+    if (m.role === "user") return `<div class="bubble user">${escapeHtml(m.text)}</div>`;
+    if (m.role === "error") return `<div class="bubble error">⚠️ ${escapeHtml(m.text)}</div>`;
+    const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
+    return `<div class="bubble assistant">${escapeHtml(m.text)}${trace}</div>`;
+  });
+  if (state.chat.busy) parts.push(`<div class="bubble assistant typing"><i></i><i></i><i></i></div>`);
+  log.innerHTML = parts.join("");
+  log.scrollTop = log.scrollHeight;
+}
+
+async function onChatSubmit(ev) {
+  ev.preventDefault();
+  const input = $("#chat-text");
+  const text = input.value.trim();
+  if (!text || state.chat.busy) return;
+
+  input.value = "";
+  state.chat.messages.push({ role: "user", text });
+  state.chat.busy = true;
+  $("#chat-send").disabled = true;
+  renderChatLog();
+
+  const chat = state.chat; // keep a handle in case the user navigates away
+  try {
+    const data = await api("/api/chat", {
+      method: "POST",
+      body: { session_id: chat.sessionId, message: text, trip: chat.trip },
+    });
+    if (data.session_id) chat.sessionId = data.session_id;
+    if (data.error) {
+      chat.messages.push({ role: "error", text: data.error });
+    } else {
+      chat.messages.push({ role: "assistant", text: data.reply, trace: data.trace });
+    }
+  } catch (err) {
+    chat.messages.push({ role: "error", text: err.message });
+  } finally {
+    chat.busy = false;
+    if (state.chat === chat) {
+      if ($("#chat-send")) $("#chat-send").disabled = false;
+      renderChatLog();
+      if ($("#chat-text")) $("#chat-text").focus();
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Navigation: save the step, then move on
@@ -680,6 +802,11 @@ async function persistCurrentStep() {
 
 function go(step) {
   state.step = step;
+  // The chat is a full-height flex layout (scrolling log + pinned input bar);
+  // other screens scroll normally.
+  const chatMode = step === "chat";
+  document.querySelector(".phone").classList.toggle("chat-active", chatMode);
+  screen.classList.toggle("chat-mode", chatMode);
   setProgress(step);
   renderers[step]();
   screen.scrollTop = 0;

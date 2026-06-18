@@ -30,7 +30,7 @@ from pathlib import Path
 from statistics import mean, median
 from typing import Any
 
-from .rerouting import db_api
+from ..rerouting import db_api
 
 from ..rerouting import stations
 

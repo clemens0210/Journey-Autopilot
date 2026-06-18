@@ -155,10 +155,12 @@ python scripts/build_db_delay_reference.py 2025-08 2025-09 2025-10
 > `piebro/deutsche-bahn-data` under CC BY 4.0. The `_meta` section of the JSON
 > records the source, license, and covered months.
 
-## Onboarding & Profile (Web App)
+## Onboarding, Profile & Trip Chat (Web App)
 
-Onboarding runs as a standalone web app in the **DB Navigator look** (FastAPI +
-SQLite, `onboarding/`):
+The web app runs in the **DB Navigator look** (FastAPI + SQLite). It is split
+into the presentation layer (`journey_autopilot/ui/`) and the onboarding logic
+(`journey_autopilot/onboarding/`); see
+[`journey_autopilot/ui/README.md`](journey_autopilot/ui/README.md) for details.
 
 ```bash
 python run_onboarding.py        # -> http://127.0.0.1:8000
@@ -173,10 +175,14 @@ notifications & autonomy level → summary → dashboard.
 
 - The **only requirement** is the DB login; mobile number and Outlook can be
   skipped, all preferences have defaults.
+- **Trip chat:** tapping a monitored trip on the dashboard opens a chat that
+  runs the ReAct orchestrator live (the same flow as `run_demo.py`) and shows
+  the reply plus a collapsible agent trace. Lucas' Munich → Berlin trip is the
+  scripted demo scenario. Requires a configured Uni-GPT backend in `.env`.
 - **Simulated** are DB login/trip import, Microsoft consent, and SMS sending
   (no official APIs for a university project) — but the API contracts match
   what a real integration would need to deliver (swap point:
-  `onboarding/accounts.py`). Rationale in the Context Record.
+  `journey_autopilot/onboarding/accounts.py`). Rationale in the Context Record.
 - **Real** is the home station search: if the `db_service` sidecar is running,
   station suggestions come live from the DB API (green dot), otherwise a
   static fallback list is used.
