@@ -1,23 +1,23 @@
-"""Baut die historische Verspätungs-Referenz für die Risikobewertung.
+"""Builds the historical delay reference for the risk assessment.
 
-Quelle: piebro/deutsche-bahn-data (Hugging Face) — echte DB-Halte mit
-``delay_in_min`` über viele Monate, CC BY 4.0. Siehe
+Source: piebro/deutsche-bahn-data (Hugging Face) — real DB stops with
+``delay_in_min`` over many months, CC BY 4.0. See
 https://github.com/piebro/deutsche-bahn-data
 
-Anders als die Live-Ankunftstafel (nur ~5–6 h Echtzeit-Horizont) ist das ein
-echtes Pünktlichkeits-ARCHIV. Wir verdichten es einmalig zu kompakten
-Kennzahlen je (Bahnhof-EVA, Zugtyp) und committen das Ergebnis als kleine
-JSON-Datei. Zur Laufzeit liest die Risk-Pipeline nur diese Referenz — keine
-schweren Abhängigkeiten, kein GB-Download.
+Unlike the live arrival board (only ~5-6 h real-time horizon), this is a real
+punctuality ARCHIVE. We condense it once into compact metrics per
+(station EVA, train type) and commit the result as a small JSON file. At
+runtime, the risk pipeline only reads this reference — no heavy dependencies,
+no GB download.
 
-Granularität: Ankunftsverspätung am Bahnhof (Zeilen mit gesetztem
-``arrival_planned_time``), gruppiert je Zugtyp — dieselbe Logik wie die
-Live-Tafel, nur über Monate statt Stunden.
+Granularity: arrival delay at the station (rows with ``arrival_planned_time``
+set), grouped by train type — the same logic as the live board, just over
+months instead of hours.
 
-Nutzung (dev-time, braucht pandas/pyarrow/huggingface_hub):
+Usage (dev-time, needs pandas/pyarrow/huggingface_hub):
     python scripts/build_db_delay_reference.py 2025-08 2025-09 2025-10
 
-Ausgabe: journey_autopilot/data/db_delay_reference.json
+Output: journey_autopilot/data/db_delay_reference.json
 """
 
 from __future__ import annotations
@@ -34,20 +34,20 @@ from huggingface_hub import HfFileSystem
 REPO = "datasets/piebro/deutsche-bahn-data"
 OUT_PATH = Path(__file__).resolve().parent.parent / "journey_autopilot" / "data" / "db_delay_reference.json"
 
-# Nur diese Spalten ziehen (spaltenweises Parquet -> minimaler Transfer).
+# Only pull these columns (columnar Parquet -> minimal transfer).
 COLUMNS = ["eva", "station_name", "train_type", "delay_in_min", "is_canceled", "arrival_planned_time"]
 
-# Fernverkehr — für eine zusätzliche zusammengefasste Kennzahl "FERN".
+# Long-distance traffic — for an additional aggregated "FERN" (long-distance) metric.
 LONG_DISTANCE = {"ICE", "IC", "EC", "ECE", "RJ", "RJX", "TGV", "NJ", "EN"}
 
-# Verspätung fürs Histogramm begrenzen (robuste Perzentile, beschränkter Speicher).
+# Cap delay for the histogram (robust percentiles, bounded memory).
 DELAY_MIN, DELAY_MAX = -30, 600
-PUNCTUAL_MAX = 5     # bis 5 Min gilt als pünktlich (DB-Konvention < 6 Min)
-HEAVY = 15           # ab 15 Min als deutliche Verspätung
+PUNCTUAL_MAX = 5     # up to 5 min counts as punctual (DB convention < 6 min)
+HEAVY = 15           # from 15 min counted as a significant delay
 
 
 class Acc:
-    """Streaming-Akkumulator pro Gruppe (Counter statt aller Einzelwerte)."""
+    """Streaming accumulator per group (Counter instead of all individual values)."""
 
     __slots__ = ("n", "total", "maximum", "hist", "canceled")
 
@@ -67,7 +67,7 @@ class Acc:
 
 
 def _percentile_from_hist(hist: Counter[int], n: int, pct: float) -> float:
-    """Perzentile direkt aus dem (Minuten-)Histogramm."""
+    """Percentile directly from the (minute) histogram."""
     target = pct / 100.0 * n
     cum = 0
     for value in sorted(hist):
@@ -95,13 +95,13 @@ def _finalize(acc: Acc) -> dict:
 
 def main(months: list[str]) -> None:
     fs = HfFileSystem()
-    # per_eva[eva_norm][train_type] = Acc ; '_ALL_' und '_FERN_' sind Sammelgruppen
+    # per_eva[eva_norm][train_type] = Acc ; '_ALL_' and '_FERN_' are aggregate groups
     per_eva: dict[str, dict[str, Acc]] = defaultdict(lambda: defaultdict(Acc))
     names: dict[str, Counter[str]] = defaultdict(Counter)
 
     for month in months:
         path = f"{REPO}/monthly_processed_data/data-{month}.parquet"
-        print(f"[{month}] öffne {path} ...", flush=True)
+        print(f"[{month}] opening {path} ...", flush=True)
         pf = pq.ParquetFile(fs.open(path))
         rows = 0
         for batch in pf.iter_batches(batch_size=200_000, columns=COLUMNS):
@@ -109,9 +109,9 @@ def main(months: list[str]) -> None:
             evas = d["eva"]; types = d["train_type"]; delays = d["delay_in_min"]
             cancels = d["is_canceled"]; arr = d["arrival_planned_time"]; snames = d["station_name"]
             for i in range(len(evas)):
-                if arr[i] is None:        # keine Ankunft an diesem Halt -> ignorieren
+                if arr[i] is None:        # no arrival at this stop -> ignore
                     continue
-                eva = str(int(evas[i]))   # '08000207' -> '8000207' (wie db-vendo-client)
+                eva = str(int(evas[i]))   # '08000207' -> '8000207' (like db-vendo-client)
                 ttype = types[i] or "?"
                 names[eva][snames[i] or ""] += 1
                 groups = per_eva[eva]
@@ -129,13 +129,13 @@ def main(months: list[str]) -> None:
                 if ttype in LONG_DISTANCE:
                     groups["_FERN_"].add_delay(delay)
             rows += len(evas)
-            print(f"  ... {rows:,} Zeilen", flush=True)
+            print(f"  ... {rows:,} rows", flush=True)
 
-    # Verdichten
+    # Aggregate
     stations: dict[str, dict] = {}
     for eva, groups in per_eva.items():
         all_acc = groups.get("_ALL_")
-        if not all_acc or all_acc.n < 50:   # zu dünn -> weglassen
+        if not all_acc or all_acc.n < 50:   # too sparse -> skip
             continue
         by_type = {
             ttype: _finalize(acc)
@@ -153,8 +153,8 @@ def main(months: list[str]) -> None:
             "source": "piebro/deutsche-bahn-data",
             "source_url": "https://github.com/piebro/deutsche-bahn-data",
             "dataset_url": "https://huggingface.co/datasets/piebro/deutsche-bahn-data",
-            "license": "CC BY 4.0 (Daten: Deutsche Bahn)",
-            "metric": "Ankunftsverspätung in Minuten (delay_in_min an Halten mit arrival_planned_time)",
+            "license": "CC BY 4.0 (data: Deutsche Bahn)",
+            "metric": "Arrival delay in minutes (delay_in_min at stops with arrival_planned_time)",
             "months": months,
             "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "punctual_max_minutes": PUNCTUAL_MAX,
@@ -164,7 +164,7 @@ def main(months: list[str]) -> None:
     }
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUT_PATH.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nGeschrieben: {OUT_PATH}  ({len(stations)} Bahnhöfe, {OUT_PATH.stat().st_size/1024:.0f} kB)")
+    print(f"\nWritten: {OUT_PATH}  ({len(stations)} stations, {OUT_PATH.stat().st_size/1024:.0f} kB)")
 
 
 if __name__ == "__main__":

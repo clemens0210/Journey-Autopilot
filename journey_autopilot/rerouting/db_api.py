@@ -1,16 +1,16 @@
-"""Python-Client für den db-vendo-client-Sidecar (siehe ``db_service/``).
+"""Python client for the db-vendo-client sidecar (see ``db_service/``).
 
-Das ist die **einzige Stelle**, an der die Python-Seite mit der Deutschen Bahn
-spricht. Die ADK-Tools rufen diese Funktionen; alles DB-Spezifische (EVA-Nummern,
-Eigenheiten der vendo-API, der Node-Sidecar) bleibt hinter dieser Datei verborgen.
+This is the **single place** where the Python side talks to Deutsche Bahn.
+The ADK tools call these functions; everything DB-specific (EVA numbers,
+quirks of the vendo API, the Node sidecar) stays hidden behind this file.
 
-Der Sidecar liefert DB-Navigator-genaue Live-Daten: Verspätungen, Gleiswechsel,
-Routing inkl. Preise. Läuft er nicht, wirft ``DBServiceError`` — die Tools können
-das fangen und auf ``mock_data`` zurückfallen.
+The sidecar provides DB-Navigator-accurate live data: delays, platform
+changes, routing including prices. If it isn't running, it raises
+``DBServiceError`` — the tools can catch that and fall back to ``mock_data``.
 
-Konfiguration über Umgebungsvariablen:
-- ``DB_API_URL``      (Default ``http://127.0.0.1:3000``) — Adresse des Sidecars.
-- ``DB_API_TIMEOUT``  (Default ``20``) — Request-Timeout in Sekunden.
+Configuration via environment variables:
+- ``DB_API_URL``      (default ``http://127.0.0.1:3000``) — address of the sidecar.
+- ``DB_API_TIMEOUT``  (default ``20``) — request timeout in seconds.
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ _TIMEOUT = float(os.getenv("DB_API_TIMEOUT", "20"))
 
 
 class DBServiceError(RuntimeError):
-    """Sidecar nicht erreichbar oder DB-API hat einen Fehler geliefert."""
+    """Sidecar unreachable or the DB API returned an error."""
 
 
 def _to_param(value: Any) -> Any:
-    """``datetime`` -> ISO-String, ``bool`` -> 'true'/'false', sonst unverändert."""
+    """``datetime`` -> ISO string, ``bool`` -> 'true'/'false', otherwise unchanged."""
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, bool):
@@ -40,24 +40,24 @@ def _to_param(value: Any) -> Any:
 
 
 def _get(path: str, params: dict | None = None) -> Any:
-    """GET gegen den Sidecar; ``None``-Parameter werden weggelassen."""
+    """GET against the sidecar; ``None`` parameters are omitted."""
     clean = {k: _to_param(v) for k, v in (params or {}).items() if v is not None}
     try:
         resp = requests.get(f"{DB_API_URL}{path}", params=clean, timeout=_TIMEOUT)
     except requests.RequestException as exc:
-        raise DBServiceError(f"db-service nicht erreichbar ({DB_API_URL}): {exc}") from exc
+        raise DBServiceError(f"db-service unreachable ({DB_API_URL}): {exc}") from exc
     if resp.status_code >= 400:
-        raise DBServiceError(f"db-service Fehler {resp.status_code}: {resp.text[:200]}")
+        raise DBServiceError(f"db-service error {resp.status_code}: {resp.text[:200]}")
     return resp.json()
 
 
 def health() -> dict:
-    """True-ish Dict, wenn der Sidecar läuft. Wirft sonst ``DBServiceError``."""
+    """Truthy dict if the sidecar is running. Raises ``DBServiceError`` otherwise."""
     return _get("/health")
 
 
 def locations(query: str, results: int = 5) -> list[dict]:
-    """Stationssuche nach Name. Jeder Treffer trägt die EVA-Nummer als ``id``."""
+    """Search stations by name. Each match carries the EVA number as ``id``."""
     return _get("/locations", {"query": query, "results": results})
 
 
@@ -67,7 +67,7 @@ def departures(
     duration: int = 30,
     results: int | None = None,
 ) -> dict:
-    """Live-Abfahrtstafel einer Station (EVA). Enthält Verspätungen + Gleiswechsel."""
+    """Live departure board for a station (EVA). Includes delays + platform changes."""
     return _get(
         f"/departures/{eva}",
         {"when": when, "duration": duration, "results": results},
@@ -80,7 +80,7 @@ def arrivals(
     duration: int = 30,
     results: int | None = None,
 ) -> dict:
-    """Live-Ankunftstafel einer Station (EVA)."""
+    """Live arrival board for a station (EVA)."""
     return _get(
         f"/arrivals/{eva}",
         {"when": when, "duration": duration, "results": results},
@@ -95,10 +95,10 @@ def journeys(
     tickets: bool = True,
     **opt: Any,
 ) -> dict:
-    """Verbindungssuche zwischen zwei Stationen (EVA). ``tickets=True`` -> Preise.
+    """Search journeys between two stations (EVA). ``tickets=True`` -> prices.
 
-    Weitere db-vendo-client-Optionen lassen sich via ``**opt`` durchreichen,
-    z. B. ``transfers=0`` (nur Direktverbindungen) oder ``via="8000105"``.
+    Additional db-vendo-client options can be passed through via ``**opt``,
+    e.g. ``transfers=0`` (direct connections only) or ``via="8000105"``.
     """
     params = {
         "from": from_eva,
@@ -112,12 +112,12 @@ def journeys(
 
 
 def trip(trip_id: str) -> dict:
-    """Eine einzelne Fahrt verfolgen (alle Halte + Echtzeit)."""
+    """Track a single trip (all stops + real-time data)."""
     return _get(f"/trips/{quote(trip_id, safe='')}")
 
 
 def nearby(latitude: float, longitude: float, results: int = 8) -> list[dict]:
-    """Stationen in der Nähe einer Koordinate."""
+    """Stations near a coordinate."""
     return _get(
         "/nearby",
         {"latitude": latitude, "longitude": longitude, "results": results},

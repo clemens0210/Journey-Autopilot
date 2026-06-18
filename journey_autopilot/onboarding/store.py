@@ -1,14 +1,15 @@
-"""SQLite-Store für Profile, Verbindungen und importierte Reisen.
+"""SQLite store for profiles, connections, and imported trips.
 
-Persistenz wie im Zielbild des README: SQLite für Präferenzen, harte Constraints
-und Trip-Historie. Bewusst nur Standardbibliothek (``sqlite3``), damit auch die
-ADK-Seite (``journey_autopilot.tools``) ohne FastAPI-Abhängigkeiten lesen kann.
+Persistence follows the README's target picture: SQLite for preferences, hard
+constraints, and trip history. Deliberately standard-library only
+(``sqlite3``), so the ADK side (``journey_autopilot.tools``) can read without
+a FastAPI dependency.
 
-Profil und Reisen liegen als JSON-Blobs — beim Prototyp ändern sich die Felder
-noch häufig, ein starres Spaltenschema würde nur Migrationen erzeugen.
+Profile and trips are stored as JSON blobs — in the prototype the fields
+still change often, and a rigid column schema would just generate migrations.
 
-Pfad über ``JA_DB_PATH`` konfigurierbar, Default ``data/journey_autopilot.db``
-im Projektverzeichnis (von ``.gitignore`` über ``*.db`` abgedeckt).
+Path configurable via ``JA_DB_PATH``, defaulting to ``data/journey_autopilot.db``
+in the project directory (covered by ``.gitignore`` via ``*.db``).
 """
 
 from __future__ import annotations
@@ -26,40 +27,40 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     user_id     TEXT PRIMARY KEY,
     email       TEXT NOT NULL,
-    account     TEXT NOT NULL,   -- JSON: DB-Konto (Name, BahnCard, BahnBonus, ...)
+    account     TEXT NOT NULL,   -- JSON: DB account (name, BahnCard, BahnBonus, ...)
     created_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS profiles (
     user_id     TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
-    profile     TEXT NOT NULL,   -- JSON: Präferenzen, Constraints, Verbindungen
+    profile     TEXT NOT NULL,   -- JSON: preferences, constraints, connections
     updated_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trips (
     trip_id     TEXT NOT NULL,
     user_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    trip        TEXT NOT NULL,   -- JSON: importierte Buchung
+    trip        TEXT NOT NULL,   -- JSON: imported booking
     imported_at TEXT NOT NULL,
     PRIMARY KEY (trip_id, user_id)
 );
 """
 
-# Leeres Profil mit allen Feldern und sinnvollen Defaults. Die UI füllt das
-# schrittweise; die Agenten-Tools können sich auf die Struktur verlassen.
+# Empty profile with all fields and sensible defaults. The UI fills this in
+# step by step; the agent tools can rely on the structure.
 DEFAULT_PROFILE: dict = {
     "preferences": {
         "travel_class": 2,                # 1 | 2
-        "seat_location": "fenster",       # fenster | gang | egal
-        "seat_area": "grossraum",         # grossraum | abteil | egal
-        "quiet_zone": False,              # Ruhebereich bevorzugen
-        "speed_vs_comfort": 50,           # 0 = max. Komfort ... 100 = max. Tempo
+        "seat_location": "window",        # window | aisle | any
+        "seat_area": "open_plan",         # open_plan | compartment | any
+        "quiet_zone": False,              # prefer quiet zone
+        "speed_vs_comfort": 50,           # 0 = max. comfort ... 100 = max. speed
         "max_transfers": 2,
         "min_transfer_minutes": 8,
     },
     "home": {
         "home_station": None,             # {"id": EVA, "name": ...}
-        "latest_arrival_home": "23:00",   # spätestes Zuhause-Ankommen
-        "hotel_ok": True,                 # Hotel statt Nachtfahrt akzeptabel
-        "taxi_ok": True,                  # Taxi für letzte Meile akzeptabel
+        "latest_arrival_home": "23:00",   # latest acceptable arrival home
+        "hotel_ok": True,                 # hotel instead of overnight travel acceptable
+        "taxi_ok": True,                  # taxi for the last mile acceptable
     },
     "notifications": {
         "phone": None,
@@ -89,7 +90,7 @@ def _now() -> str:
 
 
 def _merge(base: dict, update: dict) -> dict:
-    """Rekursiver Merge — die UI schickt pro Schritt nur die geänderten Felder."""
+    """Recursive merge — the UI sends only the changed fields per step."""
     merged = dict(base)
     for key, value in update.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
@@ -99,11 +100,11 @@ def _merge(base: dict, update: dict) -> dict:
     return merged
 
 
-# --- Nutzer & Profil -------------------------------------------------------------
+# --- User & profile -------------------------------------------------------------
 
 
 def upsert_user(account: dict) -> None:
-    """Legt den Nutzer beim ersten Login an (inkl. leerem Profil)."""
+    """Creates the user on first login (including an empty profile)."""
     with _connect() as conn:
         conn.execute(
             "INSERT INTO users (user_id, email, account, created_at) VALUES (?,?,?,?) "
@@ -131,12 +132,12 @@ def get_profile(user_id: str) -> dict | None:
         ).fetchone()
     if row is None:
         return None
-    # Defaults drunterlegen, damit alte Profile neue Felder nicht vermissen.
+    # Layer in defaults so older profiles don't miss newer fields.
     return _merge(DEFAULT_PROFILE, json.loads(row[0]))
 
 
 def update_profile(user_id: str, patch: dict) -> dict:
-    """Merged einen Teil-Patch ins Profil und liefert den neuen Stand."""
+    """Merges a partial patch into the profile and returns the new state."""
     current = get_profile(user_id) or DEFAULT_PROFILE
     merged = _merge(current, patch)
     with _connect() as conn:
@@ -150,12 +151,12 @@ def update_profile(user_id: str, patch: dict) -> dict:
 
 
 def delete_user(user_id: str) -> None:
-    """DSGVO-Löschung: Nutzer, Profil und Reisen restlos entfernen."""
+    """GDPR deletion: completely remove user, profile, and trips."""
     with _connect() as conn:
         conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
 
 
-# --- Reisen ------------------------------------------------------------------------
+# --- Trips ------------------------------------------------------------------------
 
 
 def save_trips(user_id: str, trips: list[dict]) -> None:
@@ -179,8 +180,9 @@ def get_trips(user_id: str) -> list[dict]:
 
 
 def any_profile() -> dict | None:
-    """Profil des zuletzt onboarden Nutzers — für die Agenten-Tools, die (noch)
-    ohne Login-Kontext laufen und im Single-User-Prototyp das eine Profil brauchen."""
+    """Profile of the most recently onboarded user — for the agent tools that
+    (still) run without a login context and need the one profile in the
+    single-user prototype."""
     with _connect() as conn:
         row = conn.execute(
             "SELECT user_id, profile FROM profiles ORDER BY updated_at DESC LIMIT 1"

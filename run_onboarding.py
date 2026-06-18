@@ -1,9 +1,9 @@
-"""Startet die Onboarding-Web-App (FastAPI + DB-Navigator-Style-UI).
+"""Starts the onboarding web app (FastAPI + DB Navigator-style UI).
 
     python run_onboarding.py        # -> http://127.0.0.1:8000
 
-Optional vorher den DB-Sidecar starten (``cd db_service && npm start``), dann
-nutzt die Heimatbahnhof-Suche echte DB-Stationsdaten statt der Fallback-Liste.
+Optionally start the DB sidecar first (``cd db_service && npm start``), then
+the home station search uses real DB station data instead of the fallback list.
 """
 
 from __future__ import annotations

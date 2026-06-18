@@ -1,1 +1,1 @@
-"""Passenger Rights — RAG-Store, Crawler und Entschädigungsberechnung."""
+"""Passenger Rights — RAG store, crawler, and compensation calculation."""

@@ -7,11 +7,11 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(BASE_DIR / "data" / "chromadb")))
 
 class FahrgastrechteRAG:
-    
+
     def __init__(self):
         self.client = chromadb.PersistentClient(path=str(CHROMA_PATH))
-        
-        # Multilinguales Modell wegen deutschen Texten
+
+        # Multilingual model because of German texts
         self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name="paraphrase-multilingual-mpnet-base-v2"
         )
@@ -23,13 +23,13 @@ class FahrgastrechteRAG:
         )
     
     # -------------------------
-    # INDEXIERUNG (täglich)
+    # INDEXING (daily)
     # -------------------------
-    
+
     def rebuild_index(self, documents: list[dict]):
-        """Alten Index löschen und neu aufbauen"""
-        
-        # Alte Daten löschen damit nichts veraltet bleibt
+        """Delete the old index and rebuild it from scratch"""
+
+        # Delete old data so nothing stays outdated
         try:
             self.client.delete_collection("fahrgastrechte")
         except:
@@ -41,7 +41,7 @@ class FahrgastrechteRAG:
             metadata={"hnsw:space": "cosine"}
         )
         
-        # Dokumente chunken und speichern
+        # Chunk and store the documents
         all_chunks = []
         all_ids = []
         all_metadata = []
@@ -57,7 +57,7 @@ class FahrgastrechteRAG:
                     "chunk_index": i
                 })
         
-        # In ChromaDB speichern (berechnet Embeddings automatisch)
+        # Store in ChromaDB (computes embeddings automatically)
         self.collection.add(
             documents=all_chunks,
             ids=all_ids,
@@ -67,7 +67,7 @@ class FahrgastrechteRAG:
         print(f"Index built: {len(all_chunks)} chunks from {len(documents)} pages")
     
     def _chunk_text(self, text: str, chunk_size: int = 400) -> list[str]:
-        """Text an Absatzgrenzen aufteilen, nicht mitten im Satz"""
+        """Split text at paragraph boundaries, not mid-sentence"""
         paragraphs = [p.strip() for p in text.split("\n\n") if len(p.strip()) > 40]
         
         chunks = []
@@ -87,32 +87,32 @@ class FahrgastrechteRAG:
         return chunks
     
     # -------------------------
-    # QUERY (bei jeder Verspätung)
+    # QUERY (on every delay)
     # -------------------------
-    
+
     def retrieve(self, query: str, n_results: int = 3) -> list[str]:
         """
-        Findet die relevantesten Chunks für eine Anfrage.
-        Läuft in ~50ms weil ChromaDB lokal ist.
+        Finds the most relevant chunks for a query.
+        Runs in ~50ms because ChromaDB is local.
         """
         results = self.collection.query(
             query_texts=[query],
             n_results=n_results
         )
-        
-        # Nur die Texte zurückgeben, nicht die Metadaten
+
+        # Return only the texts, not the metadata
         return results["documents"][0]
     
     def retrieve_for_case(
-        self,
-        delay_minutes: int,
-        ticket_type: str,
-        bahncard_type: str,
-        n_results: int = 3,
-    ) -> list[str]:
+        self,
+        delay_minutes: int,
+        ticket_type: str,
+        bahncard_type: str,
+        n_results: int = 3,
+    ) -> list[str]:
         query = (
-            f"compensation delay {delay_minutes} minutes "
-            f"ticket type: {ticket_type} "
-            f"BahnCard: {bahncard_type}"
-        )
+            f"compensation delay {delay_minutes} minutes "
+            f"ticket type: {ticket_type} "
+            f"BahnCard: {bahncard_type}"
+        )
         return self.retrieve(query, n_results=n_results)

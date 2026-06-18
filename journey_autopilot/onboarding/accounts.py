@@ -1,22 +1,22 @@
-"""Simulierte DB-Konten, Buchungen und Outlook-Kalender.
+"""Simulated DB accounts, bookings, and Outlook calendar.
 
-Bewusste Entscheidung (siehe Context Record): Es gibt KEINE offizielle DB-API
-für Konto-Login oder den Import gebuchter Tickets. Der Login gegen bahn.de und
-der Trip-Import werden deshalb hier simuliert — mit derselben Datenstruktur, die
-eine echte Anbindung später liefern müsste. Die Schnittstelle (``authenticate``,
-``booked_trips``, ``outlook_events``) bleibt dabei stabil.
+Deliberate decision (see Context Record): there is NO official DB (Deutsche
+Bahn) API for account login or importing booked tickets. Logging in against
+bahn.de and the trip import are therefore simulated here — using the same
+data structure a real integration would need to deliver later. The interface
+(``authenticate``, ``booked_trips``, ``outlook_events``) stays stable.
 
-Die Reisedaten werden relativ zu "heute" erzeugt, damit die Demo immer
-bevorstehende Reisen zeigt — egal wann sie vorgeführt wird.
+The trip data is generated relative to "today" so the demo always shows
+upcoming trips, regardless of when it's presented.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
-# --- Demo-Konten ---------------------------------------------------------------
-# Passwörter im Klartext, weil simuliert: Es sind öffentliche Demo-Zugänge, die
-# auf dem Login-Screen angezeigt werden. Ein echtes Konto gibt es nicht.
+# --- Demo accounts ---------------------------------------------------------------
+# Passwords in plain text because this is simulated: these are public demo
+# credentials shown on the login screen. There is no real account.
 
 DEMO_ACCOUNTS = {
     "lucas.wild@example.com": {
@@ -47,14 +47,14 @@ DEMO_ACCOUNTS = {
 
 
 def authenticate(email: str, password: str) -> dict | None:
-    """Simulierter bahn.de-Login. Liefert das Konto oder ``None``."""
+    """Simulated bahn.de login. Returns the account or ``None``."""
     account = DEMO_ACCOUNTS.get(email.strip().lower())
     if account and account["password"] == password:
         return account["user"]
     return None
 
 
-# --- Gebuchte Reisen (Trip-Import) ----------------------------------------------
+# --- Booked trips (trip import) ----------------------------------------------
 
 
 def _iso(day: date, hhmm: str) -> str:
@@ -63,10 +63,10 @@ def _iso(day: date, hhmm: str) -> str:
 
 
 def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
-    """Bevorstehende Buchungen eines Kontos — dynamisch relativ zu heute.
+    """Upcoming bookings for an account — generated dynamically relative to today.
 
-    Struktur orientiert sich an ``mock_data.DEMO_TRIP``, ergänzt um die Felder,
-    die der DB Navigator pro Auftrag anzeigt (Auftragsnummer, Wagen/Sitz, Preis).
+    Structure follows ``mock_data.DEMO_TRIP``, extended with the fields that
+    the DB Navigator shows per order (order number, coach/seat, price).
     """
     today = today or date.today()
     d1 = today + timedelta(days=3)
@@ -83,12 +83,12 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "train": "ICE 1006",
                 "planned_departure": _iso(d1, "08:00"),
                 "planned_arrival": _iso(d1, "12:04"),
-                "platform": "Gleis 18",
-                "coach": "Wagen 9",
-                "seat": "Platz 64, Fenster",
+                "platform": "Platform 18",
+                "coach": "Coach 9",
+                "seat": "Seat 64, window",
                 "travel_class": 2,
                 "price_eur": 89.90,
-                "purpose": "Kundentermin Berlin",
+                "purpose": "Client meeting Berlin",
             },
             {
                 "trip_id": f"DB-{d2:%Y-%m%d}-BLN-MUC",
@@ -98,12 +98,12 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "train": "ICE 1003",
                 "planned_departure": _iso(d2, "16:28"),
                 "planned_arrival": _iso(d2, "20:33"),
-                "platform": "Gleis 4",
-                "coach": "Wagen 23",
-                "seat": "Platz 11, Gang",
+                "platform": "Platform 4",
+                "coach": "Coach 23",
+                "seat": "Seat 11, aisle",
                 "travel_class": 2,
                 "price_eur": 79.90,
-                "purpose": "Rückreise",
+                "purpose": "Return trip",
             },
             {
                 "trip_id": f"DB-{d3:%Y-%m%d}-MUC-CGN",
@@ -113,12 +113,12 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "train": "ICE 518",
                 "planned_departure": _iso(d3, "07:28"),
                 "planned_arrival": _iso(d3, "11:58"),
-                "platform": "Gleis 11",
-                "coach": "Wagen 31",
-                "seat": "Platz 82, Fenster",
+                "platform": "Platform 11",
+                "coach": "Coach 31",
+                "seat": "Seat 82, window",
                 "travel_class": 2,
                 "price_eur": 99.90,
-                "purpose": "Workshop Köln",
+                "purpose": "Workshop Cologne",
             },
         ]
 
@@ -132,26 +132,26 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "train": "ICE 774",
                 "planned_departure": _iso(d2, "09:13"),
                 "planned_arrival": _iso(d2, "12:53"),
-                "platform": "Gleis 7",
-                "coach": "Wagen 11",
-                "seat": "Platz 23, Fenster",
+                "platform": "Platform 7",
+                "coach": "Coach 11",
+                "seat": "Seat 23, window",
                 "travel_class": 1,
                 "price_eur": 142.50,
-                "purpose": "Vorstandstermin",
+                "purpose": "Board meeting",
             },
         ]
 
     return []
 
 
-# --- Outlook-Kalender (simulierter Graph-API-Abruf) ------------------------------
+# --- Outlook calendar (simulated Graph API call) ------------------------------
 
 
 def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
-    """Simulierte Termine, wie sie ein Microsoft-Graph-Abruf liefern würde.
+    """Simulated appointments, as a Microsoft Graph call would return them.
 
-    Bewusst passend zu den gebuchten Reisen: Der Kundentermin in Berlin ist der
-    harte Constraint, gegen den der Planner-Agent Reroutes prüft.
+    Deliberately matched to the booked trips: the client meeting in Berlin is
+    the hard constraint that the planner agent checks reroutes against.
     """
     today = today or date.today()
     d1 = today + timedelta(days=3)
@@ -160,14 +160,14 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
     if user_id == "u-lucas-wild":
         return [
             {
-                "title": "Kundentermin Berlin (vor Ort)",
+                "title": "Client meeting Berlin (on-site)",
                 "location": "Berlin Mitte, Friedrichstraße 100",
                 "start": _iso(d1, "14:00"),
                 "end": _iso(d1, "17:00"),
                 "hard_constraint": True,
             },
             {
-                "title": "Team-Sync (Teams-Call)",
+                "title": "Team sync (Teams call)",
                 "location": "online",
                 "start": _iso(d1, "10:30"),
                 "end": _iso(d1, "11:00"),
@@ -186,7 +186,7 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
         d2 = today + timedelta(days=5)
         return [
             {
-                "title": "Vorstandssitzung",
+                "title": "Board meeting",
                 "location": "Hamburg, Ballindamm 25",
                 "start": _iso(d2, "14:30"),
                 "end": _iso(d2, "16:30"),
@@ -197,8 +197,8 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
     return []
 
 
-# --- Fallback-Stationsliste -------------------------------------------------------
-# Für die Heimatbahnhof-Autocomplete, wenn der db_service-Sidecar nicht läuft.
+# --- Fallback station list -------------------------------------------------------
+# For home station autocomplete when the db_service sidecar isn't running.
 
 FALLBACK_STATIONS = [
     {"id": "8000261", "name": "München Hbf"},

@@ -21,7 +21,7 @@ from google.adk.tools.agent_tool import AgentTool
 from .config import ORCHESTRATOR_MODEL
 from .monitoring import build_monitoring_agent
 from .planner import build_planner_agent
-from .risk import build_risk_agent
+from .disruption_monitoring.risk import build_risk_agent
 
 # Instantiate sub-agents and make them available as tools.
 monitoring_agent = build_monitoring_agent()

@@ -1,23 +1,23 @@
-"""Verspätungs-Statistik einer Verbindung aus echten DB-Daten.
+"""Delay statistics for a connection from real DB data.
 
-Baut wie ``stations.py`` auf ``db_api`` auf und ist die Stelle, an der aus den
-rohen DB-Boards belastbare Kennzahlen für die **Vorab-Risikobewertung** werden
-(Modul ``risk.py``). Die Aggregation passiert hier deterministisch in Python —
-der Agent soll bewerten, nicht rechnen.
+Like ``stations.py``, this builds on ``db_api`` and is the place where raw DB
+boards become reliable metrics for the **upfront risk assessment**
+(module ``risk.py``). The aggregation happens here deterministically in
+Python — the agent is meant to assess, not compute.
 
-Warum die Ankunftstafel als "Vergangenheitsdaten"? ``db-vendo-client`` bietet
-KEINEN echten Verspätungs-Archiv-Endpunkt. Empirisch trägt die DB-API Ist-
-Verspätungen aber in einem rollierenden Fenster von rund 5–6 Stunden um "jetzt" —
-auch für die jüngste VERGANGENHEIT (Züge, die bereits angekommen sind). Ältere
-Tage liefern nur den Soll-Fahrplan ohne Verspätung (getestet: ab ~7 h zurück und
-für Vortage ist ``delay`` durchgängig ``None``).
+Why use the arrival board as "historical data"? ``db-vendo-client`` offers NO
+real delay-archive endpoint. Empirically, though, the DB API carries actual
+delays in a rolling window of roughly 5-6 hours around "now" — including for
+the recent PAST (trains that have already arrived). Older days only deliver
+the scheduled timetable without delay (tested: from ~7 h back and for
+previous days, ``delay`` is consistently ``None``).
 
-Genau dieses Fenster nutzen wir: Wir lesen die Ankunftstafel des Zielbahnhofs für
-die letzten Stunden aus (Fenster bewusst in die jüngste Vergangenheit gelegt).
-Jeder dort gelistete, bereits angekommene Fernzug trägt so seine TATSÄCHLICH
-eingetretene Verspätung — nicht nur eine Prognose. Ein echtes, db-gestütztes
-Signal; ein Pünktlichkeits-Archiv würde später nur diese eine Funktion ersetzen,
-die Schnittstelle bliebe gleich.
+This is exactly the window we use: we read the arrival board of the
+destination station for the last few hours (window deliberately placed in
+the recent past). Every long-distance train listed there that has already
+arrived thus carries its ACTUALLY occurred delay — not just a forecast. A
+real, DB-backed signal; a punctuality archive would later only replace this
+one function, the interface would stay the same.
 """
 
 from __future__ import annotations
@@ -30,22 +30,24 @@ from pathlib import Path
 from statistics import mean, median
 from typing import Any
 
-from . import db_api, stations
+from .rerouting import db_api
 
-# Fernverkehr — für die Auswahl der passenden Kennzahlen-Gruppe im Archiv.
+from ..rerouting import stations
+
+# Long-distance traffic — for selecting the matching metrics group in the archive.
 _LONG_DISTANCE = {"ICE", "IC", "EC", "ECE", "RJ", "RJX", "TGV", "NJ", "EN"}
 
-# Historische Verspätungs-Referenz (vorab gebaut aus piebro/deutsche-bahn-data,
-# siehe scripts/build_db_delay_reference.py). Liegt als kompakte JSON im Paket.
+# Historical delay reference (pre-built from piebro/deutsche-bahn-data,
+# see scripts/build_db_delay_reference.py). Ships as compact JSON in the package.
 _REFERENCE_PATH = Path(__file__).resolve().parent / "data" / "db_delay_reference.json"
 
-# Schwellen (in Minuten) für die abgeleiteten Quoten.
-_PUNCTUAL_MAX_MINUTES = 5      # bis 5 Min gilt als pünktlich (DB-Konvention < 6 Min)
-_HEAVY_DELAY_MINUTES = 15      # ab 15 Min als deutliche Verspätung gezählt
+# Thresholds (in minutes) for the derived rates.
+_PUNCTUAL_MAX_MINUTES = 5      # up to 5 min counts as punctual (DB convention < 6 min)
+_HEAVY_DELAY_MINUTES = 15      # from 15 min counted as a significant delay
 
 
 def _to_minutes(delay_seconds: Any) -> float | None:
-    """``delay`` (Sekunden, kann ``None`` sein) -> Minuten, sonst ``None``."""
+    """``delay`` (seconds, can be ``None``) -> minutes, otherwise ``None``."""
     if delay_seconds is None:
         return None
     try:
@@ -55,7 +57,7 @@ def _to_minutes(delay_seconds: Any) -> float | None:
 
 
 def _is_long_distance(entry: dict) -> bool:
-    """Fernverkehr (ICE/IC/EC)? Andere Produkte verfälschen die Korridor-Statistik."""
+    """Long-distance (ICE/IC/EC)? Other products would distort the corridor statistics."""
     line = entry.get("line") or {}
     if line.get("product") in ("nationalExpress", "national"):
         return True
@@ -64,7 +66,7 @@ def _is_long_distance(entry: dict) -> bool:
 
 
 def _percentile(values: list[float], pct: float) -> float:
-    """Linear interpolierte Perzentile (stdlib-only, kein numpy)."""
+    """Linearly interpolated percentile (stdlib-only, no numpy)."""
     if not values:
         return 0.0
     ordered = sorted(values)
@@ -78,7 +80,7 @@ def _percentile(values: list[float], pct: float) -> float:
 
 
 def _sample_row(entry: dict, minutes: float | None, status: str) -> dict:
-    """Eine berücksichtigte Ankunft als nachvollziehbare Zeile (für Transparenz)."""
+    """A considered arrival as a traceable row (for transparency)."""
     line = entry.get("line") or {}
     return {
         "train": line.get("name"),
@@ -98,46 +100,47 @@ def connection_delay_history(
     sample_limit: int = 200,
     details: bool = False,
 ) -> dict:
-    """Verspätungs-Kennzahlen für eine Verbindung aus der DB-Ankunftstafel.
+    """Delay metrics for a connection from the DB arrival board.
 
-    Liest die Fernverkehrs-Ankünfte am Zielbahnhof über ein Zeitfenster in der
-    jüngsten Vergangenheit und verdichtet die TATSÄCHLICH eingetretenen
-    Verspätungen bereits angekommener Züge zu Kennzahlen.
+    Reads the long-distance arrivals at the destination station over a time
+    window in the recent past and condenses the ACTUALLY occurred delays of
+    already-arrived trains into metrics.
 
     Args:
-        origin: Start-Bahnhof (nur Kontext/Ausgabe, gefiltert wird am Ziel).
-        destination: Ziel-Bahnhof — dessen Ankunftstafel wird ausgewertet.
-        train: Optionaler Zugname (z. B. "ICE 1006"), nur als Kontext.
-        lookback_minutes: Größe des Fensters — wie weit es von ``end`` in die
-            Vergangenheit reicht. Default 300 (5 h), innerhalb des empirischen
-            Echtzeit-Horizonts (~5–6 h); weiter zurück liefert die DB nur noch
-            Soll-Zeiten ohne Verspätung.
-        end: Fensterende als ISO-Zeit; ``None`` = jetzt. Ausgewertet wird
+        origin: Departure station (context/output only, filtering happens at
+            the destination).
+        destination: Destination station — whose arrival board is evaluated.
+        train: Optional train name (e.g. "ICE 1006"), context only.
+        lookback_minutes: Size of the window — how far it reaches into the
+            past from ``end``. Default 300 (5 h), within the empirical
+            real-time horizon (~5-6 h); further back the DB only delivers
+            scheduled times without delay.
+        end: Window end as ISO time; ``None`` = now. Evaluated is
             ``[end - lookback_minutes, end]``.
-        sample_limit: Obergrenze der angefragten Tafel-Einträge.
-        details: Wenn ``True``, hängt eine ``samples``-Liste mit jeder einzelnen
-            berücksichtigten Ankunft an (Zug, Herkunft, Verspätung, Status) —
-            für transparente/verbose Ausgaben. Standardmäßig aus, damit der
-            Agenten-Kontext schlank bleibt.
+        sample_limit: Upper bound of requested board entries.
+        details: If ``True``, appends a ``samples`` list with every single
+            considered arrival (train, origin, delay, status) — for
+            transparent/verbose output. Off by default to keep the agent
+            context lean.
 
     Returns:
-        Dict mit ``sample_count`` und den Kennzahlen. ``sample_count == 0``
-        bedeutet: kein verwertbares Sample (Aufrufer fällt auf Mock zurück).
+        Dict with ``sample_count`` and the metrics. ``sample_count == 0``
+        means: no usable sample (caller falls back to mock).
 
     Raises:
-        db_api.DBServiceError: Sidecar nicht erreichbar / Ziel nicht auflösbar.
+        db_api.DBServiceError: Sidecar unreachable / destination not resolvable.
     """
     dest_eva = stations.resolve_eva(destination)
     if dest_eva is None:
-        raise db_api.DBServiceError(f"Zielbahnhof '{destination}' nicht auflösbar.")
+        raise db_api.DBServiceError(f"Destination station '{destination}' not resolvable.")
 
-    # Fenster in die jüngste Vergangenheit legen: bereits angekommene Züge tragen
-    # ihre real eingetretene Verspätung, nicht nur eine Prognose.
+    # Place the window in the recent past: already-arrived trains carry their
+    # actually occurred delay, not just a forecast.
     #
-    # Eine einzelne Ankunftstafel-Abfrage deckt aber nur ~1 h ab (der dbnav-
-    # Profilcap greift unabhängig vom angefragten ``duration``). Für ein größeres
-    # Fenster blättern wir es daher in ~60-Min-Schritten rückwärts durch und
-    # dedupen die Züge über die ``tripId``.
+    # A single arrival-board query only covers ~1 h though (the dbnav profile
+    # cap applies regardless of the requested ``duration``). For a larger
+    # window we therefore page backwards in ~60-min steps and dedupe trains
+    # via the ``tripId``.
     end_dt = datetime.fromisoformat(end).astimezone() if end else datetime.now().astimezone()
     step_minutes = 60
     n_chunks = max(1, (lookback_minutes + step_minutes - 1) // step_minutes)
@@ -163,14 +166,14 @@ def connection_delay_history(
             continue
         if entry.get("cancelled"):
             cancelled += 1
-            samples.append(_sample_row(entry, None, "Ausfall"))
+            samples.append(_sample_row(entry, None, "cancelled"))
             continue
         minutes = _to_minutes(entry.get("delay"))
         if minutes is None:
-            samples.append(_sample_row(entry, None, "keine Echtzeitdaten"))
+            samples.append(_sample_row(entry, None, "no real-time data"))
             continue
         delays.append(minutes)
-        samples.append(_sample_row(entry, minutes, "gezählt"))
+        samples.append(_sample_row(entry, minutes, "counted"))
         for remark in entry.get("remarks") or []:
             if remark.get("type") in ("status", "warning"):
                 text = (remark.get("summary") or remark.get("text") or "").strip()
@@ -196,7 +199,7 @@ def connection_delay_history(
         "origin": origin,
         "destination": destination,
         "train": train or None,
-        "window": f"letzte {lookback_minutes} Min bis {end_dt:%d.%m %H:%M} (Ankunftstafel {destination})",
+        "window": f"last {lookback_minutes} min until {end_dt:%d.%m %H:%M} (arrival board {destination})",
         "sample_count": sample_count,
         "mean_delay_minutes": round(mean(delays), 1),
         "median_delay_minutes": round(median(delays), 1),
@@ -217,28 +220,28 @@ def scheduled_connection(
     destination: str,
     departure: str | None = None,
 ) -> dict | None:
-    """Die geplante Verbindung (Soll-Zeiten) als Anker für die ETA-Prognose.
+    """The scheduled connection (planned times) as an anchor for the ETA forecast.
 
-    Sucht die beste Verbindung und liest geplante Abfahrt/Ankunft, Umstiege und
-    Zugname. Fußwege (Legs ohne ``line``) werden ignoriert.
+    Looks up the best connection and reads planned departure/arrival, transfers
+    and train name. Walking legs (legs without ``line``) are ignored.
 
     Args:
-        origin: Start-Bahnhof.
-        destination: Ziel-Bahnhof.
-        departure: Optionaler Abfahrtszeitpunkt (ISO); ``None`` = nächste Verbindung.
+        origin: Departure station.
+        destination: Destination station.
+        departure: Optional departure time (ISO); ``None`` = next connection.
 
     Returns:
-        Dict mit Soll-Zeiten + ``realtime_arrival_delay_minutes`` (aktuelle
-        Echtzeit-Prognose, falls vorhanden), oder ``None`` wenn nichts gefunden.
+        Dict with planned times + ``realtime_arrival_delay_minutes`` (current
+        real-time forecast, if available), or ``None`` if nothing was found.
 
     Raises:
-        db_api.DBServiceError: Sidecar nicht erreichbar / Stationen nicht auflösbar.
+        db_api.DBServiceError: Sidecar unreachable / stations not resolvable.
     """
     from_eva = stations.resolve_eva(origin)
     to_eva = stations.resolve_eva(destination)
     if from_eva is None or to_eva is None:
         raise db_api.DBServiceError(
-            f"Bahnhof nicht auflösbar (origin={origin!r}, destination={destination!r})."
+            f"Station not resolvable (origin={origin!r}, destination={destination!r})."
         )
 
     data = db_api.journeys(from_eva, to_eva, departure=departure, results=1, tickets=False)
@@ -262,17 +265,17 @@ def scheduled_connection(
     }
 
 
-# --- Historische Referenz (Mehr-Monats-Archiv, offline) -----------------------
+# --- Historical reference (multi-month archive, offline) ---------------------
 #
-# Anders als die Live-Tafel (~5–6 h Echtzeit) ist das ein echtes Pünktlichkeits-
-# ARCHIV über Monate — die belastbare Baseline für den Risiko-Score. Quelle:
-# piebro/deutsche-bahn-data (CC BY 4.0). Vorab verdichtet je (EVA, Zugtyp); zur
-# Laufzeit nur ein kleiner JSON-Read, keine schweren Abhängigkeiten.
+# Unlike the live board (~5-6 h real-time), this is a real punctuality ARCHIVE
+# spanning months — the reliable baseline for the risk score. Source:
+# piebro/deutsche-bahn-data (CC BY 4.0). Pre-aggregated per (EVA, train type);
+# at runtime just a small JSON read, no heavy dependencies.
 
 
 @lru_cache(maxsize=1)
 def _load_reference() -> dict:
-    """Lädt die committete Referenz-JSON einmalig (oder {} wenn nicht vorhanden)."""
+    """Loads the committed reference JSON once (or {} if not present)."""
     if not _REFERENCE_PATH.exists():
         return {}
     try:
@@ -282,7 +285,7 @@ def _load_reference() -> dict:
 
 
 def _norm_name(name: str) -> str:
-    """Stationsname robust normalisieren ('Berlin Hbf' ~ 'Berlin Hauptbahnhof')."""
+    """Robustly normalize a station name ('Berlin Hbf' ~ 'Berlin Hauptbahnhof')."""
     n = (name or "").lower().strip().replace("hauptbahnhof", "hbf")
     for ch in " .,()-/":
         n = n.replace(ch, "")
@@ -291,7 +294,7 @@ def _norm_name(name: str) -> str:
 
 @lru_cache(maxsize=1)
 def _name_index() -> dict:
-    """{normalisierter Name -> EVA} aus der Referenz — Fallback ohne Sidecar."""
+    """{normalized name -> EVA} from the reference — fallback without sidecar."""
     index: dict[str, str] = {}
     for eva, entry in _load_reference().get("stations", {}).items():
         key = _norm_name(entry.get("station_name") or "")
@@ -307,16 +310,16 @@ def _train_type(train: str) -> str | None:
 
 
 def historical_reference(destination: str, train: str = "") -> dict | None:
-    """Historische Verspätungs-Kennzahlen am Zielbahnhof aus dem Archiv.
+    """Historical delay metrics at the destination station from the archive.
 
-    Wählt die passende Kennzahlen-Gruppe: erst der konkrete Zugtyp (aus ``train``),
-    sonst Fernverkehr-Sammelwert, sonst der Gesamtwert des Bahnhofs. Auflösung des
-    Bahnhofs zuerst über die EVA (Sidecar), sonst über einen Namensindex — die
-    Referenz funktioniert damit auch offline.
+    Selects the matching metrics group: first the specific train type (from
+    ``train``), then the long-distance aggregate, then the station's overall
+    value. Station resolution first via the EVA (sidecar), otherwise via a
+    name index — the reference thus also works offline.
 
     Returns:
-        Dict mit Kennzahlen + Metadaten (Monate, Quelle), oder ``None`` wenn der
-        Bahnhof nicht im Archiv ist / keine Referenz vorliegt.
+        Dict with metrics + metadata (months, source), or ``None`` if the
+        station is not in the archive / no reference is available.
     """
     ref = _load_reference()
     stations_ = ref.get("stations") or {}
@@ -328,7 +331,7 @@ def historical_reference(destination: str, train: str = "") -> dict | None:
         resolved = stations.resolve_eva(destination)
         eva = str(int(resolved)) if resolved else None
     except Exception:
-        eva = None  # Sidecar nicht erreichbar -> Namensindex versuchen
+        eva = None  # Sidecar unreachable -> try name index
 
     entry = stations_.get(eva) if eva else None
     if entry is None:
@@ -341,11 +344,11 @@ def historical_reference(destination: str, train: str = "") -> dict | None:
     if ttype and ttype in by_type:
         kpis, basis = by_type[ttype], ttype
     elif ttype in _LONG_DISTANCE and entry.get("long_distance"):
-        kpis, basis = entry["long_distance"], "Fernverkehr"
+        kpis, basis = entry["long_distance"], "long-distance"
     elif entry.get("long_distance"):
-        kpis, basis = entry["long_distance"], "Fernverkehr"
+        kpis, basis = entry["long_distance"], "long-distance"
     else:
-        kpis, basis = entry["overall"], "alle Zugtypen"
+        kpis, basis = entry["overall"], "all train types"
 
     meta = ref.get("_meta") or {}
     return {

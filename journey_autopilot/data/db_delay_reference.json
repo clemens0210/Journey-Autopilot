@@ -3,8 +3,8 @@
     "source": "piebro/deutsche-bahn-data",
     "source_url": "https://github.com/piebro/deutsche-bahn-data",
     "dataset_url": "https://huggingface.co/datasets/piebro/deutsche-bahn-data",
-    "license": "CC BY 4.0 (Daten: Deutsche Bahn)",
-    "metric": "Ankunftsverspätung in Minuten (delay_in_min an Halten mit arrival_planned_time)",
+    "license": "CC BY 4.0 (data: Deutsche Bahn)",
+    "metric": "Arrival delay in minutes (delay_in_min at stops with arrival_planned_time)",
     "months": [
       "2025-08",
       "2025-09",

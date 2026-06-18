@@ -1,15 +1,15 @@
-/* Journey Autopilot — Onboarding-Wizard im DB-Navigator-Stil.
+/* Journey Autopilot — onboarding wizard in DB Navigator style.
  *
- * Ein kleiner zustandsbasierter Wizard ohne Framework: render(step) zeichnet den
- * Screen, die Navbar (Zurück/Überspringen/Weiter) wird pro Schritt konfiguriert.
- * Nach jedem Schritt wird nur der geänderte Profil-Teil als Patch gespeichert —
- * Abbrechen und später Weitermachen ist damit jederzeit möglich.
+ * A small state-based wizard with no framework: render(step) draws the
+ * screen, and the navbar (Back/Skip/Next) is configured per step.
+ * After each step, only the changed part of the profile is saved as a
+ * patch — so you can cancel and pick up again later at any time.
  */
 
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Zustand & API
+// State & API
 // ---------------------------------------------------------------------------
 
 const state = {
@@ -19,7 +19,7 @@ const state = {
   trips: [],
   outlookEvents: [],
   step: "welcome",
-  editReturn: false, // true = wir kamen vom Dashboard ("Bearbeiten")
+  editReturn: false, // true = we came from the dashboard ("Edit")
   phone: { sent: false, verifiedThisSession: false },
 };
 
@@ -37,7 +37,7 @@ async function api(path, { method = "GET", body } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data.detail || `Fehler ${resp.status}`);
+  if (!resp.ok) throw new Error(data.detail || `Error ${resp.status}`);
   return data;
 }
 
@@ -47,7 +47,7 @@ async function saveProfile(patch) {
 }
 
 // ---------------------------------------------------------------------------
-// DOM-Helfer
+// DOM helpers
 // ---------------------------------------------------------------------------
 
 const $ = (sel) => document.querySelector(sel);
@@ -59,7 +59,7 @@ function el(html) {
   return t.content;
 }
 
-// Inline-SVGs im DB-Navigator-Stil — Marke und Icons der Reise-Karten.
+// Inline SVGs in DB Navigator style — brand mark and icons for the trip cards.
 const SVG = {
   dbLogo: `<svg viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>`,
   origin: `<svg class="ic" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>`,
@@ -71,8 +71,8 @@ const SVG = {
   qr: `<svg viewBox="0 0 24 24" fill="#111"><path d="M3 3h7v7H3V3Zm2 2v3h3V5H5Zm9-2h7v7h-7V3Zm2 2v3h3V5h-3ZM3 14h7v7H3v-7Zm2 2v3h3v-3H5Zm11-2h2v2h-2v-2Zm3 0h2v2h-2v-2Zm-3 3h2v2h-2v-2Zm0 3h2v2h-2v-2Zm3-3h2v2h-2v-2Zm0 3h2v2h-2v-2Z"/></svg>`,
 };
 
-// Eine Reise-Karte im DB-Navigator-Layout: DB-Logo + Zug, Reisegrund,
-// Start/Ziel mit Punkt-/Pin-Markern, Datum/Zeit und ein Fußzeilen-Status.
+// A trip card in DB Navigator layout: DB logo + train, purpose of travel,
+// origin/destination with dot/pin markers, date/time, and a footer status.
 function tripCardHTML(t, { foot, live = false } = {}) {
   return `
     <div class="trip-card">
@@ -92,7 +92,7 @@ function tripCardHTML(t, { foot, live = false } = {}) {
           <span class="dots"><i></i><i></i><i></i></span><span></span>
           <span class="marker">${SVG.pin}</span><span class="station">${t.destination}</span>
         </div>
-        <div class="trip-meta-row">${SVG.calendar} ${fmtDate(t.planned_departure)} · ${fmtTime(t.planned_departure)} – ${fmtTime(t.planned_arrival)} Uhr</div>
+        <div class="trip-meta-row">${SVG.calendar} ${fmtDate(t.planned_departure)} · ${fmtTime(t.planned_departure)} – ${fmtTime(t.planned_arrival)}</div>
         <div class="trip-meta-row">${SVG.seat} ${t.platform} · ${t.coach}, ${t.seat}</div>
       </div>
       ${foot ? `<div class="trip-foot ${live ? "live" : ""}">${live ? SVG.bell : SVG.download} ${foot}</div>` : ""}
@@ -108,23 +108,23 @@ function toast(msg, ms = 4200) {
   toastTimer = setTimeout(() => { node.hidden = true; }, ms);
 }
 
-// Anzeige-Labels für die intern gespeicherten Profilwerte
+// Display labels for the internally stored profile values
 const LABELS = {
-  fenster: "Fenster", gang: "Gang", egal: "egal",
-  grossraum: "Großraum", abteil: "Abteil",
+  fenster: "Window", gang: "Aisle", egal: "No preference",
+  grossraum: "Open seating", abteil: "Compartment",
 };
 const seatLabel = (pref) =>
-  `${LABELS[pref.seat_location]}, ${LABELS[pref.seat_area]}${pref.quiet_zone ? ", Ruhebereich" : ""}`;
+  `${LABELS[pref.seat_location]}, ${LABELS[pref.seat_area]}${pref.quiet_zone ? ", quiet zone" : ""}`;
 
-const fmtDate = (iso) => new Date(iso).toLocaleDateString("de-DE", {
+const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", {
   weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
 });
-const fmtTime = (iso) => new Date(iso).toLocaleTimeString("de-DE", {
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-US", {
   hour: "2-digit", minute: "2-digit",
 });
 
-function setNav({ back = true, next = "Weiter", skip = null, nextEnabled = true } = {}) {
-  $("#tabbar").hidden = true; // Tableiste nur im Dashboard (siehe renderers.dashboard)
+function setNav({ back = true, next = "Next", skip = null, nextEnabled = true } = {}) {
+  $("#tabbar").hidden = true; // tab bar only in the dashboard (see renderers.dashboard)
   $("#navbar").hidden = false;
   $("#btn-back").style.visibility = back ? "visible" : "hidden";
   $("#btn-next").textContent = next;
@@ -135,11 +135,11 @@ function setNav({ back = true, next = "Weiter", skip = null, nextEnabled = true 
 
 function setProgress(step) {
   const idx = STEPS.indexOf(step);
-  const wizard = idx > 0; // Welcome & Dashboard ohne Fortschrittsbalken
+  const wizard = idx > 0; // Welcome & dashboard have no progress bar
   $("#progress").hidden = !wizard || step === "dashboard";
   if (wizard) {
     $("#progress-fill").style.width = `${(idx / (STEPS.length - 1)) * 100}%`;
-    $("#progress-label").textContent = `Schritt ${idx} von ${STEPS.length - 1}`;
+    $("#progress-label").textContent = `Step ${idx} of ${STEPS.length - 1}`;
   }
 }
 
@@ -159,45 +159,45 @@ function updateTopbarAccount() {
 
 const renderers = {
 
-  // -- 0: Willkommen ---------------------------------------------------------
+  // -- 0: Welcome ---------------------------------------------------------
   welcome() {
     screen.replaceChildren(el(`
       <div class="card hero">
         <svg class="hero-logo" viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>
-        <h1>Dein Journey Autopilot</h1>
-        <p class="muted">Reist mit. Denkt mit. Plant um, bevor du es musst.</p>
+        <h1>Your Journey Autopilot</h1>
+        <p class="muted">Travels with you. Thinks ahead. Replans before you have to.</p>
         <ul class="feature-list">
-          <li><span class="feature-icon">📡</span><span><b>Störungen früh erkennen</b> — Risiko-Vorhersage Stunden im Voraus, nicht erst am Bahnsteig.</span></li>
-          <li><span class="feature-icon">🔀</span><span><b>Automatisch umplanen</b> — Alternativen, die zu deinen Terminen und Vorlieben passen.</span></li>
-          <li><span class="feature-icon">💶</span><span><b>Fahrgastrechte automatisch</b> — Entschädigungen werden erkannt und vorbereitet.</span></li>
-          <li><span class="feature-icon">✋</span><span><b>Du behältst das Veto</b> — keine Buchung, keine Nachricht ohne deine Freigabe.</span></li>
+          <li><span class="feature-icon">📡</span><span><b>Detect disruptions early</b> — risk forecasts hours in advance, not just on the platform.</span></li>
+          <li><span class="feature-icon">🔀</span><span><b>Automatic replanning</b> — alternatives that match your appointments and preferences.</span></li>
+          <li><span class="feature-icon">💶</span><span><b>Passenger rights, automatically</b> — compensation is detected and prepared for you.</span></li>
+          <li><span class="feature-icon">✋</span><span><b>You keep the final say</b> — no booking, no message without your approval.</span></li>
         </ul>
       </div>
-      <p class="muted" style="padding: 0 6px">Für die Einrichtung brauchen wir dein DB-Konto (Pflicht) sowie optional Mobilnummer und Kalender. Alle Daten bleiben lokal, du kannst dein Profil jederzeit einsehen, ändern oder löschen (DSGVO).</p>
+      <p class="muted" style="padding: 0 6px">To set things up we need your DB account (required), plus an optional phone number and calendar. All data stays local — you can view, change, or delete your profile at any time (GDPR).</p>
     `));
-    setNav({ back: false, next: "Los geht's" });
+    setNav({ back: false, next: "Let's go" });
   },
 
-  // -- 1: DB-Konto-Login -------------------------------------------------------
+  // -- 1: DB account login -------------------------------------------------------
   login() {
     screen.replaceChildren(el(`
       <div class="card">
-        <h2>Mit DB-Konto anmelden <span class="badge required">Pflicht</span></h2>
-        <p class="muted">Melde dich mit deinem bahn.de-Konto an. Wir importieren deine gebuchten Reisen und dein BahnBonus-Profil — du musst nichts abtippen.</p>
+        <h2>Sign in with your DB account <span class="badge required">Required</span></h2>
+        <p class="muted">Sign in with your bahn.de account. We'll import your booked trips and your BahnBonus profile — no need to type anything in.</p>
         <form id="login-form">
-          <label class="field">E-Mail-Adresse
+          <label class="field">Email address
             <input type="email" id="login-email" autocomplete="username" required value="lucas.wild@example.com">
           </label>
-          <label class="field">Passwort
+          <label class="field">Password
             <input type="password" id="login-password" autocomplete="current-password" required value="demo123">
           </label>
           <p class="error" id="login-error"></p>
-          <button class="btn primary block" type="submit">Anmelden &amp; Reisen importieren</button>
+          <button class="btn primary block" type="submit">Sign in &amp; import trips</button>
         </form>
-        <div class="demo-hint">🎓 <b>Demo-Modus:</b> Der DB-Login ist simuliert (keine offizielle DB-API). Zugang: <code>lucas.wild@example.com</code> / <code>demo123</code></div>
+        <div class="demo-hint">🎓 <b>Demo mode:</b> DB login is simulated (no official DB API). Credentials: <code>lucas.wild@example.com</code> / <code>demo123</code></div>
       </div>
     `));
-    setNav({ back: true, next: "Weiter", nextEnabled: false });
+    setNav({ back: true, next: "Next", nextEnabled: false });
 
     $("#login-form").addEventListener("submit", async (ev) => {
       ev.preventDefault();
@@ -213,8 +213,8 @@ const renderers = {
         state.profile = data.profile;
         state.trips = data.trips;
         updateTopbarAccount();
-        toast(`Willkommen, ${data.account.first_name}! ${data.trips.length} Reisen importiert.`);
-        // Wer das Onboarding schon abgeschlossen hat, landet direkt im Dashboard.
+        toast(`Welcome, ${data.account.first_name}! ${data.trips.length} trips imported.`);
+        // Anyone who already finished onboarding lands straight in the dashboard.
         go(data.profile.onboarding_completed ? "dashboard" : "trips");
       } catch (err) {
         $("#login-error").textContent = err.message;
@@ -222,52 +222,52 @@ const renderers = {
     });
   },
 
-  // -- 2: Importierte Reisen ------------------------------------------------------
+  // -- 2: Imported trips ------------------------------------------------------
   trips() {
     const cards = state.trips
-      .map((t) => tripCardHTML(t, { foot: `Auftrag ${t.order_number} · aus DB-Konto importiert` }))
+      .map((t) => tripCardHTML(t, { foot: `Order ${t.order_number} · imported from DB account` }))
       .join("");
 
     screen.replaceChildren(el(`
-      <div class="success-banner">✓ DB-Konto verbunden — ${state.trips.length} bevorstehende Reisen importiert</div>
+      <div class="success-banner">✓ DB account connected — ${state.trips.length} upcoming trips imported</div>
       <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Konto</span><span class="v">${state.account.display_name}</span></div>
+        <div class="summary-row"><span class="k">Account</span><span class="v">${state.account.display_name}</span></div>
         <div class="summary-row"><span class="k">BahnCard</span><span class="v">${state.account.bahncard}</span></div>
-        <div class="summary-row"><span class="k">BahnBonus</span><span class="v">${state.account.bahnbonus_status} · ${state.account.bahnbonus_points.toLocaleString("de-DE")} Punkte</span></div>
+        <div class="summary-row"><span class="k">BahnBonus</span><span class="v">${state.account.bahnbonus_status} · ${state.account.bahnbonus_points.toLocaleString("en-US")} points</span></div>
       </div>
-      <h2 style="margin: 16px 4px 10px">Deine nächsten Reisen</h2>
-      ${cards || '<p class="muted">Keine bevorstehenden Reisen gefunden.</p>'}
-      <p class="muted" style="padding: 0 6px">Diese Reisen überwacht der Autopilot ab sofort automatisch.</p>
+      <h2 style="margin: 16px 4px 10px">Your upcoming trips</h2>
+      ${cards || '<p class="muted">No upcoming trips found.</p>'}
+      <p class="muted" style="padding: 0 6px">The autopilot will now monitor these trips automatically.</p>
     `));
-    setNav({ back: false, next: "Weiter" });
+    setNav({ back: false, next: "Next" });
   },
 
-  // -- 3: Mobilnummer ---------------------------------------------------------------
+  // -- 3: Phone number ---------------------------------------------------------------
   phone() {
     const verified = state.profile?.notifications?.phone_verified;
     screen.replaceChildren(el(`
       <div class="card">
-        <h2>Mobilnummer bestätigen <span class="badge optional">Optional</span></h2>
-        <p class="muted">Bei Störungen zählt jede Minute: Über deine bestätigte Nummer erreichen dich Warnungen und Umplanungs-Vorschläge per SMS/WhatsApp — auch wenn die App zu ist.</p>
+        <h2>Confirm phone number <span class="badge optional">Optional</span></h2>
+        <p class="muted">Every minute counts during a disruption: with a confirmed number we can reach you with alerts and replanning suggestions via SMS/WhatsApp — even when the app is closed.</p>
         ${verified ? `
-          <div class="success-banner">✓ ${state.profile.notifications.phone} ist bestätigt</div>
+          <div class="success-banner">✓ ${state.profile.notifications.phone} is confirmed</div>
         ` : `
-          <label class="field">Mobilnummer
+          <label class="field">Phone number
             <input type="tel" id="phone-input" placeholder="+49 151 12345678" autocomplete="tel" value="${state.profile?.notifications?.phone || ""}">
           </label>
-          <button class="btn primary block" id="phone-send" type="button">Code senden</button>
+          <button class="btn primary block" id="phone-send" type="button">Send code</button>
           <div id="phone-confirm-area" hidden>
-            <label class="field" style="margin-top:16px">Bestätigungscode
+            <label class="field" style="margin-top:16px">Confirmation code
               <input type="text" id="phone-code" class="code-input" inputmode="numeric" maxlength="4" placeholder="····">
             </label>
-            <button class="btn primary block" id="phone-verify" type="button">Bestätigen</button>
+            <button class="btn primary block" id="phone-verify" type="button">Confirm</button>
           </div>
           <p class="error" id="phone-error"></p>
-          <div class="demo-hint">🎓 <b>Demo-Modus:</b> Es wird keine echte SMS verschickt — der Code erscheint als Einblendung.</div>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> No real SMS is sent — the code is shown as a notification.</div>
         `}
       </div>
     `));
-    setNav({ back: true, next: "Weiter", skip: verified ? null : "Überspringen", nextEnabled: !!verified });
+    setNav({ back: true, next: "Next", skip: verified ? null : "Skip", nextEnabled: !!verified });
     if (verified) return;
 
     $("#phone-send").addEventListener("click", async () => {
@@ -278,7 +278,7 @@ const renderers = {
         });
         $("#phone-confirm-area").hidden = false;
         $("#phone-code").focus();
-        toast(`📱 SMS an ${data.phone} (Demo): Dein Code ist ${data.demo_code}`, 10000);
+        toast(`📱 SMS to ${data.phone} (demo): your code is ${data.demo_code}`, 10000);
       } catch (err) {
         $("#phone-error").textContent = err.message;
       }
@@ -291,42 +291,42 @@ const renderers = {
           method: "POST", body: { code: $("#phone-code").value },
         });
         state.profile = data.profile;
-        toast("✓ Nummer bestätigt");
-        renderers.phone(); // Screen mit Erfolgs-Status neu zeichnen
+        toast("✓ Number confirmed");
+        renderers.phone(); // re-render the screen with success state
       } catch (err) {
         $("#phone-error").textContent = err.message;
       }
     });
   },
 
-  // -- 4: Outlook-Kalender -----------------------------------------------------------
+  // -- 4: Outlook calendar -----------------------------------------------------------
   outlook() {
     const connected = state.profile?.connections?.outlook;
     const events = state.outlookEvents.map((e) => `
       <div class="event-row">
-        <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)} Uhr</span>
+        <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
         <span><span class="event-title">${e.title}</span>
           <span class="event-loc">${e.location}</span>
-          ${e.hard_constraint ? '<span class="event-hard">Harter Termin</span>' : ""}
+          ${e.hard_constraint ? '<span class="event-hard">Hard deadline</span>' : ""}
         </span>
       </div>
     `).join("");
 
     screen.replaceChildren(el(`
       <div class="card">
-        <h2>Outlook-Kalender verbinden <span class="badge optional">Optional</span></h2>
-        <p class="muted">Der Autopilot liest deine Termine, um harte Deadlines (z. B. Kundentermine vor Ort) bei jeder Umplanung zu schützen — und trägt neue Verbindungen direkt in deinen Kalender ein.</p>
+        <h2>Connect Outlook calendar <span class="badge optional">Optional</span></h2>
+        <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
         ${connected ? `
-          <div class="success-banner">✓ Outlook-Kalender verbunden</div>
-          ${events ? `<h2 style="font-size:14px">Erkannte Termine</h2>${events}` : ""}
-          <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Verbindung trennen</button>
+          <div class="success-banner">✓ Outlook calendar connected</div>
+          ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
+          <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
         ` : `
-          <button class="btn primary block" id="outlook-connect" type="button">Mit Microsoft anmelden</button>
-          <div class="demo-hint">🎓 <b>Demo-Modus:</b> Der Microsoft-Login ist simuliert — es werden Beispiel-Termine geladen.</div>
+          <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> Microsoft login is simulated — sample events will be loaded.</div>
         `}
       </div>
     `));
-    setNav({ back: true, next: "Weiter", skip: connected ? null : "Überspringen" });
+    setNav({ back: true, next: "Next", skip: connected ? null : "Skip" });
 
     if (connected) {
       $("#outlook-disconnect").addEventListener("click", async () => {
@@ -343,59 +343,59 @@ const renderers = {
     }
   },
 
-  // -- 5: Reisepräferenzen ---------------------------------------------------------------
+  // -- 5: Travel preferences ---------------------------------------------------------------
   preferences() {
     const p = state.profile.preferences;
     screen.replaceChildren(el(`
       <div class="card">
-        <h2>Deine Reisepräferenzen</h2>
-        <p class="muted">Danach richten sich alle Umplanungs-Vorschläge. Du kannst alles später im Profil ändern.</p>
+        <h2>Your travel preferences</h2>
+        <p class="muted">These guide all replanning suggestions. You can change everything later in your profile.</p>
 
-        <label class="field">Klasse</label>
+        <label class="field">Class</label>
         <div class="choices" data-group="travel_class">
-          <button type="button" class="choice" data-value="2"><span class="choice-title">2. Klasse</span><span class="choice-sub">Standard</span></button>
-          <button type="button" class="choice" data-value="1"><span class="choice-title">1. Klasse</span><span class="choice-sub">Mehr Ruhe &amp; Platz</span></button>
+          <button type="button" class="choice" data-value="2"><span class="choice-title">2nd class</span><span class="choice-sub">Standard</span></button>
+          <button type="button" class="choice" data-value="1"><span class="choice-title">1st class</span><span class="choice-sub">More peace &amp; space</span></button>
         </div>
 
-        <label class="field" style="margin-top:16px">Sitzplatz</label>
+        <label class="field" style="margin-top:16px">Seat</label>
         <div class="choices cols-3" data-group="seat_location">
-          <button type="button" class="choice" data-value="fenster"><span class="choice-title">Fenster</span></button>
-          <button type="button" class="choice" data-value="gang"><span class="choice-title">Gang</span></button>
-          <button type="button" class="choice" data-value="egal"><span class="choice-title">Egal</span></button>
+          <button type="button" class="choice" data-value="fenster"><span class="choice-title">Window</span></button>
+          <button type="button" class="choice" data-value="gang"><span class="choice-title">Aisle</span></button>
+          <button type="button" class="choice" data-value="egal"><span class="choice-title">No preference</span></button>
         </div>
         <div class="choices cols-3" style="margin-top:9px" data-group="seat_area">
-          <button type="button" class="choice" data-value="grossraum"><span class="choice-title">Großraum</span></button>
-          <button type="button" class="choice" data-value="abteil"><span class="choice-title">Abteil</span></button>
-          <button type="button" class="choice" data-value="egal"><span class="choice-title">Egal</span></button>
+          <button type="button" class="choice" data-value="grossraum"><span class="choice-title">Open seating</span></button>
+          <button type="button" class="choice" data-value="abteil"><span class="choice-title">Compartment</span></button>
+          <button type="button" class="choice" data-value="egal"><span class="choice-title">No preference</span></button>
         </div>
 
         <div class="switch-row" style="margin-top:8px">
-          <span>Ruhebereich bevorzugen<span class="sub">Möglichst im Ruhewagen reservieren</span></span>
+          <span>Prefer quiet zone<span class="sub">Reserve in the quiet car when possible</span></span>
           <label class="switch"><input type="checkbox" id="quiet-zone" ${p.quiet_zone ? "checked" : ""}><span class="track"></span></label>
         </div>
       </div>
 
       <div class="card">
-        <h2>Schnell oder bequem?</h2>
-        <p class="muted">Wie soll der Autopilot bei einer Störung abwägen?</p>
+        <h2>Fast or comfortable?</h2>
+        <p class="muted">How should the autopilot weigh trade-offs during a disruption?</p>
         <div class="slider-row">
-          <span class="end">🛋️ Maximaler Komfort</span>
+          <span class="end">🛋️ Maximum comfort</span>
           <input type="range" id="speed-comfort" min="0" max="100" step="5" value="${p.speed_vs_comfort}">
-          <span class="end right">⚡ Schnellste Ankunft</span>
+          <span class="end right">⚡ Fastest arrival</span>
         </div>
         <div class="slider-value" id="speed-comfort-label"></div>
 
-        <label class="field" style="margin-top:14px">Maximale Umstiege bei Umplanung</label>
+        <label class="field" style="margin-top:14px">Maximum transfers when replanning</label>
         <div class="choices cols-3" data-group="max_transfers">
-          <button type="button" class="choice" data-value="0"><span class="choice-title">Direkt</span></button>
-          <button type="button" class="choice" data-value="2"><span class="choice-title">Bis 2</span></button>
-          <button type="button" class="choice" data-value="9"><span class="choice-title">Egal</span></button>
+          <button type="button" class="choice" data-value="0"><span class="choice-title">Direct</span></button>
+          <button type="button" class="choice" data-value="2"><span class="choice-title">Up to 2</span></button>
+          <button type="button" class="choice" data-value="9"><span class="choice-title">No preference</span></button>
         </div>
       </div>
     `));
-    setNav({ back: true, next: state.editReturn ? "Speichern" : "Weiter" });
+    setNav({ back: true, next: state.editReturn ? "Save" : "Next" });
 
-    // Kachel-Gruppen initialisieren
+    // Initialize tile groups
     const groups = { travel_class: String(p.travel_class), seat_location: p.seat_location, seat_area: p.seat_area, max_transfers: String(p.max_transfers) };
     screen.querySelectorAll(".choices").forEach((box) => {
       const group = box.dataset.group;
@@ -411,49 +411,49 @@ const renderers = {
     const sliderLabel = () => {
       const v = Number($("#speed-comfort").value);
       $("#speed-comfort-label").textContent =
-        v < 25 ? "Komfort geht vor — lieber später, aber entspannt"
-        : v < 50 ? "Eher Komfort, Tempo zählt aber"
-        : v < 75 ? "Eher Tempo, Komfort zählt aber"
-        : "Tempo geht vor — Hauptsache schnellstmöglich ankommen";
+        v < 25 ? "Comfort first — arrive later, but relaxed"
+        : v < 50 ? "Leaning comfort, but speed still matters"
+        : v < 75 ? "Leaning speed, but comfort still matters"
+        : "Speed first — get there as fast as possible";
     };
     $("#speed-comfort").addEventListener("input", sliderLabel);
     sliderLabel();
   },
 
-  // -- 6: Zuhause & Constraints --------------------------------------------------------------
+  // -- 6: Home & constraints --------------------------------------------------------------
   home() {
     const h = state.profile.home;
     screen.replaceChildren(el(`
       <div class="card">
-        <h2>Zuhause &amp; harte Grenzen</h2>
-        <p class="muted">Damit weiß der Autopilot, wie weit eine Umleitung gehen darf — und wann ein Hotel die bessere Option ist als eine Nacht im Zug.</p>
+        <h2>Home &amp; hard limits</h2>
+        <p class="muted">This tells the autopilot how far a detour is allowed to go — and when a hotel is the better option over a night on the train.</p>
 
-        <label class="field">Heimatbahnhof
-          <span class="hint">Suche nutzt Live-DB-Daten, sobald der db_service läuft</span>
+        <label class="field">Home station
+          <span class="hint">Search uses live DB data once db_service is running</span>
           <span class="autocomplete">
-            <input type="text" id="home-station" placeholder="z. B. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
+            <input type="text" id="home-station" placeholder="e.g. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
             <span id="station-suggestions"></span>
           </span>
         </label>
 
-        <label class="field">Späteste Ankunft zuhause
-          <span class="hint">Danach schlägt der Autopilot lieber ein Hotel vor</span>
+        <label class="field">Latest arrival home
+          <span class="hint">After this, the autopilot prefers to suggest a hotel</span>
           <input type="time" id="latest-arrival" value="${h.latest_arrival_home}">
         </label>
 
         <div class="switch-row">
-          <span>Hotel-Übernachtung okay<span class="sub">Bei Strandung darf ein Hotel vorgeschlagen werden</span></span>
+          <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
           <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
         </div>
         <div class="switch-row">
-          <span>Taxi für die letzte Meile okay<span class="sub">Wenn der letzte Anschluss wegfällt</span></span>
+          <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
           <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
         </div>
       </div>
     `));
-    setNav({ back: true, next: state.editReturn ? "Speichern" : "Weiter" });
+    setNav({ back: true, next: state.editReturn ? "Save" : "Next" });
 
-    // Autocomplete gegen /api/stations (Live-Sidecar mit Fallback)
+    // Autocomplete against /api/stations (live sidecar with fallback)
     const input = $("#home-station");
     const sugBox = $("#station-suggestions");
     let selected = h.home_station || null;
@@ -485,55 +485,55 @@ const renderers = {
       }, 250);
     });
 
-    // Auswahl für den Weiter-Klick merken
+    // Remember the selection for when Next is clicked
     screen._getHomeStation = () => selected || (input.value.trim() ? { id: null, name: input.value.trim() } : null);
   },
 
-  // -- 7: Benachrichtigungen & Autonomie ----------------------------------------------------------
+  // -- 7: Notifications & autonomy ----------------------------------------------------------
   notifications() {
     const n = state.profile.notifications;
     const channels = new Set(n.channels);
     screen.replaceChildren(el(`
       <div class="card">
-        <h2>Benachrichtigungen</h2>
+        <h2>Notifications</h2>
         <div class="switch-row">
-          <span>Push-Mitteilungen<span class="sub">In der App, immer aktuell</span></span>
+          <span>Push notifications<span class="sub">In the app, always up to date</span></span>
           <label class="switch"><input type="checkbox" data-channel="push" ${channels.has("push") ? "checked" : ""}><span class="track"></span></label>
         </div>
         <div class="switch-row">
-          <span>WhatsApp / SMS<span class="sub">${n.phone_verified ? `An ${n.phone}` : "Erfordert bestätigte Mobilnummer"}</span></span>
+          <span>WhatsApp / SMS<span class="sub">${n.phone_verified ? `To ${n.phone}` : "Requires a confirmed phone number"}</span></span>
           <label class="switch"><input type="checkbox" data-channel="whatsapp" ${channels.has("whatsapp") ? "checked" : ""} ${n.phone_verified ? "" : "disabled"}><span class="track"></span></label>
         </div>
         <div class="switch-row">
-          <span>E-Mail<span class="sub">Zusammenfassungen &amp; Belege</span></span>
+          <span>Email<span class="sub">Summaries &amp; receipts</span></span>
           <label class="switch"><input type="checkbox" data-channel="email" ${channels.has("email") ? "checked" : ""}><span class="track"></span></label>
         </div>
-        <label class="field" style="margin-top:12px">Ruhezeiten <span class="hint">Keine Benachrichtigungen außer Notfällen</span></label>
+        <label class="field" style="margin-top:12px">Quiet hours <span class="hint">No notifications except emergencies</span></label>
         <div style="display:flex; gap:10px; align-items:center">
-          <input type="time" id="quiet-from" value="${n.quiet_hours.from}"> <span class="muted">bis</span>
+          <input type="time" id="quiet-from" value="${n.quiet_hours.from}"> <span class="muted">to</span>
           <input type="time" id="quiet-to" value="${n.quiet_hours.to}">
         </div>
       </div>
 
       <div class="card">
-        <h2>Wie selbstständig darf der Autopilot sein?</h2>
+        <h2>How independent should the autopilot be?</h2>
         <div class="choices cols-1" data-group="autonomy">
           <button type="button" class="choice" data-value="notify_only">
-            <span class="choice-title">🔔 Nur informieren</span>
-            <span class="choice-sub">Der Autopilot warnt und schlägt vor — du machst alles selbst.</span>
+            <span class="choice-title">🔔 Just notify me</span>
+            <span class="choice-sub">The autopilot warns and suggests — you handle everything yourself.</span>
           </button>
           <button type="button" class="choice" data-value="approve_each">
-            <span class="choice-title">✋ Jede Aktion freigeben <i>(empfohlen)</i></span>
-            <span class="choice-sub">Umbuchungen, Nachrichten &amp; Anträge erst nach deinem Okay.</span>
+            <span class="choice-title">✋ Approve every action <i>(recommended)</i></span>
+            <span class="choice-sub">Rebookings, messages &amp; claims only happen after your okay.</span>
           </button>
           <button type="button" class="choice" data-value="auto_within_limits">
-            <span class="choice-title">🤖 Automatisch in Grenzen</span>
-            <span class="choice-sub">Kostenfreie Umbuchungen automatisch, alles andere mit Freigabe.</span>
+            <span class="choice-title">🤖 Automatic within limits</span>
+            <span class="choice-sub">Free rebookings happen automatically, everything else needs approval.</span>
           </button>
         </div>
       </div>
     `));
-    setNav({ back: true, next: state.editReturn ? "Speichern" : "Weiter" });
+    setNav({ back: true, next: state.editReturn ? "Save" : "Next" });
 
     const box = screen.querySelector('[data-group="autonomy"]');
     box.querySelectorAll(".choice").forEach((btn) => {
@@ -545,33 +545,33 @@ const renderers = {
     });
   },
 
-  // -- 8: Zusammenfassung ------------------------------------------------------------------------
+  // -- 8: Summary ------------------------------------------------------------------------
   summary() {
     const p = state.profile;
     const pref = p.preferences;
     const autonomyLabel = {
-      notify_only: "Nur informieren",
-      approve_each: "Jede Aktion freigeben",
-      auto_within_limits: "Automatisch in Grenzen",
+      notify_only: "Just notify me",
+      approve_each: "Approve every action",
+      auto_within_limits: "Automatic within limits",
     }[p.autonomy];
 
     screen.replaceChildren(el(`
       <div class="card">
-        <h2>Alles startklar? 🚦</h2>
-        <div class="summary-row"><span class="k">DB-Konto</span><span class="v">✓ ${state.account.display_name}</span></div>
-        <div class="summary-row"><span class="k">Importierte Reisen</span><span class="v">${state.trips.length}</span></div>
-        <div class="summary-row"><span class="k">Mobilnummer</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "— übersprungen"}</span></div>
-        <div class="summary-row"><span class="k">Outlook-Kalender</span><span class="v">${p.connections.outlook ? "✓ verbunden" : "— übersprungen"}</span></div>
-        <div class="summary-row"><span class="k">Klasse / Sitzplatz</span><span class="v">${pref.travel_class}. Klasse · ${seatLabel(pref)}</span></div>
-        <div class="summary-row"><span class="k">Tempo vs. Komfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
-        <div class="summary-row"><span class="k">Max. Umstiege</span><span class="v">${pref.max_transfers >= 9 ? "egal" : pref.max_transfers}</span></div>
-        <div class="summary-row"><span class="k">Heimatbahnhof</span><span class="v">${p.home.home_station?.name || "—"}</span></div>
-        <div class="summary-row"><span class="k">Späteste Heimkehr</span><span class="v">${p.home.latest_arrival_home} Uhr</span></div>
-        <div class="summary-row"><span class="k">Autonomie</span><span class="v">${autonomyLabel}</span></div>
+        <h2>All set? 🚦</h2>
+        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.display_name}</span></div>
+        <div class="summary-row"><span class="k">Imported trips</span><span class="v">${state.trips.length}</span></div>
+        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "— skipped"}</span></div>
+        <div class="summary-row"><span class="k">Outlook calendar</span><span class="v">${p.connections.outlook ? "✓ connected" : "— skipped"}</span></div>
+        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
+        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
+        <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
+        <div class="summary-row"><span class="k">Home station</span><span class="v">${p.home.home_station?.name || "—"}</span></div>
+        <div class="summary-row"><span class="k">Latest arrival home</span><span class="v">${p.home.latest_arrival_home}</span></div>
+        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${autonomyLabel}</span></div>
       </div>
-      <p class="muted" style="padding: 0 6px">Mit dem Abschluss beginnt der Autopilot, deine importierten Reisen zu überwachen. Jede Einstellung ist später im Profil änderbar.</p>
+      <p class="muted" style="padding: 0 6px">Once you finish, the autopilot will start monitoring your imported trips. Every setting can be changed later in your profile.</p>
     `));
-    setNav({ back: true, next: "Onboarding abschließen 🚀" });
+    setNav({ back: true, next: "Finish onboarding 🚀" });
   },
 
   // -- Dashboard -------------------------------------------------------------------------------
@@ -580,61 +580,61 @@ const renderers = {
     const pref = p.preferences;
     const nextTrip = state.trips[0];
     const cards = state.trips
-      .map((t) => tripCardHTML(t, { foot: "Wird vom Autopilot überwacht", live: true }))
+      .map((t) => tripCardHTML(t, { foot: "Monitored by the autopilot", live: true }))
       .join("");
 
     screen.replaceChildren(el(`
       <div class="dash-greeting">
-        <h1>Hallo ${state.account.first_name} 👋</h1>
+        <h1>Hi ${state.account.first_name} 👋</h1>
         <p class="muted">${nextTrip
-          ? `Deine nächste Reise startet ${fmtDate(nextTrip.planned_departure)} um ${fmtTime(nextTrip.planned_departure)} Uhr — der Autopilot wacht.`
-          : "Keine bevorstehenden Reisen — der Autopilot ist bereit."}</p>
+          ? `Your next trip starts ${fmtDate(nextTrip.planned_departure)} at ${fmtTime(nextTrip.planned_departure)} — the autopilot is watching.`
+          : "No upcoming trips — the autopilot is ready."}</p>
       </div>
 
-      <div class="section-title"><h2>Überwachte Reisen</h2></div>
-      ${cards || '<div class="card"><p class="muted">Keine Reisen importiert.</p></div>'}
+      <div class="section-title"><h2>Monitored trips</h2></div>
+      ${cards || '<div class="card"><p class="muted">No trips imported.</p></div>'}
 
-      <div class="section-title"><h2>Dein Profil</h2><button id="edit-prefs" type="button">Bearbeiten</button></div>
+      <div class="section-title"><h2>Your profile</h2><button id="edit-prefs" type="button">Edit</button></div>
       <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Klasse / Sitzplatz</span><span class="v">${pref.travel_class}. Klasse · ${seatLabel(pref)}</span></div>
-        <div class="summary-row"><span class="k">Tempo vs. Komfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
-        <div class="summary-row"><span class="k">Heimatbahnhof</span><span class="v">${p.home.home_station?.name || "—"}</span></div>
-        <div class="summary-row"><span class="k">Autonomie</span><span class="v">${{ notify_only: "Nur informieren", approve_each: "Jede Aktion freigeben", auto_within_limits: "Automatisch in Grenzen" }[p.autonomy]}</span></div>
+        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
+        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
+        <div class="summary-row"><span class="k">Home station</span><span class="v">${p.home.home_station?.name || "—"}</span></div>
+        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
       </div>
 
-      <div class="section-title"><h2>Verbindungen</h2><button id="edit-connections" type="button">Verwalten</button></div>
+      <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
       <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">DB-Konto</span><span class="v">✓ ${state.account.email}</span></div>
-        <div class="summary-row"><span class="k">Mobilnummer</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "nicht bestätigt"}</span></div>
-        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ verbunden" : "nicht verbunden"}</span></div>
+        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
+        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
+        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ connected" : "not connected"}</span></div>
       </div>
 
       <div class="card">
-        <p class="muted" style="margin-top:0">Deine Daten gehören dir: Mit einem Klick löschst du Profil, Verbindungen und importierte Reisen unwiderruflich (DSGVO Art. 17).</p>
-        <button class="btn danger block" id="delete-profile" type="button">Profil &amp; Daten löschen</button>
+        <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
+        <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
       </div>
     `));
-    setNav({ back: false, next: "Weiter" });
+    setNav({ back: false, next: "Next" });
     $("#navbar").hidden = true;
     $("#progress").hidden = true;
-    $("#tabbar").hidden = false; // Mock-Tableiste des DB Navigators
+    $("#tabbar").hidden = false; // mock tab bar of the DB Navigator
 
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = true; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = true; go("phone"); });
     $("#delete-profile").addEventListener("click", async () => {
-      if (!confirm("Wirklich alle Daten löschen? Das kann nicht rückgängig gemacht werden.")) return;
+      if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
       Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: false });
       updateTopbarAccount();
-      toast("Alle Daten gelöscht. Bis bald!");
+      toast("All data deleted. See you soon!");
       go("welcome");
     });
   },
 };
 
 // ---------------------------------------------------------------------------
-// Navigation: Schritt speichern, dann weiter
+// Navigation: save the step, then move on
 // ---------------------------------------------------------------------------
 
 async function persistCurrentStep() {
@@ -697,13 +697,13 @@ async function next() {
   if (state.step === "summary") {
     await api("/api/onboarding/complete", { method: "POST" });
     state.profile.onboarding_completed = true;
-    toast("🎉 Onboarding abgeschlossen — gute Reise!");
+    toast("🎉 Onboarding complete — have a great trip!");
     go("dashboard");
     return;
   }
   if (state.editReturn) {
     state.editReturn = false;
-    toast("✓ Gespeichert");
+    toast("✓ Saved");
     go("dashboard");
     return;
   }
@@ -713,12 +713,12 @@ async function next() {
 function back() {
   if (state.editReturn) { state.editReturn = false; go("dashboard"); return; }
   const idx = STEPS.indexOf(state.step);
-  // Vom Telefon-Schritt zurück zur Reise-Übersicht, nicht zum Login
+  // From the phone step back to the trip overview, not to login
   go(STEPS[Math.max(0, idx - 1)]);
 }
 
 // ---------------------------------------------------------------------------
-// Events & Start
+// Events & startup
 // ---------------------------------------------------------------------------
 
 $("#btn-next").addEventListener("click", next);
@@ -750,8 +750,8 @@ async function boot() {
       state.profile = data.profile;
       state.trips = data.trips;
       updateTopbarAccount();
-      // Laufende Session: fertige Nutzer landen im Dashboard, alle anderen
-      // machen nach dem Login-Schritt weiter.
+      // Active session: users who finished onboarding land in the dashboard,
+      // everyone else continues after the login step.
       go(state.profile.onboarding_completed ? "dashboard" : "trips");
       return;
     } catch {

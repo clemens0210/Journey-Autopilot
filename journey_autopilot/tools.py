@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import os
 
-from . import db_api, delay_stats, mock_data
+from .disruption_monitoring import delay_stats
+
+from .rerouting import db_api
+
+from . import mock_data
 from .passenger_rights.rag_store import FahrgastrechteRAG
 from .passenger_rights.rights_service import calculate_compensation
 from .calendar import get_calendar_events
@@ -114,223 +118,223 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
 
 
 def get_user_profile() -> dict:
-    """Liest das persönliche Präferenzprofil des Nutzers aus dem Onboarding.
+    """Reads the user's personal preference profile from onboarding.
 
-    Enthält Klasse, Sitzplatzwünsche, die Tempo-vs-Komfort-Abwägung (0 = maximaler
-    Komfort, 100 = schnellste Ankunft), maximale Umstiege, Heimatbahnhof, späteste
-    Heimkehr sowie das Autonomie-Level. Reroute-Optionen sollen gegen dieses
-    Profil bewertet werden.
+    Contains class, seat preferences, the speed-vs-comfort tradeoff (0 = maximum
+    comfort, 100 = fastest arrival), maximum number of transfers, home station,
+    latest return time, and the autonomy level. Reroute options should be
+    evaluated against this profile.
 
     Returns:
-        Ein Dict mit dem Profil, oder mit "error", wenn noch kein Onboarding
-        durchlaufen wurde.
+        A dict with the profile, or with "error" if onboarding has not been
+        completed yet.
     """
     try:
-        # Lazy Import: hält das ADK-Paket unabhängig vom Onboarding-Paket,
-        # solange das Tool nicht aufgerufen wird.
-        from onboarding import store
+        # Lazy import: keeps the ADK package independent of the onboarding
+        # package as long as the tool is not called.
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
-    except Exception as exc:  # Onboarding-Paket/DB nicht verfügbar
-        return {"error": f"Profil nicht lesbar: {exc}"}
+    except Exception as exc:  # Onboarding package/DB not available
+        return {"error": f"Profile not readable: {exc}"}
     if profile is None:
-        return {"error": "Kein Nutzerprofil vorhanden — Onboarding noch nicht durchlaufen."}
+        return {"error": "No user profile available — onboarding has not been completed yet."}
     return profile
 
 
 def get_upcoming_trips() -> dict:
-    """Liefert die im Onboarding importierten, bevorstehenden Reisen des Nutzers.
+    """Returns the user's upcoming trips imported during onboarding.
 
     Returns:
-        Ein Dict mit der Liste der überwachten Reisen (trip_id, Start, Ziel, Zug,
-        Soll-Zeiten). Fällt auf die Demo-Reise zurück, wenn kein Onboarding
-        durchlaufen wurde.
+        A dict with the list of monitored trips (trip_id, origin, destination,
+        train, scheduled times). Falls back to the demo trip if onboarding has
+        not been completed yet.
     """
     try:
-        from onboarding import store
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
         if profile is not None:
             return {"trips": store.get_trips(profile["user_id"])}
     except Exception:
         pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
+    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
 
 
 def get_user_profile() -> dict:
-    """Liest das persönliche Präferenzprofil des Nutzers aus dem Onboarding.
+    """Reads the user's personal preference profile from onboarding.
 
-    Enthält Klasse, Sitzplatzwünsche, die Tempo-vs-Komfort-Abwägung (0 = maximaler
-    Komfort, 100 = schnellste Ankunft), maximale Umstiege, Heimatbahnhof, späteste
-    Heimkehr sowie das Autonomie-Level. Reroute-Optionen sollen gegen dieses
-    Profil bewertet werden.
+    Contains class, seat preferences, the speed-vs-comfort tradeoff (0 = maximum
+    comfort, 100 = fastest arrival), maximum number of transfers, home station,
+    latest return time, and the autonomy level. Reroute options should be
+    evaluated against this profile.
 
     Returns:
-        Ein Dict mit dem Profil, oder mit "error", wenn noch kein Onboarding
-        durchlaufen wurde.
+        A dict with the profile, or with "error" if onboarding has not been
+        completed yet.
     """
     try:
-        # Lazy Import: hält das ADK-Paket unabhängig vom Onboarding-Paket,
-        # solange das Tool nicht aufgerufen wird.
-        from onboarding import store
+        # Lazy import: keeps the ADK package independent of the onboarding
+        # package as long as the tool is not called.
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
-    except Exception as exc:  # Onboarding-Paket/DB nicht verfügbar
-        return {"error": f"Profil nicht lesbar: {exc}"}
+    except Exception as exc:  # Onboarding package/DB not available
+        return {"error": f"Profile not readable: {exc}"}
     if profile is None:
-        return {"error": "Kein Nutzerprofil vorhanden — Onboarding noch nicht durchlaufen."}
+        return {"error": "No user profile available — onboarding has not been completed yet."}
     return profile
 
 
 def get_upcoming_trips() -> dict:
-    """Liefert die im Onboarding importierten, bevorstehenden Reisen des Nutzers.
+    """Returns the user's upcoming trips imported during onboarding.
 
     Returns:
-        Ein Dict mit der Liste der überwachten Reisen (trip_id, Start, Ziel, Zug,
-        Soll-Zeiten). Fällt auf die Demo-Reise zurück, wenn kein Onboarding
-        durchlaufen wurde.
+        A dict with the list of monitored trips (trip_id, origin, destination,
+        train, scheduled times). Falls back to the demo trip if onboarding has
+        not been completed yet.
     """
     try:
-        from onboarding import store
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
         if profile is not None:
             return {"trips": store.get_trips(profile["user_id"])}
     except Exception:
         pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
+    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
 
 
 def get_user_profile() -> dict:
-    """Liest das persönliche Präferenzprofil des Nutzers aus dem Onboarding.
+    """Reads the user's personal preference profile from onboarding.
 
-    Enthält Klasse, Sitzplatzwünsche, die Tempo-vs-Komfort-Abwägung (0 = maximaler
-    Komfort, 100 = schnellste Ankunft), maximale Umstiege, Heimatbahnhof, späteste
-    Heimkehr sowie das Autonomie-Level. Reroute-Optionen sollen gegen dieses
-    Profil bewertet werden.
+    Contains class, seat preferences, the speed-vs-comfort tradeoff (0 = maximum
+    comfort, 100 = fastest arrival), maximum number of transfers, home station,
+    latest return time, and the autonomy level. Reroute options should be
+    evaluated against this profile.
 
     Returns:
-        Ein Dict mit dem Profil, oder mit "error", wenn noch kein Onboarding
-        durchlaufen wurde.
+        A dict with the profile, or with "error" if onboarding has not been
+        completed yet.
     """
     try:
-        # Lazy Import: hält das ADK-Paket unabhängig vom Onboarding-Paket,
-        # solange das Tool nicht aufgerufen wird.
-        from onboarding import store
+        # Lazy import: keeps the ADK package independent of the onboarding
+        # package as long as the tool is not called.
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
-    except Exception as exc:  # Onboarding-Paket/DB nicht verfügbar
-        return {"error": f"Profil nicht lesbar: {exc}"}
+    except Exception as exc:  # Onboarding package/DB not available
+        return {"error": f"Profile not readable: {exc}"}
     if profile is None:
-        return {"error": "Kein Nutzerprofil vorhanden — Onboarding noch nicht durchlaufen."}
+        return {"error": "No user profile available — onboarding has not been completed yet."}
     return profile
 
 
 def get_upcoming_trips() -> dict:
-    """Liefert die im Onboarding importierten, bevorstehenden Reisen des Nutzers.
+    """Returns the user's upcoming trips imported during onboarding.
 
     Returns:
-        Ein Dict mit der Liste der überwachten Reisen (trip_id, Start, Ziel, Zug,
-        Soll-Zeiten). Fällt auf die Demo-Reise zurück, wenn kein Onboarding
-        durchlaufen wurde.
+        A dict with the list of monitored trips (trip_id, origin, destination,
+        train, scheduled times). Falls back to the demo trip if onboarding has
+        not been completed yet.
     """
     try:
-        from onboarding import store
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
         if profile is not None:
             return {"trips": store.get_trips(profile["user_id"])}
     except Exception:
         pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
+    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
 
 
 def get_user_profile() -> dict:
-    """Liest das persönliche Präferenzprofil des Nutzers aus dem Onboarding.
+    """Reads the user's personal preference profile from onboarding.
 
-    Enthält Klasse, Sitzplatzwünsche, die Tempo-vs-Komfort-Abwägung (0 = maximaler
-    Komfort, 100 = schnellste Ankunft), maximale Umstiege, Heimatbahnhof, späteste
-    Heimkehr sowie das Autonomie-Level. Reroute-Optionen sollen gegen dieses
-    Profil bewertet werden.
+    Contains class, seat preferences, the speed-vs-comfort tradeoff (0 = maximum
+    comfort, 100 = fastest arrival), maximum number of transfers, home station,
+    latest return time, and the autonomy level. Reroute options should be
+    evaluated against this profile.
 
     Returns:
-        Ein Dict mit dem Profil, oder mit "error", wenn noch kein Onboarding
-        durchlaufen wurde.
+        A dict with the profile, or with "error" if onboarding has not been
+        completed yet.
     """
     try:
-        # Lazy Import: hält das ADK-Paket unabhängig vom Onboarding-Paket,
-        # solange das Tool nicht aufgerufen wird.
-        from onboarding import store
+        # Lazy import: keeps the ADK package independent of the onboarding
+        # package as long as the tool is not called.
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
-    except Exception as exc:  # Onboarding-Paket/DB nicht verfügbar
-        return {"error": f"Profil nicht lesbar: {exc}"}
+    except Exception as exc:  # Onboarding package/DB not available
+        return {"error": f"Profile not readable: {exc}"}
     if profile is None:
-        return {"error": "Kein Nutzerprofil vorhanden — Onboarding noch nicht durchlaufen."}
+        return {"error": "No user profile available — onboarding has not been completed yet."}
     return profile
 
 
 def get_upcoming_trips() -> dict:
-    """Liefert die im Onboarding importierten, bevorstehenden Reisen des Nutzers.
+    """Returns the user's upcoming trips imported during onboarding.
 
     Returns:
-        Ein Dict mit der Liste der überwachten Reisen (trip_id, Start, Ziel, Zug,
-        Soll-Zeiten). Fällt auf die Demo-Reise zurück, wenn kein Onboarding
-        durchlaufen wurde.
+        A dict with the list of monitored trips (trip_id, origin, destination,
+        train, scheduled times). Falls back to the demo trip if onboarding has
+        not been completed yet.
     """
     try:
-        from onboarding import store
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
         if profile is not None:
             return {"trips": store.get_trips(profile["user_id"])}
     except Exception:
         pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
+    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
 
 
 def get_user_profile() -> dict:
-    """Liest das persönliche Präferenzprofil des Nutzers aus dem Onboarding.
+    """Reads the user's personal preference profile from onboarding.
 
-    Enthält Klasse, Sitzplatzwünsche, die Tempo-vs-Komfort-Abwägung (0 = maximaler
-    Komfort, 100 = schnellste Ankunft), maximale Umstiege, Heimatbahnhof, späteste
-    Heimkehr sowie das Autonomie-Level. Reroute-Optionen sollen gegen dieses
-    Profil bewertet werden.
+    Contains class, seat preferences, the speed-vs-comfort tradeoff (0 = maximum
+    comfort, 100 = fastest arrival), maximum number of transfers, home station,
+    latest return time, and the autonomy level. Reroute options should be
+    evaluated against this profile.
 
     Returns:
-        Ein Dict mit dem Profil, oder mit "error", wenn noch kein Onboarding
-        durchlaufen wurde.
+        A dict with the profile, or with "error" if onboarding has not been
+        completed yet.
     """
     try:
-        # Lazy Import: hält das ADK-Paket unabhängig vom Onboarding-Paket,
-        # solange das Tool nicht aufgerufen wird.
-        from onboarding import store
+        # Lazy import: keeps the ADK package independent of the onboarding
+        # package as long as the tool is not called.
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
-    except Exception as exc:  # Onboarding-Paket/DB nicht verfügbar
-        return {"error": f"Profil nicht lesbar: {exc}"}
+    except Exception as exc:  # Onboarding package/DB not available
+        return {"error": f"Profile not readable: {exc}"}
     if profile is None:
-        return {"error": "Kein Nutzerprofil vorhanden — Onboarding noch nicht durchlaufen."}
+        return {"error": "No user profile available — onboarding has not been completed yet."}
     return profile
 
 
 def get_upcoming_trips() -> dict:
-    """Liefert die im Onboarding importierten, bevorstehenden Reisen des Nutzers.
+    """Returns the user's upcoming trips imported during onboarding.
 
     Returns:
-        Ein Dict mit der Liste der überwachten Reisen (trip_id, Start, Ziel, Zug,
-        Soll-Zeiten). Fällt auf die Demo-Reise zurück, wenn kein Onboarding
-        durchlaufen wurde.
+        A dict with the list of monitored trips (trip_id, origin, destination,
+        train, scheduled times). Falls back to the demo trip if onboarding has
+        not been completed yet.
     """
     try:
-        from onboarding import store
+        from journey_autopilot.onboarding import store
 
         profile = store.any_profile()
         if profile is not None:
             return {"trips": store.get_trips(profile["user_id"])}
     except Exception:
         pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
+    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
 
 
 

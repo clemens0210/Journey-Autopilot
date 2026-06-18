@@ -1,18 +1,18 @@
-"""Onboarding-Server — FastAPI-App mit JSON-API und DB-Navigator-Style-UI.
+"""Onboarding server — FastAPI app with a JSON API and DB Navigator-style UI.
 
-Starten:
+Start:
     python run_onboarding.py            # http://127.0.0.1:8000
-    # oder: uvicorn onboarding.server:app --reload
+    # or: uvicorn onboarding.server:app --reload
 
-Was hier simuliert ist (und warum) steht im Context Record: DB bietet keine
-offizielle API für Konto-Login / Ticket-Import, Microsoft-OAuth und SMS-Versand
-brauchen registrierte Apps bzw. einen Gateway-Vertrag. Die Flows sind deshalb
-mit echter UX, aber simulierten Backends gebaut — die API-Verträge entsprechen
-dem, was eine echte Anbindung liefern müsste.
+What's simulated here (and why) is documented in the Context Record: DB
+(Deutsche Bahn) offers no official API for account login / ticket import,
+and Microsoft OAuth and SMS sending require registered apps or a gateway
+contract. The flows are therefore built with real UX but simulated backends —
+the API contracts match what a real integration would need to deliver.
 
-Live-Daten: Die Heimatbahnhof-Suche (`/api/stations`) nutzt den db_service-
-Sidecar (echte DB-Stationsdaten) und fällt ohne ihn auf eine statische Liste
-großer Bahnhöfe zurück.
+Live data: the home station search (`/api/stations`) uses the db_service
+sidecar (real DB station data) and falls back to a static list of major
+stations without it.
 """
 
 from __future__ import annotations
@@ -27,9 +27,10 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from . import store
 from pydantic import BaseModel
 
-from . import accounts, store
+from . import accounts
 
 app = FastAPI(title="Journey Autopilot — Onboarding", version="0.1.0")
 
@@ -37,15 +38,15 @@ _STATIC = Path(__file__).resolve().parent / "static"
 
 DB_API_URL = os.getenv("DB_API_URL", "http://127.0.0.1:3000").rstrip("/")
 
-# Sessions in-memory: Token -> user_id. Für den Single-User-Prototyp bewusst
-# ohne Persistenz; ein Neustart heißt einfach "neu einloggen".
+# In-memory sessions: token -> user_id. Deliberately without persistence for
+# the single-user prototype; a restart simply means "log in again".
 _SESSIONS: dict[str, str] = {}
 
-# Offene SMS-Verifizierungen: user_id -> (phone, code)
+# Pending SMS verifications: user_id -> (phone, code)
 _PENDING_PHONE: dict[str, tuple[str, str]] = {}
 
 
-# --- Request-Modelle ---------------------------------------------------------------
+# --- Request models ---------------------------------------------------------------
 
 
 class LoginRequest(BaseModel):
@@ -65,30 +66,30 @@ class OutlookConnectRequest(BaseModel):
     consent: bool = False
 
 
-# --- Auth-Helfer ---------------------------------------------------------------------
+# --- Auth helpers ---------------------------------------------------------------------
 
 
 def _user_id(authorization: str | None) -> str:
-    """Löst den Bearer-Token zur user_id auf, sonst 401."""
+    """Resolves the bearer token to a user_id, otherwise 401."""
     if authorization and authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ")
         user_id = _SESSIONS.get(token)
         if user_id:
             return user_id
-    raise HTTPException(status_code=401, detail="Nicht angemeldet.")
+    raise HTTPException(status_code=401, detail="You're not signed in.")
 
 
-# --- DB-Konto: Login & Trip-Import -----------------------------------------------------
+# --- DB account: login & trip import -----------------------------------------------------
 
 
 @app.post("/api/auth/db-login")
 def db_login(body: LoginRequest) -> dict:
-    """Simulierter bahn.de-Login. Importiert direkt die gebuchten Reisen."""
+    """Simulated bahn.de login. Imports booked trips right away."""
     account = accounts.authenticate(body.email, body.password)
     if account is None:
         raise HTTPException(
             status_code=401,
-            detail="E-Mail oder Passwort falsch. Demo-Zugang: lucas.wild@example.com / demo123",
+            detail="That email or password isn't right. Demo login: lucas.wild@example.com / demo123",
         )
 
     store.upsert_user(account)
@@ -117,7 +118,7 @@ def trips(authorization: str | None = Header(default=None)) -> dict:
     return {"trips": store.get_trips(user_id)}
 
 
-# --- Mobilnummer: SMS-Verifizierung (simuliert) ------------------------------------------
+# --- Mobile number: SMS verification (simulated) ------------------------------------------
 
 
 @app.post("/api/verify/phone/start")
@@ -125,12 +126,12 @@ def phone_start(body: PhoneStartRequest, authorization: str | None = Header(defa
     user_id = _user_id(authorization)
     phone = re.sub(r"[^\d+]", "", body.phone)
     if not re.fullmatch(r"\+?\d{8,15}", phone):
-        raise HTTPException(status_code=422, detail="Bitte eine gültige Mobilnummer angeben (z. B. +49 151 12345678).")
+        raise HTTPException(status_code=422, detail="Please enter a valid mobile number (e.g. +49 151 12345678).")
 
     code = f"{random.randint(0, 9999):04d}"
     _PENDING_PHONE[user_id] = (phone, code)
-    # Simulierter Versand: Im echten System ginge der Code per SMS-Gateway raus.
-    # Im Demo-Modus liefern wir ihn zurück, damit der Flow vorführbar bleibt.
+    # Simulated sending: in the real system the code would go out via an SMS
+    # gateway. In demo mode we return it directly so the flow stays demoable.
     return {"sent": True, "phone": phone, "demo_code": code}
 
 
@@ -139,10 +140,10 @@ def phone_confirm(body: PhoneConfirmRequest, authorization: str | None = Header(
     user_id = _user_id(authorization)
     pending = _PENDING_PHONE.get(user_id)
     if pending is None:
-        raise HTTPException(status_code=409, detail="Kein Code angefordert.")
+        raise HTTPException(status_code=409, detail="No code was requested.")
     phone, code = pending
     if body.code.strip() != code:
-        raise HTTPException(status_code=422, detail="Der Code stimmt nicht. Bitte erneut versuchen.")
+        raise HTTPException(status_code=422, detail="That code isn't right. Please try again.")
 
     del _PENDING_PHONE[user_id]
     profile = store.update_profile(
@@ -151,14 +152,14 @@ def phone_confirm(body: PhoneConfirmRequest, authorization: str | None = Header(
     return {"verified": True, "profile": profile}
 
 
-# --- Outlook-Kalender (simulierter OAuth-Consent) ------------------------------------------
+# --- Outlook calendar (simulated OAuth consent) ------------------------------------------
 
 
 @app.post("/api/connect/outlook")
 def connect_outlook(body: OutlookConnectRequest, authorization: str | None = Header(default=None)) -> dict:
     user_id = _user_id(authorization)
     if not body.consent:
-        raise HTTPException(status_code=422, detail="Zustimmung erforderlich.")
+        raise HTTPException(status_code=422, detail="Please grant consent to continue.")
     profile = store.update_profile(user_id, {"connections": {"outlook": True}})
     return {"connected": True, "events": accounts.outlook_events(user_id), "profile": profile}
 
@@ -170,7 +171,7 @@ def disconnect_outlook(authorization: str | None = Header(default=None)) -> dict
     return {"connected": False, "profile": profile}
 
 
-# --- Profil ------------------------------------------------------------------------------
+# --- Profile ------------------------------------------------------------------------------
 
 
 @app.get("/api/profile")
@@ -181,9 +182,9 @@ def get_profile(authorization: str | None = Header(default=None)) -> dict:
 
 @app.put("/api/profile")
 def put_profile(patch: dict, authorization: str | None = Header(default=None)) -> dict:
-    """Teil-Patch: Die UI schickt pro Onboarding-Schritt nur die geänderten Felder."""
+    """Partial patch: the UI sends only the changed fields per onboarding step."""
     user_id = _user_id(authorization)
-    # Verbindungs-/Verifizierungs-Status nur über die dedizierten Endpunkte ändern.
+    # Only change connection/verification status via the dedicated endpoints.
     patch.pop("connections", None)
     if isinstance(patch.get("notifications"), dict):
         patch["notifications"].pop("phone_verified", None)
@@ -198,7 +199,7 @@ def complete_onboarding(authorization: str | None = Header(default=None)) -> dic
 
 @app.delete("/api/profile")
 def delete_profile(authorization: str | None = Header(default=None)) -> dict:
-    """DSGVO-Löschung: Konto, Profil und importierte Reisen restlos entfernen."""
+    """GDPR deletion: completely remove account, profile, and imported trips."""
     user_id = _user_id(authorization)
     store.delete_user(user_id)
     _PENDING_PHONE.pop(user_id, None)
@@ -208,7 +209,7 @@ def delete_profile(authorization: str | None = Header(default=None)) -> dict:
     return {"deleted": True}
 
 
-# --- Stationssuche (echte DB-Daten via Sidecar, mit Fallback) --------------------------------
+# --- Station search (real DB data via sidecar, with fallback) --------------------------------
 
 
 @app.get("/api/stations")
@@ -233,7 +234,7 @@ def stations(query: str = "") -> dict:
         return {"stations": hits[:6], "source": "fallback"}
 
 
-# --- Statische UI ----------------------------------------------------------------------------
+# --- Static UI ----------------------------------------------------------------------------
 
 
 @app.get("/", include_in_schema=False)

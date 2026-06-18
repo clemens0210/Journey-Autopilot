@@ -1,22 +1,22 @@
-"""Verbose Standalone-Demo des Risk Agent — Vorab-Risiko & ETA vor Reisebeginn.
+"""Verbose standalone demo of the risk agent — pre-trip risk & ETA before departure.
 
-Macht jeden Schritt der Vorab-Risikobewertung transparent — BEVOR die Reise
-begonnen hat:
+Makes every step of the pre-trip risk assessment transparent — BEFORE the trip
+has started:
 
-  1) Datenbasis  — jede einzelne Verbindung (Fernverkehrs-Ankunft), die in die
-     Analyse eingeflossen ist, mit ihrer real eingetretenen Verspätung.
-  2) Kennzahlen  — wie aus diesen Fahrten deterministisch die Statistik und die
-     ETA-Bausteine berechnet werden (Median, p90, Pünktlichkeitsquote ...).
-  3) Agenten-Verlauf — der vollständige ReAct-Trace des `risk_agent`: jeder
-     Gedanke, jeder Tool-Aufruf (mit Argumenten) und jedes Tool-Ergebnis (roh).
-  4) Antwort     — die finale Einschätzung an den Nutzer (Score + ETA).
+  1) Data basis  — every single connection (long-distance arrival) that went
+     into the analysis, with its actual real-world delay.
+  2) Metrics     — how the statistics and ETA building blocks are
+     deterministically computed from these trips (median, p90, on-time rate ...).
+  3) Agent trace — the full ReAct trace of the `risk_agent`: every thought,
+     every tool call (with arguments), and every tool result (raw).
+  4) Response    — the final assessment delivered to the user (score + ETA).
 
-Nutzung:
+Usage:
     python run_risk_demo.py
 
-Voraussetzung: ein konfiguriertes Uni-GPT-Backend in der .env (UNI_GPT_*; siehe
-README). Läuft der db_service-Sidecar, kommen die Verspätungsdaten live aus der
-DB-Ankunftstafel; sonst greift die simulierte Historie (Feld `source`).
+Requires: a configured Uni-GPT backend in .env (UNI_GPT_*; see README). If the
+db_service sidecar is running, delay data comes live from the DB arrivals
+board; otherwise the simulated history is used (see the `source` field).
 """
 
 from __future__ import annotations
@@ -27,6 +27,8 @@ from datetime import datetime, timedelta
 
 from google.adk.runners import InMemoryRunner
 from google.genai import types
+from journey_autopilot.disruption_monitoring import delay_stats
+from journey_autopilot.rerouting import db_api
 
 try:
     from dotenv import load_dotenv
@@ -36,9 +38,9 @@ try:
 except ImportError:
     pass
 
-from journey_autopilot import db_api, delay_stats, tools
+from journey_autopilot import tools
 from journey_autopilot.mock_data import DEMO_TRIP
-from journey_autopilot.risk import build_risk_agent
+from journey_autopilot.disruption_monitoring.risk import build_risk_agent
 
 APP_NAME = "journey_autopilot_risk"
 USER_ID = "lucas"
@@ -53,16 +55,16 @@ DESTINATION = 'Bonn Hbf'
 TRAIN = 'IC 2007'
 DEPARTURE = '10:32'
 
-# Vorab-Anfrage: die Reise hat noch nicht begonnen.
+# Pre-trip request: the journey has not started yet.
 PROMPT = (
-    f"Ich habe eine Verbindung von {ORIGIN} nach {DESTINATION} mit dem {TRAIN} "
-    f"gebucht (Abfahrt {DEPARTURE}). Wie hoch ist das Verspätungsrisiko und "
-    "wann komme ich voraussichtlich an?"
+    f"I've booked a connection from {ORIGIN} to {DESTINATION} on {TRAIN} "
+    f"(departure {DEPARTURE}). What's the delay risk and "
+    "when am I expected to arrive?"
 )
 
 
 def _hhmm(iso: str | None) -> str:
-    """ISO-Zeit -> 'HH:MM', tolerant gegenüber fehlenden/kaputten Werten."""
+    """ISO time -> 'HH:MM', tolerant of missing/broken values."""
     if not iso:
         return "??:??"
     try:
@@ -72,7 +74,7 @@ def _hhmm(iso: str | None) -> str:
 
 
 def _eta(iso: str | None, add_minutes: float | None) -> str:
-    """Geplante Ankunft + erwartete Verspätung -> 'HH:MM'."""
+    """Planned arrival + expected delay -> 'HH:MM'."""
     if not iso or add_minutes is None:
         return "??:??"
     try:
@@ -82,21 +84,21 @@ def _eta(iso: str | None, add_minutes: float | None) -> str:
 
 
 def _delay_label(minutes: float | None, status: str) -> str:
-    """Verspätung lesbar machen (+X Min / pünktlich / Statushinweis)."""
-    if status != "gezählt":
+    """Make the delay readable (+X min / on time / status note)."""
+    if status != "counted":
         return status
     if minutes is None:
         return status
     if minutes <= 0:
-        return "pünktlich" if minutes == 0 else f"{minutes:+.0f} Min"
-    return f"+{minutes:.0f} Min"
+        return "on time" if minutes == 0 else f"{minutes:+.0f} min"
+    return f"+{minutes:.0f} min"
 
 
 def _fetch_history_verbose() -> dict:
-    """Wie das Tool, aber mit Einzelfahrten (details=True) für die Ausgabe.
+    """Like the tool, but with individual trips (details=True) for output.
 
-    Spiegelt den Live-/Mock-Fallback des Tools, damit die Datenbasis exakt der
-    entspricht, die der Agent gleich nutzen wird.
+    Mirrors the tool's live/mock fallback, so the data basis matches exactly
+    what the agent will use next.
     """
     try:
         stats = delay_stats.connection_delay_history(
@@ -114,78 +116,78 @@ def _fetch_history_verbose() -> dict:
 
 
 def print_data_basis() -> tuple[dict, dict]:
-    """Abschnitte 0–3: Baseline-Archiv, berücksichtigte Verbindungen, Kennzahlen, ETA."""
+    """Sections 0-3: baseline archive, considered connections, metrics, ETA."""
     reference = tools.get_connection_delay_reference(ORIGIN, DESTINATION, TRAIN)
     history = _fetch_history_verbose()
     planned = tools.get_planned_connection(ORIGIN, DESTINATION, DEPARTURE)
 
-    print("--- 0) Historische Pünktlichkeits-Referenz (Baseline, Monats-Archiv) -")
+    print("--- 0) Historical punctuality reference (baseline, monthly archive) -")
     if "error" in reference:
         print(f"  ({reference['error']})")
     else:
-        print(f"  Zielbahnhof: {reference.get('station_name')}  |  Basis: {reference.get('basis')}"
-              f"  |  Monate: {', '.join(reference.get('months') or [])}")
-        print(f"  Stichprobe (Fahrten)      : {reference.get('sample_count'):,}")
-        print(f"  Pünktlich (≤5 Min)        : {reference.get('on_time_rate_pct')} %")
-        print(f"  Median / p90 / Ø          : {reference.get('median_delay_minutes')} / "
-              f"{reference.get('p90_delay_minutes')} / {reference.get('mean_delay_minutes')} Min")
-        print(f"  Ausfallquote              : {reference.get('cancellation_rate_pct')} %")
-        print(f"  Quelle                    : {reference.get('source')} "
+        print(f"  Destination station: {reference.get('station_name')}  |  Basis: {reference.get('basis')}"
+              f"  |  Months: {', '.join(reference.get('months') or [])}")
+        print(f"  Sample size (trips)       : {reference.get('sample_count'):,}")
+        print(f"  On time (<=5 min)         : {reference.get('on_time_rate_pct')} %")
+        print(f"  Median / p90 / mean       : {reference.get('median_delay_minutes')} / "
+              f"{reference.get('p90_delay_minutes')} / {reference.get('mean_delay_minutes')} min")
+        print(f"  Cancellation rate         : {reference.get('cancellation_rate_pct')} %")
+        print(f"  Source                    : {reference.get('source')} "
               f"({reference.get('source_url')}, {reference.get('license')})")
     print()
 
-    print("--- 1) Aktuelle Lage: berücksichtigte Verbindungen (letzte Stunden) --")
-    print(f"Quelle: {history.get('source')}  |  Fenster: {history.get('window', '—')}")
+    print("--- 1) Current situation: considered connections (last hours) ------")
+    print(f"Source: {history.get('source')}  |  Window: {history.get('window', '-')}")
     samples = history.get("samples")
     if samples:
-        print(f"Fernverkehrs-Ankünfte in {DESTINATION} (N={len(samples)}):")
+        print(f"Long-distance arrivals in {DESTINATION} (N={len(samples)}):")
         for s in samples:
             train = (s.get("train") or "?").ljust(10)
             origin = (s.get("from") or "?").ljust(22)[:22]
             arr = _hhmm(s.get("planned_arrival"))
-            print(f"  {train} aus {origin} plan {arr}   {_delay_label(s.get('delay_minutes'), s.get('status'))}")
+            print(f"  {train} from {origin} plan {arr}   {_delay_label(s.get('delay_minutes'), s.get('status'))}")
     elif "error" in history:
-        print(f"  (keine Daten: {history['error']})")
+        print(f"  (no data: {history['error']})")
     else:
-        print("  (simulierte Aggregat-Historie — keine Einzelfahrten verfügbar)")
+        print("  (simulated aggregate history — no individual trips available)")
 
-    print("\n--- 2) Kennzahlen (deterministisch in delay_stats.py berechnet) -----")
+    print("\n--- 2) Metrics (computed deterministically in delay_stats.py) ------")
     if history.get("sample_count"):
         median = history.get("median_delay_minutes")
         p90 = history.get("p90_delay_minutes")
-        print(f"  Stichprobe (Fahrten)      : {history.get('sample_count')}")
-        print(f"  Pünktlich (≤5 Min)        : {history.get('on_time_rate_pct')} %   (Anteil Fahrten mit Verspätung ≤ 5 Min)")
-        print(f"  Deutlich verspätet (≥15)  : {history.get('delayed_over_15_rate_pct')} %")
-        print(f"  Median-Verspätung         : {median} Min   -> erwartete Verspätung (typisch)")
-        print(f"  90.-Perzentil (p90)       : {p90} Min   -> ungünstiger Fall (Worst-Case-Puffer)")
-        print(f"  Mittelwert / Max          : {history.get('mean_delay_minutes')} / {history.get('max_delay_minutes')} Min")
-        print(f"  Ausfälle im Fenster       : {history.get('cancellations')}")
-        print(f"  Häufigste Ursachen        : {', '.join(history.get('common_causes') or []) or '—'}")
+        print(f"  Sample size (trips)       : {history.get('sample_count')}")
+        print(f"  On time (<=5 min)         : {history.get('on_time_rate_pct')} %   (share of trips with delay <= 5 min)")
+        print(f"  Significantly delayed (>=15): {history.get('delayed_over_15_rate_pct')} %")
+        print(f"  Median delay              : {median} min   -> expected delay (typical)")
+        print(f"  90th percentile (p90)     : {p90} min   -> unfavorable case (worst-case buffer)")
+        print(f"  Mean / max                : {history.get('mean_delay_minutes')} / {history.get('max_delay_minutes')} min")
+        print(f"  Cancellations in window   : {history.get('cancellations')}")
+        print(f"  Most common causes        : {', '.join(history.get('common_causes') or []) or '-'}")
 
         planned_arrival = planned.get("planned_arrival")
-        print("\n  ETA-Berechnung (geplante Ankunft + erwartete Verspätung):")
-        print(f"    geplante Ankunft        : {_hhmm(planned_arrival)}")
-        print(f"    ETA typisch (+Median)   : {_hhmm(planned_arrival)} + {median} Min = {_eta(planned_arrival, median)}")
-        print(f"    ETA ungünstig (+p90)    : {_hhmm(planned_arrival)} + {p90} Min = {_eta(planned_arrival, p90)}")
-        print("  (Den finalen Score und die ETA bildet der Agent aus genau diesen Zahlen.)")
+        print("\n  ETA calculation (planned arrival + expected delay):")
+        print(f"    planned arrival         : {_hhmm(planned_arrival)}")
+        print(f"    typical ETA (+median)   : {_hhmm(planned_arrival)} + {median} min = {_eta(planned_arrival, median)}")
+        print(f"    unfavorable ETA (+p90)  : {_hhmm(planned_arrival)} + {p90} min = {_eta(planned_arrival, p90)}")
+        print("  (The agent derives the final score and ETA from exactly these numbers.)")
     else:
-        print("  (keine belastbaren Kennzahlen — Agent muss das offenlegen)")
+        print("  (no reliable metrics — the agent must disclose this)")
 
-    print("\n--- 3) Geplante Verbindung (ETA-Anker) ------------------------------")
+    print("\n--- 3) Planned connection (ETA anchor) ------------------------------")
     if "error" in planned:
-        print(f"  (keine geplante Verbindung: {planned['error']})")
+        print(f"  (no planned connection: {planned['error']})")
     else:
         print(
-            f"  Zug {planned.get('train')} | Abfahrt {_hhmm(planned.get('planned_departure'))} "
-            f"| geplante Ankunft {_hhmm(planned.get('planned_arrival'))} "
-            f"| Umstiege {planned.get('transfers')} | Quelle {planned.get('source')}"
+            f"  Train {planned.get('train')} | Departure {_hhmm(planned.get('planned_departure'))} "
+            f"| planned arrival {_hhmm(planned.get('planned_arrival'))} "
+            f"| Transfers {planned.get('transfers')} | Source {planned.get('source')}"
         )
 
     return history, planned
 
 
 def _describe_event(event) -> None:
-    """Verbose: Tool-Aufrufe (mit Args), Tool-Ergebnisse (roh) und Agent-Texte."""
+    """Verbose: tool calls (with args), tool results (raw), and agent text."""
     author = getattr(event, "author", "?")
     content = getattr(event, "content", None)
     if content is None or not getattr(content, "parts", None):
@@ -198,20 +200,20 @@ def _describe_event(event) -> None:
 
         if call is not None:
             args = json.dumps(dict(call.args or {}), ensure_ascii=False)
-            print(f"  [{author}] -> ruft auf: {call.name}({args})")
+            print(f"  [{author}] -> calls: {call.name}({args})")
         elif response is not None:
             payload = getattr(response, "response", None)
-            print(f"  [{author}] <- Ergebnis {response.name}:")
+            print(f"  [{author}] <- result {response.name}:")
             dump = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
             for line in dump.splitlines():
                 print(f"        {line}")
         elif text and text.strip():
-            print(f"  [{author}] denkt/antwortet: {text.strip()}")
+            print(f"  [{author}] thinks/answers: {text.strip()}")
 
 
 async def main() -> None:
     print("=" * 72)
-    print("Journey Autopilot — Demo-Run (Risk Agent: Vorab-Risiko & ETA) [VERBOSE]")
+    print("Journey Autopilot — Demo run (Risk Agent: pre-trip risk & ETA) [VERBOSE]")
     print("=" * 72)
     print(f"User: {PROMPT}\n")
 
@@ -223,7 +225,7 @@ async def main() -> None:
         app_name=APP_NAME, user_id=USER_ID
     )
 
-    print("\n--- 4) Agenten-Verlauf (ReAct: Denken -> Tool -> Beobachten) --------")
+    print("\n--- 4) Agent trace (ReAct: think -> tool -> observe) ----------------")
     message = types.Content(role="user", parts=[types.Part(text=PROMPT)])
     final_text = ""
     try:
@@ -236,15 +238,15 @@ async def main() -> None:
                     p.text for p in event.content.parts if getattr(p, "text", None)
                 )
     except Exception as exc:
-        print("\n[!] Lauf abgebrochen.")
+        print("\n[!] Run aborted.")
         print(f"    {type(exc).__name__}: {exc}")
-        print("    UNI_GPT_BASE_URL (inkl. /v1), UNI_GPT_API_KEY und UNI_GPT_MODEL")
-        print("    in der .env prüfen — und ob google-adk[extensions] installiert")
-        print("    ist (pip install -r requirements.txt).")
+        print("    Check UNI_GPT_BASE_URL (incl. /v1), UNI_GPT_API_KEY and UNI_GPT_MODEL")
+        print("    in .env — and whether google-adk[extensions] is installed")
+        print("    (pip install -r requirements.txt).")
         return
 
-    print("\n--- 5) Antwort an den Nutzer ----------------------------------------")
-    print(final_text or "(keine Textantwort)")
+    print("\n--- 5) Response to the user ------------------------------------------")
+    print(final_text or "(no text response)")
 
 
 if __name__ == "__main__":
