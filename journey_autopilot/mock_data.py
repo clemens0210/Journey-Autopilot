@@ -98,6 +98,43 @@ PASSENGER_RIGHTS = [
     {"min_delay_minutes": 120, "compensation": "50% of ticket price"},
 ]
 
+# --- Risk knowledge: pre-trip delay history & scheduled connection ------------
+# Fallbacks for the Risk Agent when the db_service sidecar is unavailable, so the
+# agent sees the same fields whether the data is live or simulated. Values are
+# modelled on the real situation of the Munich -> Berlin route (construction
+# works Nuremberg-Erfurt) and keyed by the English station names used elsewhere.
+
+CONNECTION_DELAY_HISTORY = {
+    ("Munich Hbf", "Berlin Hbf"): {
+        "window": "30-day history (simulated)",
+        "sample_count": 42,
+        "mean_delay_minutes": 18.4,
+        "median_delay_minutes": 12.0,
+        "p90_delay_minutes": 47.0,
+        "max_delay_minutes": 88.0,
+        "on_time_rate_pct": 38,
+        "delayed_over_15_rate_pct": 41,
+        "cancellations": 2,
+        "common_causes": [
+            "Construction works between Nuremberg and Erfurt",
+            "Signal box malfunction in the Nuremberg area",
+            "High network utilisation in long-distance traffic",
+        ],
+    },
+}
+
+# Planned connection (scheduled times) as the ETA anchor when the sidecar is
+# unavailable. Structure identical to ``delay_stats.scheduled_connection``.
+PLANNED_CONNECTIONS = {
+    ("Munich Hbf", "Berlin Hbf"): {
+        "train": "ICE 1006",
+        "planned_departure": "2026-06-19T08:00:00",
+        "planned_arrival": "2026-06-19T12:04:00",
+        "transfers": 0,
+        "realtime_arrival_delay_minutes": None,
+    },
+}
+
 # --- WhatsApp communicator: event fields derived from the existing mock scenario -
 # Real phone numbers come from .env at runtime (run_demo.py).
 # recipients is populated there from DEMO_TRAVELER_NUMBER / DEMO_CLIENT_NUMBER etc.

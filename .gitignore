@@ -12,6 +12,11 @@ __pycache__/
 *.db
 .adk/
 
+# Node / db_service-Sidecar
+node_modules/
+npm-debug.log*
+db_service/package-lock.json
+
 # MacOS specific
 .DS_Store
 

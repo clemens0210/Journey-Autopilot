@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Journey Autopilot — Onboarding</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- Favicon: the DB logo (red frame mark with red DB) -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 44'%3E%3Crect width='64' height='44' rx='9' fill='%23EC0016'/%3E%3Crect x='5' y='5' width='54' height='34' rx='5' fill='white'/%3E%3Ctext x='32' y='33' font-size='27' font-weight='900' fill='%23EC0016' text-anchor='middle' font-family='Arial Black,Arial'%3EDB%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="phone">
+
+    <!-- iOS status bar (mock, not part of onboarding) -->
+    <div class="statusbar" aria-hidden="true">
+      <span class="sb-time">9:41</span>
+      <span class="sb-icons">
+        <svg class="sb-ic" viewBox="0 0 18 12" width="18" height="12"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+        <svg class="sb-ic" viewBox="0 0 16 12" width="16" height="12"><path d="M8 11.2 1 4.4a9.9 9.9 0 0 1 14 0L8 11.2Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="8" cy="9.2" r="1.3"/></svg>
+        <span class="sb-batt"><span class="sb-batt-fill"></span></span>
+      </span>
+    </div>
+
+    <!-- DB Navigator header bar (dark) -->
+    <header class="topbar">
+      <span class="db-logo" aria-hidden="true">
+        <svg viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>
+      </span>
+      <div class="topbar-title">
+        <span class="app-name">Journey Autopilot</span>
+        <span class="app-sub">Travel Assistant</span>
+      </div>
+      <div class="topbar-account" id="topbar-account" hidden></div>
+    </header>
+
+    <!-- Onboarding progress -->
+    <div class="progress" id="progress" hidden>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-label" id="progress-label"></div>
+    </div>
+
+    <main id="screen" class="screen" aria-live="polite"></main>
+
+    <!-- Wizard navigation (Back / Next / Skip) -->
+    <footer class="navbar" id="navbar" hidden>
+      <button class="btn ghost" id="btn-back" type="button">Back</button>
+      <button class="btn link" id="btn-skip" type="button" hidden>Skip</button>
+      <button class="btn primary" id="btn-next" type="button">Next</button>
+    </footer>
+
+    <!-- DB Navigator tab bar (mock — only visible in the dashboard) -->
+    <nav class="tabbar" id="tabbar" hidden aria-hidden="true">
+      <button class="tab" type="button">
+        <svg class="tab-ic" viewBox="0 0 24 24"><path d="M4 8h11M4 8l3-3M4 8l3 3M20 16H9m11 0-3-3m3 3-3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Book</span>
+      </button>
+      <button class="tab" type="button">
+        <svg class="tab-ic" viewBox="0 0 24 24"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <span>Surroundings</span>
+      </button>
+      <button class="tab active" type="button">
+        <svg class="tab-ic" viewBox="0 0 24 24"><path d="M4 7a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v3a2 2 0 0 0 0 4v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a2 2 0 0 0 0-4V7Z" fill="currentColor"/><path d="M14 6v12" fill="none" stroke="#1a212b" stroke-width="1.6" stroke-dasharray="2 2"/></svg>
+        <span>Trips</span>
+      </button>
+      <button class="tab" type="button">
+        <svg class="tab-ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 17c.7-2 2-3 3.5-3s2.8 1 3.5 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>Profile</span>
+      </button>
+    </nav>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <!-- Simulated Microsoft consent dialog -->
+  <div class="modal-backdrop" id="ms-modal" hidden>
+    <div class="modal ms" role="dialog" aria-modal="true" aria-labelledby="ms-title">
+      <div class="ms-logo"><span class="sq r"></span><span class="sq g"></span><span class="sq b"></span><span class="sq y"></span> Microsoft</div>
+      <h3 id="ms-title">Review permissions</h3>
+      <p class="ms-mail" id="ms-mail">lucas.wild@example.com</p>
+      <p>Journey Autopilot would like to:</p>
+      <ul class="ms-scopes">
+        <li>Read your calendars (Calendars.Read)</li>
+        <li>Add events to your calendar (Calendars.ReadWrite)</li>
+      </ul>
+      <p class="ms-hint">The app can only access calendar data, not emails or files. You can revoke this consent at any time in your profile. <em>(Simulated consent — demo)</em></p>
+      <div class="modal-actions">
+        <button class="btn ghost" id="ms-cancel" type="button">Cancel</button>
+        <button class="btn ms-accept" id="ms-accept" type="button">Accept</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

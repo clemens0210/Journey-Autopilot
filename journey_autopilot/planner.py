@@ -15,7 +15,12 @@ from __future__ import annotations
 from google.adk.agents import LlmAgent
 
 from .config import PLANNER_MODEL
-from .tools import find_reroute_options, get_passenger_rights, get_user_calendar
+from .tools import (
+    find_reroute_options,
+    get_passenger_rights,
+    get_user_calendar,
+    get_user_profile,
+)
 
 PLANNER_INSTRUCTION = """\
 You are the **Planner Agent** in the "Journey Autopilot" system. You are called
@@ -65,5 +70,10 @@ def build_planner_agent() -> LlmAgent:
             "deadlines, and cites passenger rights. Proposes, does not book."
         ),
         instruction=PLANNER_INSTRUCTION,
-        tools=[find_reroute_options, get_user_calendar, get_passenger_rights],
+        tools=[
+            get_user_profile,
+            find_reroute_options,
+            get_user_calendar,
+            get_passenger_rights,
+        ],
     )
