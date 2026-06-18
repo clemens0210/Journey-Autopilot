@@ -1,4 +1,4 @@
-# Secrets — niemals committen!
+# Secrets — never commit!
 .env
 **/.env
 
@@ -8,7 +8,7 @@ __pycache__/
 *.pyc
 .python-version
 
-# ADK lokale Artefakte / Sessions
+# ADK local artifacts / sessions
 *.db
 .adk/
 
@@ -19,3 +19,7 @@ db_service/package-lock.json
 
 # MacOS specific
 .DS_Store
+
+
+data/chromadb/
+journey_autopilot/data/chromadb/

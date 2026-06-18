@@ -1,136 +1,120 @@
-"""Gemockte Daten für den Prototyp.
+"""Mocked data for the prototype.
 
-Bewusste Entscheidung (siehe Projektgrundlage / ADR): Wir haben keinen echten
-DB-API-Zugang. Alle Live-Ops-Daten werden hier als Fixtures simuliert. Die
-Struktur ist an einem realistischen Szenario der Persona "Lucas Wild"
-ausgerichtet, damit Monitoring- und Planner-Agent etwas Sinnvolles zu tun haben.
+Deliberate decision (see project foundation / ADR): We have no real
+DB API access. All live ops data is simulated here as fixtures. The
+structure is aligned to a realistic scenario for the persona "Lucas Wild"
+so that Monitoring and Planner Agents have something meaningful to do.
 
-Später ersetzt eine echte API-Anbindung (oder ein MCP-Server) genau diese
-Funktionen — die Tool-Schnittstelle bleibt gleich.
+Later, a real API connection (or an MCP server) will replace exactly these
+functions — the tool interface stays the same.
 """
 
 from __future__ import annotations
 
-# --- Demo-Reise: Lucas Wild, München -> Berlin (Happy/Edge-Szenario) ---------
+# --- Demo trip: Lucas Wild, Munich → Berlin (happy/edge scenario) --------------
 
 DEMO_TRIP = {
-    "trip_id": "DB-2026-0603-MUC-BLN",
+    "trip_id": "DB-2026-0619-MUC-BLN",
     "passenger": "Lucas Wild",
-    "origin": "München Hbf",
+    "origin": "Munich Hbf",
     "destination": "Berlin Hbf",
     "train": "ICE 1006",
-    "planned_departure": "2026-06-03T08:00:00",
-    "planned_arrival": "2026-06-03T12:04:00",
+    "planned_departure": "2026-06-19T08:00:00",
+    "planned_arrival": "2026-06-19T12:04:00",
 }
 
-# Gemockter Live-Zustand der Reise. Ein Stellwerksproblem bei Nürnberg sorgt für
-# wachsende Verspätung -> das Monitoring soll erhöhtes Risiko erkennen.
+# Mocked live status of the trip. A signal box malfunction near Nuremberg causes
+# growing delay → Monitoring should detect elevated risk.
 LIVE_TRIP_STATUS = {
-    "DB-2026-0603-MUC-BLN": {
-        "trip_id": "DB-2026-0603-MUC-BLN",
+    "DB-2026-0619-MUC-BLN": {
+        "trip_id": "DB-2026-0619-MUC-BLN",
         "train": "ICE 1006",
         "current_delay_minutes": 28,
-        "trend": "steigend",
-        "current_position": "zwischen Nürnberg und Erfurt",
+        "trend": "increasing",
+        "current_position": "between Nuremberg and Erfurt",
         "incidents": [
             {
-                "type": "Stellwerksstörung",
-                "location": "Raum Nürnberg",
-                "impact": "Einzelne Gleise gesperrt, Folgeverspätungen erwartet",
+                "type": "Signal box malfunction",
+                "location": "Nuremberg area",
+                "impact": "Individual tracks blocked, cascading delays expected",
             }
         ],
-        "connection_risk": "Anschluss in Berlin-Spandau gefährdet",
-        "data_timestamp": "2026-06-03T09:42:00",
+        "connection_risk": "Connection in Berlin-Spandau at risk",
+        "data_timestamp": "2026-06-19T09:42:00",
     }
 }
 
-# Gemockte netzweite Störungslage je Region.
+# Mocked network-wide disruption status per region.
 NETWORK_DISRUPTIONS = {
-    "bayern": [
+    "bavaria": [
         {
-            "line": "ICE-Strecke Nürnberg-Erfurt",
-            "type": "Stellwerksstörung",
-            "severity": "hoch",
-            "expected_resolution": "2026-06-03T11:30:00",
+            "line": "ICE line Nuremberg-Erfurt",
+            "type": "Signal box malfunction",
+            "severity": "high",
+            "expected_resolution": "2026-06-19T11:30:00",
         }
     ],
     "berlin": [],
 }
 
-# --- Planner-Wissen: Reroute-Alternativen, Kalender, Fahrgastrechte -----------
+# --- Planner knowledge: reroute alternatives, calendar, passenger rights ------
 
 REROUTE_OPTIONS = {
-    ("München Hbf", "Berlin Hbf"): [
+    ("Munich Hbf", "Berlin Hbf"): [
         {
             "option_id": "R1",
-            "description": "Umstieg in Erfurt auf ICE 1008 Richtung Berlin",
-            "new_arrival": "2026-06-03T12:38:00",
+            "description": "Transfer in Erfurt to ICE 1008 towards Berlin",
+            "new_arrival": "2026-06-19T12:38:00",
             "transfers": 1,
             "added_delay_minutes": 34,
-            "comfort": "Sitzplatzreservierung übertragbar",
+            "comfort": "Seat reservation transferable",
         },
         {
             "option_id": "R2",
-            "description": "Über Leipzig mit ICE 1612, dann RE nach Berlin",
-            "new_arrival": "2026-06-03T13:15:00",
+            "description": "Via Leipzig with ICE 1612, then RE to Berlin",
+            "new_arrival": "2026-06-19T13:15:00",
             "transfers": 2,
             "added_delay_minutes": 71,
-            "comfort": "Kein reservierter Sitzplatz, mehr Umstiege",
+            "comfort": "No reserved seat, more transfers",
         },
     ]
 }
 
-# Gemockter Kalender der Persona. Das Meeting in Berlin ist die harte Deadline.
+# Mocked calendar of the persona. The meeting in Berlin is the hard deadline.
 USER_CALENDAR = {
-    "2026-06-03": [
+    "2026-06-19": [
         {
-            "title": "Kundentermin Berlin (vor Ort)",
+            "title": "Client meeting Berlin (on-site)",
             "location": "Berlin Mitte",
-            "start": "2026-06-03T14:00:00",
+            "start": "2026-06-19T14:00:00",
             "hard_constraint": True,
         }
     ]
 }
 
-# Vereinfachte Fahrgastrechte-Wissensbasis (steht später für RAG/ChromaDB).
+# Simplified passenger rights knowledge base (placeholder for future RAG/ChromaDB).
 PASSENGER_RIGHTS = [
-    {"min_delay_minutes": 60, "compensation": "25 % des Fahrpreises"},
-    {"min_delay_minutes": 120, "compensation": "50 % des Fahrpreises"},
+    {"min_delay_minutes": 60, "compensation": "25% of ticket price"},
+    {"min_delay_minutes": 120, "compensation": "50% of ticket price"},
 ]
 
-# --- Vorab-Risiko: simulierte Verspätungs-Historie je Verbindung --------------
-#
-# Fallback für das Risk-Modul (`risk.py`), wenn der db_service-Sidecar nicht
-# läuft. Struktur identisch zu `delay_stats.connection_delay_history`, damit der
-# Agent live wie simuliert dieselben Felder sieht. Werte sind an die reale Lage
-# der Strecke München->Berlin angelehnt (Bauarbeiten Nürnberg-Erfurt).
-CONNECTION_DELAY_HISTORY = {
-    ("München Hbf", "Berlin Hbf"): {
-        "window": "30 Tage Historie (simuliert)",
-        "sample_count": 42,
-        "mean_delay_minutes": 18.4,
-        "median_delay_minutes": 12.0,
-        "p90_delay_minutes": 47.0,
-        "max_delay_minutes": 88.0,
-        "on_time_rate_pct": 38,
-        "delayed_over_15_rate_pct": 41,
-        "cancellations": 2,
-        "common_causes": [
-            "Bauarbeiten zwischen Nürnberg und Erfurt",
-            "Stellwerksstörung Raum Nürnberg",
-            "Hohe Streckenauslastung im Fernverkehr",
-        ],
-    },
-}
+# --- WhatsApp communicator: event fields derived from the existing mock scenario -
+# Real phone numbers come from .env at runtime (run_demo.py).
+# recipients is populated there from DEMO_TRAVELER_NUMBER / DEMO_CLIENT_NUMBER etc.
+_r1 = REROUTE_OPTIONS[("Munich Hbf", "Berlin Hbf")][0]
+_meeting = USER_CALENDAR["2026-06-19"][0]
 
-# Geplante Verbindung (Soll-Zeiten) als ETA-Anker, wenn der Sidecar fehlt.
-# Struktur identisch zu `delay_stats.scheduled_connection`.
-PLANNED_CONNECTIONS = {
-    ("München Hbf", "Berlin Hbf"): {
-        "train": "ICE 1006",
-        "planned_departure": "2026-06-03T08:00:00",
-        "planned_arrival": "2026-06-03T12:04:00",
-        "transfers": 0,
-        "realtime_arrival_delay_minutes": None,
-    },
+# The WhatsApp communicator messages the traveler in English, so the event fields
+# carry an English reroute summary (the orchestrator's REROUTE_OPTIONS above stay
+# German for the German orchestrator demo).
+DEMO_EVENT_FIELDS: dict = {
+    "traveler_name": DEMO_TRIP["passenger"],
+    "original_train": DEMO_TRIP["train"],
+    "delay_minutes": LIVE_TRIP_STATUS[DEMO_TRIP["trip_id"]]["current_delay_minutes"],
+    "reroute_summary": (
+        f"Change at Erfurt to ICE 1008 toward Berlin "
+        f"(arrival {_r1['new_arrival'][11:16]}, +{_r1['added_delay_minutes']} min)"
+    ),
+    "meeting_time_original": _meeting["start"][11:16],
+    "meeting_time_new": _meeting["start"][11:16],  # Appointment holds — arrival 12:38 is before 14:00
 }

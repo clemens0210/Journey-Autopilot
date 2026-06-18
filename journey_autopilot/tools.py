@@ -1,84 +1,116 @@
-"""Function-Tools für die Agenten.
+"""Function tools for the agents.
 
-In ADK genügt eine getypte Python-Funktion mit Docstring — das Framework wrappt
-sie automatisch in ein FunctionTool und leitet das Parameter-Schema aus den
-Type-Hints + Docstring ab. Deshalb sind Docstrings und Typen hier nicht Deko,
-sondern Teil der API, die das LLM sieht.
+In ADK, a typed Python function with a docstring is enough — the framework wraps
+it automatically into a FunctionTool and derives the parameter schema from the
+type hints + docstring. Therefore docstrings and types here are not decoration
+but part of the API that the LLM sees.
 
-Alle Funktionen lesen aktuell aus `mock_data` — sie sind die Einstecksstellen
-für echte DB-/Kalender-/RAG-Quellen.
+All functions currently read from `mock_data` — they are the insertion points
+for real DB/calendar/RAG sources.
 """
 
 from __future__ import annotations
 
+import os
+
 from . import db_api, delay_stats, mock_data
+from .passenger_rights.rag_store import FahrgastrechteRAG
+from .passenger_rights.rights_service import calculate_compensation
+from .calendar import get_calendar_events
 
 
-# --- Monitoring-Tools ---------------------------------------------------------
+def _calendar_configured() -> bool:
+    """Return True if MS Entra credentials are present in the environment."""
+    return bool(os.getenv("MS_ENTRA_CLIENT_ID"))
+
+
+# --- Monitoring tools ---------------------------------------------------------
 
 
 def get_live_trip_status(trip_id: str) -> dict:
-    """Liefert den aktuellen Live-Zustand einer Bahnreise.
+    """Returns the current live status of a train journey.
 
     Args:
-        trip_id: Die ID der Reise, z. B. "DB-2026-0603-MUC-BLN".
+        trip_id: The trip ID, e.g. "DB-2026-0603-MUC-BLN".
 
     Returns:
-        Ein Dict mit aktueller Verspätung, Trend, Position, bekannten Vorfällen
-        und Anschlussrisiko. Enthält "error", wenn die Reise unbekannt ist.
+        A dict with current delay, trend, position, known incidents,
+        and connection risk. Contains "error" if the trip is unknown.
     """
     status = mock_data.LIVE_TRIP_STATUS.get(trip_id)
     if status is None:
-        return {"error": f"Keine Live-Daten für trip_id '{trip_id}' gefunden."}
+        return {"error": f"No live data found for trip_id '{trip_id}'."}
     return status
 
 
 def get_network_disruptions(region: str) -> dict:
-    """Liefert die aktuelle netzweite Störungslage für eine Region.
+    """Returns the current network-wide disruption status for a region.
 
     Args:
-        region: Region in Kleinbuchstaben, z. B. "bayern" oder "berlin".
+        region: Region in lowercase, e.g. "bavaria" or "berlin".
 
     Returns:
-        Ein Dict mit der Liste aktiver Störungen für die Region.
+        A dict with the list of active disruptions for the region.
     """
     disruptions = mock_data.NETWORK_DISRUPTIONS.get(region.lower(), [])
     return {"region": region, "disruptions": disruptions}
 
 
-# --- Planner-Tools ------------------------------------------------------------
+# --- Planner tools ------------------------------------------------------------
 
 
 def find_reroute_options(origin: str, destination: str) -> dict:
-    """Findet alternative Verbindungen (Reroute-Optionen) zwischen zwei Bahnhöfen.
+    """Finds alternative connections (reroute options) between two stations.
 
     Args:
-        origin: Start-Bahnhof, z. B. "München Hbf".
-        destination: Ziel-Bahnhof, z. B. "Berlin Hbf".
+        origin: Departure station, e.g. "Munich Hbf".
+        destination: Destination station, e.g. "Berlin Hbf".
 
     Returns:
-        Ein Dict mit der Liste möglicher Umleitungen inklusive neuer Ankunftszeit,
-        Anzahl Umstiege und Zusatzverspätung.
+        A dict with the list of possible reroutes including new arrival time,
+        number of transfers, and added delay.
     """
     options = mock_data.REROUTE_OPTIONS.get((origin, destination), [])
     return {"origin": origin, "destination": destination, "options": options}
 
 
-def get_user_calendar(date: str) -> dict:
-    """Liest die Kalendertermine des Nutzers für ein Datum.
+async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
+    """Reads the user's calendar appointments for a given date.
 
-    Wird gebraucht, um harte Deadlines (z. B. ein Vor-Ort-Meeting) gegen
-    Reroute-Optionen zu prüfen.
+    Needed to check hard deadlines (e.g. an on-site meeting) against
+    reroute options.
+
+    Uses Outlook/Microsoft Graph when Entra credentials are present in .env
+    (MS_ENTRA_CLIENT_ID, MS_ENTRA_TENANT_ID). Without configuration,
+    falls back to mock data.
 
     Args:
-        date: Datum im Format "YYYY-MM-DD", z. B. "2026-06-03".
+        date: Date in "YYYY-MM-DD" format, e.g. "2026-06-03".
+        user_email: Optional email of another user whose calendar
+            should be queried. If omitted, the authenticated user's
+            own calendar is used.
 
     Returns:
-        Ein Dict mit der Liste der Termine. `hard_constraint=True` markiert
-        unverhandelbare Termine.
+        A dict with the list of appointments. ``hard_constraint=True`` marks
+        non-negotiable appointments. Contains ``source`` ("outlook", "mock", or
+        "mock (Graph-Fallback)") and optionally ``error`` on failed
+        Graph access (mock data was used as fallback in that case).
     """
-    events = mock_data.USER_CALENDAR.get(date, [])
-    return {"date": date, "events": events}
+    mock_events = mock_data.USER_CALENDAR.get(date, [])
+
+    if _calendar_configured():
+        try:
+            events = await get_calendar_events(date, user_email)
+            return {"date": date, "events": events, "source": "outlook"}
+        except Exception as exc:
+            return {
+                "date": date,
+                "events": mock_events,
+                "source": "mock (Graph-Fallback)",
+                "error": str(exc),
+            }
+
+    return {"date": date, "events": mock_events, "source": "mock"}
 
 
 def get_user_profile() -> dict:
@@ -125,145 +157,232 @@ def get_upcoming_trips() -> dict:
     return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
 
 
-def get_passenger_rights(delay_minutes: int) -> dict:
-    """Ermittelt die Fahrgastrechte-/Entschädigungsstufe für eine Verspätung.
+def get_user_profile() -> dict:
+    """Liest das persönliche Präferenzprofil des Nutzers aus dem Onboarding.
 
-    Args:
-        delay_minutes: Erwartete Ankunftsverspätung in Minuten.
-
-    Returns:
-        Ein Dict mit der zutreffenden Entschädigung (oder einem Hinweis, dass
-        unterhalb der Schwelle kein Anspruch besteht).
-    """
-    applicable = [
-        rule
-        for rule in mock_data.PASSENGER_RIGHTS
-        if delay_minutes >= rule["min_delay_minutes"]
-    ]
-    if not applicable:
-        return {
-            "delay_minutes": delay_minutes,
-            "compensation": "Unter 60 Minuten — kein Entschädigungsanspruch.",
-        }
-    best = max(applicable, key=lambda rule: rule["min_delay_minutes"])
-    return {"delay_minutes": delay_minutes, "compensation": best["compensation"]}
-
-
-# --- Risk-Tools (Vorab-Risiko, vor Reisebeginn) -------------------------------
-
-
-def get_connection_delay_reference(origin: str, destination: str, train: str = "") -> dict:
-    """Liefert die historische Pünktlichkeits-Referenz der Verbindung (Monats-Archiv).
-
-    Die belastbare Baseline für die Risikobewertung: Wie pünktlich kommen Züge
-    dieses Typs am Zielbahnhof über MEHRERE MONATE an? Quelle ist ein echtes
-    Verspätungs-Archiv (piebro/deutsche-bahn-data, DB-Daten, CC BY 4.0), vorab zu
-    Kennzahlen je Bahnhof und Zugtyp verdichtet. Ergänzt `get_connection_delay_history`
-    (nur letzte Stunden, aktuelle Lage): das Archiv liefert den langfristigen
-    Normalfall, die Live-Historie die heutige Situation.
-
-    Args:
-        origin: Start-Bahnhof (nur Kontext; gewertet wird die Ankunft am Ziel).
-        destination: Ziel-Bahnhof, z. B. "Berlin Hbf".
-        train: Optionaler Zugname (z. B. "ICE 1006") — bestimmt den Zugtyp.
+    Enthält Klasse, Sitzplatzwünsche, die Tempo-vs-Komfort-Abwägung (0 = maximaler
+    Komfort, 100 = schnellste Ankunft), maximale Umstiege, Heimatbahnhof, späteste
+    Heimkehr sowie das Autonomie-Level. Reroute-Optionen sollen gegen dieses
+    Profil bewertet werden.
 
     Returns:
-        Ein Dict mit `sample_count`, mittlerer/median/p90-Verspätung,
-        Pünktlichkeitsquote, Ausfallquote, der verwendeten `basis` (Zugtyp),
-        den abgedeckten `months` und `source="db_history_archive"`. Enthält
-        "error", wenn der Bahnhof nicht im Archiv liegt.
-    """
-    ref = delay_stats.historical_reference(destination, train=train)
-    if ref is None:
-        return {
-            "origin": origin,
-            "destination": destination,
-            "error": "Keine historische Referenz für diesen Zielbahnhof verfügbar.",
-        }
-    ref["origin"] = origin
-    return ref
-
-
-def get_connection_delay_history(origin: str, destination: str, train: str = "") -> dict:
-    """Liefert Verspätungs-Kennzahlen einer Verbindung aus Vergangenheitsdaten.
-
-    Die Datenbasis für die Vorab-Risikobewertung: Wie pünktlich sind die Züge
-    dieser Verbindung in der Vergangenheit angekommen? Versucht zuerst echte
-    DB-Daten über den db_service-Sidecar (Ankunftstafel am Ziel); ist der
-    Sidecar nicht erreichbar oder liefert kein Sample, greift eine simulierte
-    Historie. Das Feld `source` macht transparent, woher die Zahlen stammen.
-
-    Args:
-        origin: Start-Bahnhof, z. B. "München Hbf".
-        destination: Ziel-Bahnhof, z. B. "Berlin Hbf".
-        train: Optionaler Zugname (z. B. "ICE 1006"), nur als Kontext.
-
-    Returns:
-        Ein Dict mit `sample_count`, mittlerer/median/p90-Verspätung,
-        Pünktlichkeitsquote, Ausfällen, häufigsten Ursachen und `source`
-        ("db_service_live" | "mock_history"). Enthält "error", wenn für die
-        Verbindung weder Live- noch Mock-Daten vorliegen.
+        Ein Dict mit dem Profil, oder mit "error", wenn noch kein Onboarding
+        durchlaufen wurde.
     """
     try:
-        stats = delay_stats.connection_delay_history(origin, destination, train=train)
-        if stats.get("sample_count", 0) > 0:
-            stats["source"] = "db_service_live"
-            return stats
-    except db_api.DBServiceError:
-        pass  # Sidecar nicht erreichbar -> simulierte Historie
-    except Exception:
-        pass  # unerwartetes Parsing-Problem -> simulierte Historie
+        # Lazy Import: hält das ADK-Paket unabhängig vom Onboarding-Paket,
+        # solange das Tool nicht aufgerufen wird.
+        from onboarding import store
 
-    mock = mock_data.CONNECTION_DELAY_HISTORY.get((origin, destination))
-    if mock is None:
-        return {
-            "origin": origin,
-            "destination": destination,
-            "error": "Keine Verspätungs-Historie für diese Verbindung verfügbar.",
-        }
-    result = dict(mock)
-    result.update(
-        {"origin": origin, "destination": destination, "train": train or None, "source": "mock_history"}
-    )
-    return result
+        profile = store.any_profile()
+    except Exception as exc:  # Onboarding-Paket/DB nicht verfügbar
+        return {"error": f"Profil nicht lesbar: {exc}"}
+    if profile is None:
+        return {"error": "Kein Nutzerprofil vorhanden — Onboarding noch nicht durchlaufen."}
+    return profile
 
 
-def get_planned_connection(origin: str, destination: str, departure: str = "") -> dict:
-    """Liefert die geplante Verbindung (Soll-Zeiten) als Anker für die ETA.
-
-    Das Risk-Modul braucht die geplante Ankunftszeit, um daraus die
-    voraussichtliche Ankunft (ETA = Soll-Ankunft + erwartete Verspätung) zu
-    bilden. Versucht echte DB-Daten über den db_service-Sidecar; fällt sonst auf
-    simulierte Soll-Zeiten zurück.
-
-    Args:
-        origin: Start-Bahnhof, z. B. "München Hbf".
-        destination: Ziel-Bahnhof, z. B. "Berlin Hbf".
-        departure: Optionale Abfahrtszeit (ISO "YYYY-MM-DDTHH:MM:SS"); leer =
-            nächste Verbindung.
+def get_upcoming_trips() -> dict:
+    """Liefert die im Onboarding importierten, bevorstehenden Reisen des Nutzers.
 
     Returns:
-        Ein Dict mit `train`, `planned_departure`, `planned_arrival`,
-        `transfers`, einer etwaigen Echtzeit-Ankunftsverspätung und `source`.
-        Enthält "error", wenn keine Verbindung gefunden wurde.
+        Ein Dict mit der Liste der überwachten Reisen (trip_id, Start, Ziel, Zug,
+        Soll-Zeiten). Fällt auf die Demo-Reise zurück, wenn kein Onboarding
+        durchlaufen wurde.
     """
     try:
-        conn = delay_stats.scheduled_connection(origin, destination, departure or None)
-        if conn:
-            conn["source"] = "db_service_live"
-            return conn
-    except db_api.DBServiceError:
-        pass  # Sidecar nicht erreichbar -> simulierte Soll-Zeiten
+        from onboarding import store
+
+        profile = store.any_profile()
+        if profile is not None:
+            return {"trips": store.get_trips(profile["user_id"])}
     except Exception:
         pass
+    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
 
-    mock = mock_data.PLANNED_CONNECTIONS.get((origin, destination))
-    if mock is None:
-        return {
-            "origin": origin,
-            "destination": destination,
-            "error": "Keine geplante Verbindung für diese Strecke gefunden.",
-        }
-    result = dict(mock)
-    result.update({"origin": origin, "destination": destination, "source": "mock_planned"})
-    return result
+
+def get_user_profile() -> dict:
+    """Liest das persönliche Präferenzprofil des Nutzers aus dem Onboarding.
+
+    Enthält Klasse, Sitzplatzwünsche, die Tempo-vs-Komfort-Abwägung (0 = maximaler
+    Komfort, 100 = schnellste Ankunft), maximale Umstiege, Heimatbahnhof, späteste
+    Heimkehr sowie das Autonomie-Level. Reroute-Optionen sollen gegen dieses
+    Profil bewertet werden.
+
+    Returns:
+        Ein Dict mit dem Profil, oder mit "error", wenn noch kein Onboarding
+        durchlaufen wurde.
+    """
+    try:
+        # Lazy Import: hält das ADK-Paket unabhängig vom Onboarding-Paket,
+        # solange das Tool nicht aufgerufen wird.
+        from onboarding import store
+
+        profile = store.any_profile()
+    except Exception as exc:  # Onboarding-Paket/DB nicht verfügbar
+        return {"error": f"Profil nicht lesbar: {exc}"}
+    if profile is None:
+        return {"error": "Kein Nutzerprofil vorhanden — Onboarding noch nicht durchlaufen."}
+    return profile
+
+
+def get_upcoming_trips() -> dict:
+    """Liefert die im Onboarding importierten, bevorstehenden Reisen des Nutzers.
+
+    Returns:
+        Ein Dict mit der Liste der überwachten Reisen (trip_id, Start, Ziel, Zug,
+        Soll-Zeiten). Fällt auf die Demo-Reise zurück, wenn kein Onboarding
+        durchlaufen wurde.
+    """
+    try:
+        from onboarding import store
+
+        profile = store.any_profile()
+        if profile is not None:
+            return {"trips": store.get_trips(profile["user_id"])}
+    except Exception:
+        pass
+    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
+
+
+def get_user_profile() -> dict:
+    """Liest das persönliche Präferenzprofil des Nutzers aus dem Onboarding.
+
+    Enthält Klasse, Sitzplatzwünsche, die Tempo-vs-Komfort-Abwägung (0 = maximaler
+    Komfort, 100 = schnellste Ankunft), maximale Umstiege, Heimatbahnhof, späteste
+    Heimkehr sowie das Autonomie-Level. Reroute-Optionen sollen gegen dieses
+    Profil bewertet werden.
+
+    Returns:
+        Ein Dict mit dem Profil, oder mit "error", wenn noch kein Onboarding
+        durchlaufen wurde.
+    """
+    try:
+        # Lazy Import: hält das ADK-Paket unabhängig vom Onboarding-Paket,
+        # solange das Tool nicht aufgerufen wird.
+        from onboarding import store
+
+        profile = store.any_profile()
+    except Exception as exc:  # Onboarding-Paket/DB nicht verfügbar
+        return {"error": f"Profil nicht lesbar: {exc}"}
+    if profile is None:
+        return {"error": "Kein Nutzerprofil vorhanden — Onboarding noch nicht durchlaufen."}
+    return profile
+
+
+def get_upcoming_trips() -> dict:
+    """Liefert die im Onboarding importierten, bevorstehenden Reisen des Nutzers.
+
+    Returns:
+        Ein Dict mit der Liste der überwachten Reisen (trip_id, Start, Ziel, Zug,
+        Soll-Zeiten). Fällt auf die Demo-Reise zurück, wenn kein Onboarding
+        durchlaufen wurde.
+    """
+    try:
+        from onboarding import store
+
+        profile = store.any_profile()
+        if profile is not None:
+            return {"trips": store.get_trips(profile["user_id"])}
+    except Exception:
+        pass
+    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
+
+
+def get_user_profile() -> dict:
+    """Liest das persönliche Präferenzprofil des Nutzers aus dem Onboarding.
+
+    Enthält Klasse, Sitzplatzwünsche, die Tempo-vs-Komfort-Abwägung (0 = maximaler
+    Komfort, 100 = schnellste Ankunft), maximale Umstiege, Heimatbahnhof, späteste
+    Heimkehr sowie das Autonomie-Level. Reroute-Optionen sollen gegen dieses
+    Profil bewertet werden.
+
+    Returns:
+        Ein Dict mit dem Profil, oder mit "error", wenn noch kein Onboarding
+        durchlaufen wurde.
+    """
+    try:
+        # Lazy Import: hält das ADK-Paket unabhängig vom Onboarding-Paket,
+        # solange das Tool nicht aufgerufen wird.
+        from onboarding import store
+
+        profile = store.any_profile()
+    except Exception as exc:  # Onboarding-Paket/DB nicht verfügbar
+        return {"error": f"Profil nicht lesbar: {exc}"}
+    if profile is None:
+        return {"error": "Kein Nutzerprofil vorhanden — Onboarding noch nicht durchlaufen."}
+    return profile
+
+
+def get_upcoming_trips() -> dict:
+    """Liefert die im Onboarding importierten, bevorstehenden Reisen des Nutzers.
+
+    Returns:
+        Ein Dict mit der Liste der überwachten Reisen (trip_id, Start, Ziel, Zug,
+        Soll-Zeiten). Fällt auf die Demo-Reise zurück, wenn kein Onboarding
+        durchlaufen wurde.
+    """
+    try:
+        from onboarding import store
+
+        profile = store.any_profile()
+        if profile is not None:
+            return {"trips": store.get_trips(profile["user_id"])}
+    except Exception:
+        pass
+    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: Demo-Reise (kein Onboarding-Profil)."}
+
+
+
+def get_passenger_rights(
+    delay_minutes: int,
+    ticket_type: str = "einzelticket",
+    price_paid: float = 0.0,
+    travel_class: int = 2,
+    bahncard_type: str = "keine",
+) -> dict:
+    """Determines passenger rights and calculates the concrete compensation claim.
+
+    Combines two sources:
+      1. Deterministic rule logic (rights_service) → exact EUR amount
+      2. RAG search in ChromaDB → legal context chunks from bahn.de
+
+    Args:
+        delay_minutes:  Expected arrival delay at destination in minutes.
+        ticket_type:    Ticket type: "einzelticket" | "zeitkarte_fv" |
+                        "zeitkarte_nv" | "bc100" | "deutschland_ticket".
+        price_paid:     Ticket price paid in EUR (relevant for single tickets).
+        travel_class:   Travel class, 1 or 2 (default: 2).
+        bahncard_type:  User's BahnCard: "keine" | "bc25" | "bc50" | "bc100".
+
+    Returns:
+        Dict with calculated compensation claim and legal context.
+    """
+    # 1. Deterministic calculation — no LLM, no network
+    compensation = calculate_compensation(
+        delay_minutes=delay_minutes,
+        ticket_type=ticket_type,
+        price_paid=price_paid,
+        travel_class=travel_class,
+        bahncard_type=bahncard_type,
+    )
+
+    # 2. RAG context for the agent — semantically matching chunks
+    try:
+        rag = getattr(get_passenger_rights, "_rag", None)
+        if rag is None:
+            rag = FahrgastrechteRAG()
+            setattr(get_passenger_rights, "_rag", rag)
+        chunks = rag.retrieve_for_case(
+            delay_minutes=delay_minutes,
+            ticket_type=ticket_type,
+            bahncard_type=bahncard_type,
+        )
+        legal_context = "\n\n--- Next Section ---\n".join(chunks)
+    except Exception:
+        legal_context = "Knowledge base temporarily unavailable."
+
+    return {
+        **compensation,
+        "legal_context": legal_context,
+    }

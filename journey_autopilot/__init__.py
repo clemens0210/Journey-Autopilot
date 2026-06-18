@@ -1,9 +1,7 @@
-"""Journey Autopilot — agentisches System (Basis).
+"""Journey Autopilot — agent-based system (baseline).
 
-`adk web` / `adk run journey_autopilot` erwarten ein importierbares Paket mit
-einem `agent`-Modul, das `root_agent` definiert.
+`adk web` / `adk run journey_autopilot` expect an importable package with
+an `agent` module that defines `root_agent`.
 """
-
-from . import agent
 
 __all__ = ["agent"]

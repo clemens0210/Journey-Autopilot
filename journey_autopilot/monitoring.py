@@ -1,10 +1,10 @@
 """Monitoring Agent.
 
-Rolle: Beobachtet eine laufende Bahnreise und bewertet das Störungsrisiko.
-Er entscheidet NICHT über Umleitungen — er liefert nur eine belastbare
-Risiko-Einschätzung, auf deren Basis der Orchestrator weiterroutet.
+Role: Observes a running train journey and assesses the disruption risk.
+It does NOT decide on reroutes — it only delivers a reliable
+risk assessment on which the Orchestrator routes further.
 
-Modell: günstiges Flash-Modell (läuft potenziell häufig, im Loop).
+Model: affordable Flash model (potentially runs frequently, in a loop).
 """
 
 from __future__ import annotations
@@ -15,36 +15,36 @@ from .config import MONITORING_MODEL
 from .tools import get_live_trip_status, get_network_disruptions
 
 MONITORING_INSTRUCTION = """\
-Du bist der **Monitoring Agent** im System "Journey Autopilot". Deine einzige
-Aufgabe ist es, den aktuellen Zustand einer Bahnreise zu erfassen und das
-Störungsrisiko einzuschätzen. Du planst KEINE Umleitungen.
+You are the **Monitoring Agent** in the "Journey Autopilot" system. Your only
+task is to capture the current state of a train journey and assess the
+disruption risk. You do NOT plan any reroutes.
 
-Vorgehen:
-1. Rufe `get_live_trip_status` mit der genannten trip_id auf.
-2. Prüfe mit `get_network_disruptions` die Störungslage der relevanten Region.
-3. Bewerte das Risiko auf einer Skala: NIEDRIG / MITTEL / HOCH.
-   - Orientierung: Verspätung < 15 Min und keine Vorfälle -> NIEDRIG;
-     wachsende Verspätung, gefährdete Anschlüsse oder aktive Störungen -> HOCH.
+Procedure:
+1. Call `get_live_trip_status` with the given trip_id.
+2. Check `get_network_disruptions` for the disruption status of the relevant region.
+3. Assess the risk on a scale: LOW / MEDIUM / HIGH.
+   - Guideline: Delay < 15 min and no incidents -> LOW;
+     growing delay, endangered connections, or active disruptions -> HIGH.
 
-Antworte kurz und strukturiert:
-- Risiko-Level: <NIEDRIG|MITTEL|HOCH>
-- Aktuelle Verspätung und Trend
-- Wesentliche Vorfälle / gefährdete Anschlüsse
-- Eine Satzbegründung
+Answer briefly and structured:
+- Risk Level: <LOW|MEDIUM|HIGH>
+- Current delay and trend
+- Key incidents / endangered connections
+- One-sentence justification
 
-Erfinde keine Zahlen — nutze ausschließlich die Tool-Ergebnisse. Fehlen Daten,
-sage das explizit.
+Invent no numbers — use only the tool results. If data is missing,
+state that explicitly.
 """
 
 
 def build_monitoring_agent() -> LlmAgent:
-    """Erzeugt den Monitoring-LlmAgent."""
+    """Creates the Monitoring LlmAgent."""
     return LlmAgent(
         name="monitoring_agent",
         model=MONITORING_MODEL,
         description=(
-            "Überwacht eine laufende Bahnreise, liest Live-Daten und Störungen "
-            "und liefert eine Risiko-Einschätzung (NIEDRIG/MITTEL/HOCH)."
+            "Monitors a running train journey, reads live data and disruptions, "
+            "and delivers a risk assessment (LOW/MEDIUM/HIGH)."
         ),
         instruction=MONITORING_INSTRUCTION,
         tools=[get_live_trip_status, get_network_disruptions],

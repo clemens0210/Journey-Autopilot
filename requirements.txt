@@ -1,11 +1,33 @@
 # Google Agent Development Kit (2.x).
-# Version gepinnt, damit alle im Team dieselbe nutzen.
-# Aktuelle 2.x-Version ggf. auf https://pypi.org/project/google-adk/ prüfen
-# und hier anpassen.
+# Version pinned so everyone on the team uses the same one.
+# Check https://pypi.org/project/google-adk/ for current 2.x version
+# and update here if needed.
 #
-# [extensions] zieht LiteLLM mit rein — nötig für das Uni-Köln-GPT-Backend
-# (OpenAI-kompatibler Endpunkt).
+# [extensions] pulls in LiteLLM — required for the Uni-Cologne-GPT backend
+# (OpenAI-compatible endpoint).
 google-adk[extensions]>=2.0,<3.0
+
+# WhatsApp Connector
+twilio>=9.0,<10.0
+fastapi>=0.110,<1.0
+uvicorn>=0.29,<1.0
+google-genai>=1.0,<3.0
+python-dotenv>=1.0,<2.0
+azure-identity>=1.17,<2.0
+msgraph-sdk>=1.0,<2.0
+
+# Fahrgastrechte RAG / crawler
+chromadb>=1.5,<2.0
+sentence-transformers>=5.0,<6.0
+beautifulsoup4>=4.12,<5.0
+requests>=2.31,<3.0
+
+# google-adk 2.2.x currently caps OpenTelemetry at 1.41.1.
+# ChromaDB otherwise pulls the latest OpenTelemetry exporter stack, which can
+# upgrade opentelemetry-api/sdk beyond ADK's supported range.
+opentelemetry-api>=1.36,<=1.41.1
+opentelemetry-sdk>=1.36,<=1.41.1
+opentelemetry-exporter-otlp-proto-grpc>=1.36,<=1.41.1
 
 # HTTP-Client für den db-vendo-client-Sidecar (siehe db_service/ und db_api.py).
 requests>=2.31
