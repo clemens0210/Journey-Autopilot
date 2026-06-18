@@ -23,10 +23,8 @@ def main() -> None:
     first = journey["legs"][0]
     last = journey["legs"][-1]
     price = journey.get("price", {}).get("amount")
-    print(f"3) Verbindung: {first['departure']} -> {last['arrival']}"
-          f"  Preis: {price} EUR" if price else f"3) Verbindung: {first['departure']} -> {last['arrival']}")
-
-    print(result)
+    print(f"3) Verbindung: {first['departure']} -> {last['arrival']}")
+    print(f"  Preis: {price} EUR" if price else f"3) Verbindung: {first['departure']} -> {last['arrival']}")
     print("\nOK — DB-Anbindung funktioniert.")
 
 
