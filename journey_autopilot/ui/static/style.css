@@ -531,10 +531,17 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 10px;
   margin: 20px 0 9px;
 }
 .section-title h2 { margin: 0; font-size: 15.5px; }
 .section-title button { background: none; border: none; color: var(--blue); font-weight: 700; font-size: 12.5px; cursor: pointer; font-family: inherit; }
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 
 /* --- Trip chat ------------------------------------------------------------- */
 

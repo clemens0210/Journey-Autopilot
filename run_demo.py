@@ -67,6 +67,8 @@ USER_ID = "lucas"
 PROMPT = (
     f"Please monitor my trip with trip_id {DEMO_TRIP['trip_id']} "
     f"from {DEMO_TRIP['origin']} to {DEMO_TRIP['destination']} on 2026-06-19 "
+    f"(train {DEMO_TRIP['train']}, planned departure {DEMO_TRIP['planned_departure']}, "
+    f"planned arrival {DEMO_TRIP['planned_arrival']}) "
     "and tell me if I need to do anything."
 )
 

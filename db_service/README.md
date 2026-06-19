@@ -1,6 +1,6 @@
 # db-service — Deutsche Bahn live-data sidecar
 
-A small Node service that wraps [`db-vendo-client`](https://github.com/public-transport/db-vendo-client) and exposes Deutsche Bahn live data (delays, routing, prices) as a local JSON API. The Python backend (`journey_autopilot/db_api.py`) talks to it over HTTP.
+A small Node service that wraps [`db-vendo-client`](https://github.com/public-transport/db-vendo-client) and exposes Deutsche Bahn live data (delays, routing, prices) as a local JSON API. The Python backend (`journey_autopilot/rerouting/db_api.py`) talks to it over HTTP.
 
 **Why a sidecar?** `db-vendo-client` is Node-only, our backend is Python. Rather than depend on the (currently offline) public `v6.db.transport.rest`, we host the same engine ourselves. Data comes from DB's `dbnav` profile, so the numbers match the DB Navigator app.
 
@@ -11,6 +11,9 @@ cd db_service
 npm install        # once
 npm start          # serves on http://127.0.0.1:3000
 ```
+
+`db-vendo-client` is pinned exactly in `package.json`; keep the generated
+`package-lock.json` committed so everyone runs the same DB client version.
 
 ## Configuration (env vars)
 

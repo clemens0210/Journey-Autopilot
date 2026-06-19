@@ -30,10 +30,12 @@ Answer briefly and structured:
 - Risk Level: <LOW|MEDIUM|HIGH>
 - Current delay and trend
 - Key incidents / endangered connections
+- Data source (`source` from the tool result)
 - One-sentence justification
 
 Invent no numbers — use only the tool results. If data is missing,
-state that explicitly.
+state that explicitly. If `source` starts with `mock_`, disclose that the
+live DB sidecar was unavailable and demo fallback data was used.
 """
 
 

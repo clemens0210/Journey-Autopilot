@@ -130,9 +130,9 @@ python check_db.py              # health check + EVA resolution + one connection
 Endpoints and options are documented in `db_service/README.md`. The Python
 client is configured via `DB_API_URL` / `DB_API_TIMEOUT` in `.env`.
 
-> **Status:** The sidecar and Python client (`db_api.py`, `stations.py`) are
-> finished and independently testable. The agents currently still run on
-> `mock_data` — `tools.py` will be switched over to `db_api` in the next step.
+> **Status:** The sidecar is the live-first DB provider. Agent tools call it via
+> `journey_autopilot.rerouting.db_api` and fall back to mock data when the
+> sidecar is unavailable, so demos remain runnable offline.
 
 ### Historical delay reference (Risk Agent)
 
@@ -148,7 +148,7 @@ Rebuild/update (downloads Parquet from Hugging Face, additionally needs
 `pyarrow` and `huggingface_hub`):
 
 ```bash
-python scripts/build_db_delay_reference.py 2025-08 2025-09 2025-10
+python journey_autopilot/disruption_monitoring/build_db_delay_reference.py 2025-08 2025-09 2025-10
 ```
 
 > **License/attribution:** Data © Deutsche Bahn, provided by
@@ -218,7 +218,9 @@ predicted arrival (ETA), **before** the trip has started.
 ## Current State (Baseline)
 
 A first runnable foundation is implemented with **three specialist agents, an
-orchestrator, and a WhatsApp communication layer**. Data is deliberately mocked.
+orchestrator, and a WhatsApp communication layer**. DB routing/status data is
+live-first through the local sidecar with mock fallback; DB account login and
+ticket import remain simulated.
 
 - **Orchestrator** (`journey_autopilot/agent.py`, `root_agent`) — `LlmAgent`
   that wraps the specialists as `AgentTool` and decides in a ReAct loop
@@ -233,8 +235,8 @@ orchestrator, and a WhatsApp communication layer**. Data is deliberately mocked.
   approval queue (in-memory, 5-minute timeout).
 - **Webhook** (`whatsapp_communicator/webhook.py`) — FastAPI endpoint for
   YES / NO / EDIT replies.
-- **Tools & Mock Data** (`tools.py`, `mock_data.py`) — Function tools backed by
-  fixtures; the insertion points for real DB/calendar/RAG sources.
+- **Tools & Mock Data** (`tools.py`, `mock_data.py`) — Function tools with
+  live DB sidecar integration and fixture fallbacks for demo resilience.
 - **Model Configuration** (`config.py`) — a single place where the model is set
   per role; talks to the Uni-Cologne-GPT (OpenAI-compatible) via LiteLLM.
 

@@ -1,31 +1,151 @@
 """Function tools for the agents.
 
-In ADK, a typed Python function with a docstring is enough — the framework wraps
+In ADK, a typed Python function with a docstring is enough: the framework wraps
 it automatically into a FunctionTool and derives the parameter schema from the
-type hints + docstring. Therefore docstrings and types here are not decoration
+type hints and docstring. Therefore docstrings and types here are not decoration
 but part of the API that the LLM sees.
 
-All functions currently read from `mock_data` — they are the insertion points
-for real DB/calendar/RAG sources.
+DB-related functions are live-first via `rerouting.db_api` and fall back to
+`mock_data` when the sidecar is unavailable. Calendar and demo account data
+keep the same presentation-safe fallback pattern.
 """
 
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
+from typing import Any
 
 from .disruption_monitoring import delay_stats
 
-from .rerouting import db_api
+from .rerouting import db_api, stations
 
 from . import mock_data
-from .passenger_rights.rag_store import FahrgastrechteRAG
-from .passenger_rights.rights_service import calculate_compensation
-from .calendar import get_calendar_events
 
 
 def _calendar_configured() -> bool:
     """Return True if MS Entra credentials are present in the environment."""
     return bool(os.getenv("MS_ENTRA_CLIENT_ID"))
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    """Parse ISO timestamps from DB/mock data, tolerating trailing ``Z``."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _minutes_between(start: str | None, end: str | None) -> int | None:
+    start_dt = _parse_datetime(start)
+    end_dt = _parse_datetime(end)
+    if start_dt is None or end_dt is None:
+        return None
+    return round((end_dt - start_dt).total_seconds() / 60)
+
+
+def _find_trip_context(trip_id: str) -> dict | None:
+    """Find imported trip metadata for a tool call that only receives trip_id."""
+    try:
+        from journey_autopilot.onboarding import store
+
+        profile = store.any_profile()
+        if profile is not None:
+            for trip in store.get_trips(profile["user_id"]):
+                if trip.get("trip_id") == trip_id:
+                    return trip
+    except Exception:
+        pass
+
+    if mock_data.DEMO_TRIP.get("trip_id") == trip_id:
+        return mock_data.DEMO_TRIP
+    if trip_id in mock_data.LIVE_TRIP_STATUS:
+        return mock_data.DEMO_TRIP
+    return None
+
+
+def _journey_for_trip(trip: dict) -> dict | None:
+    origin = trip.get("origin")
+    destination = trip.get("destination")
+    if not origin or not destination:
+        return None
+    from_eva = stations.resolve_eva(origin)
+    to_eva = stations.resolve_eva(destination)
+    if from_eva is None or to_eva is None:
+        raise db_api.DBServiceError(
+            f"Station not resolvable (origin={origin!r}, destination={destination!r})."
+        )
+    payload = db_api.journeys(
+        from_eva,
+        to_eva,
+        departure=trip.get("planned_departure"),
+        results=5,
+        tickets=True,
+    )
+    options = db_api.normalize_journeys(payload)
+    train = str(trip.get("train") or "")
+    for option in options:
+        if train and train in option.get("trains", []):
+            return option
+    return options[0] if options else None
+
+
+def _trip_position(option: dict) -> str | None:
+    for leg in option.get("legs") or []:
+        delay = leg.get("arrival_delay_minutes")
+        if delay and delay > 0:
+            origin = leg.get("origin") or "unknown origin"
+            destination = leg.get("destination") or "unknown destination"
+            return f"between {origin} and {destination}"
+    return None
+
+
+def _region_anchor(region: str) -> str | None:
+    anchors = {
+        "bavaria": "Munich Hbf",
+        "bayern": "Munich Hbf",
+        "berlin": "Berlin Hbf",
+        "nrw": "Cologne Hbf",
+        "north rhine-westphalia": "Cologne Hbf",
+        "hessen": "Frankfurt (Main) Hbf",
+        "hamburg": "Hamburg Hbf",
+    }
+    return anchors.get(region.lower())
+
+
+def _board_warnings(board: Any) -> list[dict]:
+    entries = []
+    if isinstance(board, dict):
+        entries = board.get("departures") or board.get("arrivals") or []
+    elif isinstance(board, list):
+        entries = board
+
+    disruptions: list[dict] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        line = (entry.get("line") or {}).get("name") or entry.get("direction") or "DB"
+        for remark in entry.get("remarks") or []:
+            if not isinstance(remark, dict):
+                continue
+            if remark.get("type") not in ("status", "warning"):
+                continue
+            text = (remark.get("summary") or remark.get("text") or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            disruptions.append(
+                {
+                    "line": line,
+                    "type": text,
+                    "severity": "unknown",
+                    "expected_resolution": None,
+                }
+            )
+    return disruptions[:5]
 
 
 # --- Monitoring tools ---------------------------------------------------------
@@ -39,12 +159,62 @@ def get_live_trip_status(trip_id: str) -> dict:
 
     Returns:
         A dict with current delay, trend, position, known incidents,
-        and connection risk. Contains "error" if the trip is unknown.
+        connection risk, and ``source``. Contains "error" only if neither live
+        data nor the demo fallback knows the trip.
     """
+    trip = _find_trip_context(trip_id)
+    if trip is not None:
+        try:
+            option = _journey_for_trip(trip)
+            if option:
+                delay = option.get("arrival_delay_minutes")
+                if delay is None:
+                    delay = option.get("departure_delay_minutes") or 0
+                delay_int = round(delay)
+                incidents = [
+                    {"type": text, "location": trip.get("destination"), "impact": "DB live remark"}
+                    for text in option.get("remarks") or []
+                ]
+                if option.get("platform_changes"):
+                    incidents.extend(
+                        {
+                            "type": "Platform change",
+                            "location": change.get("train"),
+                            "impact": (
+                                f"Platform {change.get('planned_platform')} -> "
+                                f"{change.get('platform')}"
+                            ),
+                        }
+                        for change in option["platform_changes"]
+                    )
+                return {
+                    "trip_id": trip_id,
+                    "train": option.get("train") or trip.get("train"),
+                    "current_delay_minutes": delay_int,
+                    "trend": "unknown",
+                    "current_position": _trip_position(option),
+                    "incidents": incidents,
+                    "connection_risk": (
+                        "Arrival delay may affect onward plans."
+                        if delay_int >= 15
+                        else "No elevated connection risk visible from DB live data."
+                    ),
+                    "planned_departure": option.get("planned_departure") or trip.get("planned_departure"),
+                    "planned_arrival": option.get("planned_arrival") or trip.get("planned_arrival"),
+                    "estimated_arrival": option.get("arrival") or option.get("planned_arrival"),
+                    "platform_changes": option.get("platform_changes", []),
+                    "data_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "source": "db_service_live",
+                }
+        except db_api.DBServiceError:
+            pass
+        except Exception:
+            pass
+
     status = mock_data.LIVE_TRIP_STATUS.get(trip_id)
-    if status is None:
-        return {"error": f"No live data found for trip_id '{trip_id}'."}
-    return status
+    if status is not None:
+        return {**status, "source": "mock_live_status"}
+    return {"trip_id": trip_id, "source": "none", "error": f"No trip data found for trip_id '{trip_id}'."}
 
 
 def get_network_disruptions(region: str) -> dict:
@@ -54,28 +224,121 @@ def get_network_disruptions(region: str) -> dict:
         region: Region in lowercase, e.g. "bavaria" or "berlin".
 
     Returns:
-        A dict with the list of active disruptions for the region.
+        A dict with the list of active disruptions for the region and ``source``.
     """
+    anchor = _region_anchor(region)
+    if anchor:
+        try:
+            eva = stations.resolve_eva(anchor)
+            if eva:
+                disruptions = _board_warnings(db_api.departures(eva, duration=60, results=80))
+                if disruptions:
+                    return {
+                        "region": region,
+                        "anchor_station": anchor,
+                        "disruptions": disruptions,
+                        "source": "db_service_live",
+                    }
+        except db_api.DBServiceError:
+            pass
+        except Exception:
+            pass
+
     disruptions = mock_data.NETWORK_DISRUPTIONS.get(region.lower(), [])
-    return {"region": region, "disruptions": disruptions}
+    return {"region": region, "disruptions": disruptions, "source": "mock_region"}
 
 
 # --- Planner tools ------------------------------------------------------------
 
 
-def find_reroute_options(origin: str, destination: str) -> dict:
+def find_reroute_options(
+    origin: str,
+    destination: str,
+    departure: str = "",
+    original_arrival: str = "",
+    max_results: int = 5,
+) -> dict:
     """Finds alternative connections (reroute options) between two stations.
 
     Args:
         origin: Departure station, e.g. "Munich Hbf".
         destination: Destination station, e.g. "Berlin Hbf".
+        departure: Optional planned departure time (ISO "YYYY-MM-DDTHH:MM:SS").
+        original_arrival: Optional original planned arrival time, used to
+            compute added delay.
+        max_results: Maximum number of live options to return.
 
     Returns:
         A dict with the list of possible reroutes including new arrival time,
-        number of transfers, and added delay.
+        number of transfers, added delay, price if available, and ``source``.
     """
+    try:
+        from_eva = stations.resolve_eva(origin)
+        to_eva = stations.resolve_eva(destination)
+        if from_eva is None or to_eva is None:
+            raise db_api.DBServiceError(
+                f"Station not resolvable (origin={origin!r}, destination={destination!r})."
+            )
+        payload = db_api.journeys(
+            from_eva,
+            to_eva,
+            departure=departure or None,
+            results=max_results,
+            tickets=True,
+        )
+        live_options = []
+        for option in db_api.normalize_journeys(payload)[:max_results]:
+            arrival = option.get("arrival") or option.get("planned_arrival")
+            added_delay = _minutes_between(original_arrival, arrival)
+            if added_delay is None:
+                added_delay = option.get("arrival_delay_minutes") or 0
+            comfort_parts = []
+            if option.get("price_eur") is not None:
+                comfort_parts.append(f"Price: {option['price_eur']} EUR")
+            if option.get("platform_changes"):
+                comfort_parts.append("Platform change reported")
+            live_options.append(
+                {
+                    "option_id": option.get("option_id"),
+                    "description": option.get("description"),
+                    "departure": option.get("departure") or option.get("planned_departure"),
+                    "new_arrival": arrival,
+                    "transfers": option.get("transfers", 0),
+                    "added_delay_minutes": round(added_delay),
+                    "comfort": "; ".join(comfort_parts) or "Live DB connection",
+                    "price_eur": option.get("price_eur"),
+                    "trains": option.get("trains", []),
+                    "remarks": option.get("remarks", []),
+                    "source": "db_service_live",
+                }
+            )
+        if live_options:
+            return {
+                "origin": origin,
+                "destination": destination,
+                "options": live_options,
+                "source": "db_service_live",
+            }
+    except db_api.DBServiceError:
+        pass
+    except Exception:
+        pass
+
     options = mock_data.REROUTE_OPTIONS.get((origin, destination), [])
-    return {"origin": origin, "destination": destination, "options": options}
+    if options:
+        return {
+            "origin": origin,
+            "destination": destination,
+            "options": [{**option, "source": "mock_reroute_options"} for option in options],
+            "source": "mock_reroute_options",
+        }
+    return {
+        "origin": origin,
+        "destination": destination,
+        "options": [],
+        "source": "none",
+        "error": "No reroute options available for this route.",
+    }
 
 
 async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
@@ -104,6 +367,8 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
 
     if _calendar_configured():
         try:
+            from .calendar import get_calendar_events
+
             events = await get_calendar_events(date, user_email)
             return {"date": date, "events": events, "source": "outlook"}
         except Exception as exc:
@@ -185,6 +450,8 @@ def get_passenger_rights(
     Returns:
         Dict with calculated compensation claim and legal context.
     """
+    from .passenger_rights.rights_service import calculate_compensation
+
     # 1. Deterministic calculation — no LLM, no network
     compensation = calculate_compensation(
         delay_minutes=delay_minutes,
@@ -196,6 +463,8 @@ def get_passenger_rights(
 
     # 2. RAG context for the agent — semantically matching chunks
     try:
+        from .passenger_rights.rag_store import FahrgastrechteRAG
+
         rag = getattr(get_passenger_rights, "_rag", None)
         if rag is None:
             rag = FahrgastrechteRAG()

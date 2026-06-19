@@ -71,6 +71,12 @@ def _seed_prompt(trip: dict | None, message: str) -> str:
         f"{trip.get('trip_id')}, from {trip.get('origin')} to "
         f"{trip.get('destination')}"
     )
+    if trip.get("train"):
+        context += f", train {trip.get('train')}"
+    if trip.get("planned_departure"):
+        context += f", planned departure {trip.get('planned_departure')}"
+    if trip.get("planned_arrival"):
+        context += f", planned arrival {trip.get('planned_arrival')}"
     if when:
         context += f" on {when}"
     context += "."

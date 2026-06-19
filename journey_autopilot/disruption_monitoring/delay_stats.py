@@ -38,8 +38,8 @@ from ..rerouting import stations
 _LONG_DISTANCE = {"ICE", "IC", "EC", "ECE", "RJ", "RJX", "TGV", "NJ", "EN"}
 
 # Historical delay reference (pre-built from piebro/deutsche-bahn-data,
-# see scripts/build_db_delay_reference.py). Ships as compact JSON in the package.
-_REFERENCE_PATH = Path(__file__).resolve().parent / "data" / "db_delay_reference.json"
+# see build_db_delay_reference.py in this package). Ships as compact JSON in the package.
+_REFERENCE_PATH = Path(__file__).resolve().parent.parent / "data" / "db_delay_reference.json"
 
 # Thresholds (in minutes) for the derived rates.
 _PUNCTUAL_MAX_MINUTES = 5      # up to 5 min counts as punctual (DB convention < 6 min)

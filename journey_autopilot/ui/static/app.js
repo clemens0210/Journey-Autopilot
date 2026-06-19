@@ -152,6 +152,43 @@ function setProgress(step) {
   }
 }
 
+function setupHomeStationAutocomplete(home) {
+  const input = $("#home-station");
+  const sugBox = $("#station-suggestions");
+  if (!input || !sugBox) return;
+
+  let selected = home.home_station || null;
+  let debounce = null;
+
+  input.addEventListener("input", () => {
+    selected = null;
+    clearTimeout(debounce);
+    debounce = setTimeout(async () => {
+      const q = input.value.trim();
+      sugBox.innerHTML = "";
+      if (q.length < 2) return;
+      const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
+      if (!data.stations.length) return;
+      const list = document.createElement("div");
+      list.className = "suggestions";
+      data.stations.forEach((s) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = data.source === "db-live" ? `🟢 ${s.name}` : s.name;
+        b.addEventListener("click", () => {
+          selected = s;
+          input.value = s.name;
+          sugBox.innerHTML = "";
+        });
+        list.appendChild(b);
+      });
+      sugBox.replaceChildren(list);
+    }, 250);
+  });
+
+  screen._getHomeStation = () => selected || (input.value.trim() ? { id: null, name: input.value.trim() } : null);
+}
+
 function updateTopbarAccount() {
   const node = $("#topbar-account");
   if (state.account) {
@@ -355,6 +392,7 @@ const renderers = {
   // -- 5: Travel preferences ---------------------------------------------------------------
   preferences() {
     const p = state.profile.preferences;
+    const h = state.profile.home;
     screen.replaceChildren(el(`
       <div class="card">
         <h2>Your travel preferences</h2>
@@ -401,6 +439,32 @@ const renderers = {
           <button type="button" class="choice" data-value="9"><span class="choice-title">No preference</span></button>
         </div>
       </div>
+      ${state.editReturn ? `
+        <div class="card">
+          <h2>Home &amp; hard limits</h2>
+          <label class="field">Home station
+            <span class="hint">Search uses live DB data once db_service is running</span>
+            <span class="autocomplete">
+              <input type="text" id="home-station" placeholder="e.g. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
+              <span id="station-suggestions"></span>
+            </span>
+          </label>
+
+          <label class="field">Latest arrival home
+            <span class="hint">After this, the autopilot prefers to suggest a hotel</span>
+            <input type="time" id="latest-arrival" value="${h.latest_arrival_home}">
+          </label>
+
+          <div class="switch-row">
+            <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
+            <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
+          </div>
+          <div class="switch-row">
+            <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
+            <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+          </div>
+        </div>
+      ` : ""}
     `));
     setNav({ back: true, next: state.editReturn ? "Save" : "Next" });
 
@@ -427,6 +491,7 @@ const renderers = {
     };
     $("#speed-comfort").addEventListener("input", sliderLabel);
     sliderLabel();
+    if (state.editReturn) setupHomeStationAutocomplete(h);
   },
 
   // -- 6: Home & constraints --------------------------------------------------------------
@@ -462,40 +527,7 @@ const renderers = {
     `));
     setNav({ back: true, next: state.editReturn ? "Save" : "Next" });
 
-    // Autocomplete against /api/stations (live sidecar with fallback)
-    const input = $("#home-station");
-    const sugBox = $("#station-suggestions");
-    let selected = h.home_station || null;
-    let debounce = null;
-
-    input.addEventListener("input", () => {
-      selected = null;
-      clearTimeout(debounce);
-      debounce = setTimeout(async () => {
-        const q = input.value.trim();
-        sugBox.innerHTML = "";
-        if (q.length < 2) return;
-        const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
-        if (!data.stations.length) return;
-        const list = document.createElement("div");
-        list.className = "suggestions";
-        data.stations.forEach((s) => {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.textContent = data.source === "db-live" ? `🟢 ${s.name}` : s.name;
-          b.addEventListener("click", () => {
-            selected = s;
-            input.value = s.name;
-            sugBox.innerHTML = "";
-          });
-          list.appendChild(b);
-        });
-        sugBox.replaceChildren(list);
-      }, 250);
-    });
-
-    // Remember the selection for when Next is clicked
-    screen._getHomeStation = () => selected || (input.value.trim() ? { id: null, name: input.value.trim() } : null);
+    setupHomeStationAutocomplete(h);
   },
 
   // -- 7: Notifications & autonomy ----------------------------------------------------------
@@ -603,7 +635,13 @@ const renderers = {
       <div class="section-title"><h2>Monitored trips</h2></div>
       ${cards || '<div class="card"><p class="muted">No trips imported.</p></div>'}
 
-      <div class="section-title"><h2>Your profile</h2><button id="edit-prefs" type="button">Edit</button></div>
+      <div class="section-title">
+        <h2>Your profile</h2>
+        <div class="section-actions">
+          <button id="edit-home" type="button">Edit home station</button>
+          <button id="edit-prefs" type="button">Edit profile</button>
+        </div>
+      </div>
       <div class="card" style="padding: 12px 16px">
         <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
         <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
@@ -633,6 +671,7 @@ const renderers = {
       cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
     });
 
+    $("#edit-home").addEventListener("click", () => { state.editReturn = true; go("home"); });
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = true; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = true; go("phone"); });
     $("#delete-profile").addEventListener("click", async () => {
@@ -763,7 +802,7 @@ async function persistCurrentStep() {
   switch (state.step) {
     case "preferences": {
       const groupVal = (g) => screen.querySelector(`[data-group="${g}"] .choice.selected`)?.dataset.value;
-      await saveProfile({
+      const patch = {
         preferences: {
           travel_class: Number(groupVal("travel_class")),
           seat_location: groupVal("seat_location"),
@@ -772,7 +811,16 @@ async function persistCurrentStep() {
           speed_vs_comfort: Number($("#speed-comfort").value),
           max_transfers: Number(groupVal("max_transfers")),
         },
-      });
+      };
+      if ($("#home-station")) {
+        patch.home = {
+          home_station: screen._getHomeStation(),
+          latest_arrival_home: $("#latest-arrival").value,
+          hotel_ok: $("#hotel-ok").checked,
+          taxi_ok: $("#taxi-ok").checked,
+        };
+      }
+      await saveProfile(patch);
       break;
     }
     case "home":

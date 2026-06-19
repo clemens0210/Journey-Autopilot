@@ -22,12 +22,10 @@ stations without it.
 
 from __future__ import annotations
 
-import os
 import re
 import secrets
 import random
 
-import requests
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -37,13 +35,12 @@ from pydantic import BaseModel
 # Onboarding logic ("the functions") lives in a separate package; the UI only
 # imports it. The chat module is local to this UI package.
 from journey_autopilot.onboarding import accounts, store
+from journey_autopilot.rerouting import db_api
 from . import chat
 
 app = FastAPI(title="Journey Autopilot — Web App", version="0.1.0")
 
 _STATIC = Path(__file__).resolve().parent / "static"
-
-DB_API_URL = os.getenv("DB_API_URL", "http://127.0.0.1:3000").rstrip("/")
 
 # In-memory sessions: token -> user_id. Deliberately without persistence for
 # the single-user prototype; a restart simply means "log in again".
@@ -231,17 +228,12 @@ def stations(query: str = "") -> dict:
     if len(query) < 2:
         return {"stations": [], "source": "none"}
     try:
-        resp = requests.get(
-            f"{DB_API_URL}/locations", params={"query": query, "results": 6}, timeout=4
-        )
-        resp.raise_for_status()
         hits = [
-            {"id": str(item["id"]), "name": item["name"]}
-            for item in resp.json()
-            if item.get("type") in ("stop", "station") and item.get("id")
+            {"id": item["id"], "name": item["name"]}
+            for item in db_api.normalize_locations(db_api.locations(query, results=6))
         ]
         return {"stations": hits, "source": "db-live"}
-    except requests.RequestException:
+    except db_api.DBServiceError:
         needle = query.lower()
         hits = [s for s in accounts.FALLBACK_STATIONS if needle in s["name"].lower()]
         return {"stations": hits[:6], "source": "fallback"}

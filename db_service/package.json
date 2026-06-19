@@ -9,7 +9,7 @@
     "start": "node index.mjs"
   },
   "dependencies": {
-    "db-vendo-client": "^6.10.11",
+    "db-vendo-client": "6.10.11",
     "fastify": "^5.2.0"
   }
 }
