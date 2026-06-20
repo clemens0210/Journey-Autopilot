@@ -19,7 +19,7 @@ const state = {
   trips: [],
   outlookEvents: [],
   step: "welcome",
-  editReturn: false, // true = we came from the dashboard ("Edit")
+  editReturn: null, // "dashboard" / "profile" = return target after editing
   phone: { sent: false, verifiedThisSession: false },
   chat: null, // { sessionId, trip, messages: [...], busy } when a trip chat is open
 };
@@ -197,6 +197,12 @@ function updateTopbarAccount() {
   } else {
     node.hidden = true;
   }
+}
+
+function setActiveTab(tab) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+  const el = tab === "trips" ? $("#tab-trips") : tab === "profile" ? $("#tab-profile") : null;
+  if (el) el.classList.add("active");
 }
 
 // ---------------------------------------------------------------------------
@@ -665,20 +671,122 @@ const renderers = {
     $("#navbar").hidden = true;
     $("#progress").hidden = true;
     $("#tabbar").hidden = false; // mock tab bar of the DB Navigator
+    setActiveTab("trips");
 
     // Clicking a monitored trip opens the chat that runs the orchestrator demo.
     screen.querySelectorAll(".trip-card.clickable").forEach((cardEl) => {
       cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
     });
 
-    $("#edit-home").addEventListener("click", () => { state.editReturn = true; go("home"); });
-    $("#edit-prefs").addEventListener("click", () => { state.editReturn = true; go("preferences"); });
-    $("#edit-connections").addEventListener("click", () => { state.editReturn = true; go("phone"); });
+    $("#edit-home").addEventListener("click", () => { state.editReturn = "dashboard"; go("home"); });
+    $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
+    $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("phone"); });
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: false });
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
+      updateTopbarAccount();
+      toast("All data deleted. See you soon!");
+      go("welcome");
+    });
+  },
+
+  // -- Profile (reachable via the Profile tab in the bottom tab bar) ---------------
+  profile() {
+    const p = state.profile;
+    const pref = p.preferences;
+    const h = p.home;
+
+    screen.replaceChildren(el(`
+      <div class="dash-greeting">
+        <h1>Profile</h1>
+      </div>
+
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Name</span><span class="v">${state.account.display_name}</span></div>
+        <div class="summary-row"><span class="k">Email</span><span class="v">${state.account.email}</span></div>
+        <div class="summary-row"><span class="k">BahnCard</span><span class="v">${state.account.bahncard}</span></div>
+        <div class="summary-row"><span class="k">BahnBonus</span><span class="v">${state.account.bahnbonus_status} · ${state.account.bahnbonus_points.toLocaleString("en-US")} points</span></div>
+      </div>
+
+      <div class="section-title"><h2>Home station</h2></div>
+      <div class="card">
+        <label class="field">Home station
+          <span class="hint">Search uses live DB data once db_service is running</span>
+          <span class="autocomplete">
+            <input type="text" id="home-station" placeholder="e.g. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
+            <span id="station-suggestions"></span>
+          </span>
+        </label>
+
+        <label class="field">Latest arrival home
+          <span class="hint">After this, the autopilot prefers to suggest a hotel</span>
+          <input type="time" id="latest-arrival" value="${h.latest_arrival_home}">
+        </label>
+
+        <div class="switch-row">
+          <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
+          <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
+          <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
+      </div>
+
+      <div class="section-title"><h2>Travel preferences</h2><button id="edit-prefs" type="button">Edit</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
+        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
+        <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
+        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
+      </div>
+
+      <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
+        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
+        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ connected" : "not connected"}</span></div>
+      </div>
+
+      <div class="card">
+        <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
+        <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
+      </div>
+    `));
+
+    $("#navbar").hidden = true;
+    $("#progress").hidden = true;
+    $("#tabbar").hidden = false;
+    setActiveTab("profile");
+
+    setupHomeStationAutocomplete(h);
+
+    $("#save-home").addEventListener("click", async () => {
+      try {
+        await saveProfile({
+          home: {
+            home_station: screen._getHomeStation(),
+            latest_arrival_home: $("#latest-arrival").value,
+            hotel_ok: $("#hotel-ok").checked,
+            taxi_ok: $("#taxi-ok").checked,
+          },
+        });
+        toast("✓ Home settings saved");
+      } catch (err) {
+        toast(`⚠️ ${err.message}`);
+      }
+    });
+
+    $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
+    $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("phone"); });
+    $("#delete-profile").addEventListener("click", async () => {
+      if (!confirm("Really delete all data? This cannot be undone.")) return;
+      await api("/api/profile", { method: "DELETE" });
+      sessionStorage.removeItem("ja_token");
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -877,16 +985,17 @@ async function next() {
     return;
   }
   if (state.editReturn) {
-    state.editReturn = false;
+    const ret = state.editReturn;
+    state.editReturn = null;
     toast("✓ Saved");
-    go("dashboard");
+    go(ret);
     return;
   }
   go(STEPS[STEPS.indexOf(state.step) + 1]);
 }
 
 function back() {
-  if (state.editReturn) { state.editReturn = false; go("dashboard"); return; }
+  if (state.editReturn) { const ret = state.editReturn; state.editReturn = null; go(ret); return; }
   const idx = STEPS.indexOf(state.step);
   // From the phone step back to the trip overview, not to login
   go(STEPS[Math.max(0, idx - 1)]);
@@ -899,7 +1008,7 @@ function back() {
 $("#btn-next").addEventListener("click", next);
 $("#btn-back").addEventListener("click", back);
 $("#btn-skip").addEventListener("click", () => {
-  if (state.editReturn) { state.editReturn = false; go("dashboard"); return; }
+  if (state.editReturn) { const ret = state.editReturn; state.editReturn = null; go(ret); return; }
   go(STEPS[STEPS.indexOf(state.step) + 1]);
 });
 
@@ -916,6 +1025,10 @@ $("#ms-accept").addEventListener("click", async () => {
     toast(`⚠️ ${err.message}`);
   }
 });
+
+// Tab bar: Trips ↔ Profile navigation
+$("#tab-trips").addEventListener("click", () => go("dashboard"));
+$("#tab-profile").addEventListener("click", () => go("profile"));
 
 async function boot() {
   if (state.token) {
