@@ -28,6 +28,23 @@ def _calendar_configured() -> bool:
     return bool(os.getenv("MS_ENTRA_CLIENT_ID"))
 
 
+def _outlook_connected() -> bool:
+    """Return True if the user connected Outlook during onboarding.
+
+    Checks ``profile.connections.outlook`` in the onboarding store. This
+    prevents the agent from triggering a blocking device-code flow when
+    the user skipped Outlook — the token cache is only populated after a
+    successful web-based device-code login.
+    """
+    try:
+        from journey_autopilot.onboarding import store
+
+        profile = store.any_profile()
+        return bool(profile and profile.get("connections", {}).get("outlook"))
+    except Exception:
+        return False
+
+
 def _parse_datetime(value: str | None) -> datetime | None:
     """Parse ISO timestamps from DB/mock data, tolerating trailing ``Z``."""
     if not value:
@@ -347,8 +364,11 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     Needed to check hard deadlines (e.g. an on-site meeting) against
     reroute options.
 
-    Uses Outlook/Microsoft Graph when Entra credentials are present in .env
-    (MS_ENTRA_CLIENT_ID, MS_ENTRA_TENANT_ID). Without configuration,
+    Uses Outlook/Microsoft Graph **only when both** Entra credentials are
+    present in .env (MS_ENTRA_CLIENT_ID, MS_ENTRA_TENANT_ID) **and** the user
+    has connected Outlook during onboarding (``profile.connections.outlook``).
+    This prevents the agent from triggering a blocking device-code flow
+    mid-chat when the user skipped Outlook. Without a connected Outlook,
     falls back to mock data.
 
     Args:
@@ -365,7 +385,7 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     """
     mock_events = mock_data.USER_CALENDAR.get(date, [])
 
-    if _calendar_configured():
+    if _calendar_configured() and _outlook_connected():
         try:
             from .calendar import get_calendar_events
 

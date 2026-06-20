@@ -23,3 +23,7 @@ db_service/package-lock.json
 
 data/chromadb/
 journey_autopilot/data/chromadb/
+
+# MS Entra / MSAL persistent token cache (created by azure-identity)
+data/msal_token_cache.bin
+.IdentityService/

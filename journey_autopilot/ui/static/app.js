@@ -374,7 +374,8 @@ const renderers = {
           <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
         ` : `
           <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> Microsoft login is simulated — sample events will be loaded.</div>
+          <div id="outlook-device-flow"></div>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
         `}
       </div>
     `));
@@ -388,10 +389,7 @@ const renderers = {
         renderers.outlook();
       });
     } else {
-      $("#outlook-connect").addEventListener("click", () => {
-        $("#ms-mail").textContent = state.account.email;
-        $("#ms-modal").hidden = false;
-      });
+      $("#outlook-connect").addEventListener("click", () => startOutlookConnect());
     }
   },
 
@@ -644,7 +642,6 @@ const renderers = {
       <div class="section-title">
         <h2>Your profile</h2>
         <div class="section-actions">
-          <button id="edit-home" type="button">Edit home station</button>
           <button id="edit-prefs" type="button">Edit profile</button>
         </div>
       </div>
@@ -678,9 +675,8 @@ const renderers = {
       cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
     });
 
-    $("#edit-home").addEventListener("click", () => { state.editReturn = "dashboard"; go("home"); });
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
-    $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("phone"); });
+    $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
@@ -781,7 +777,7 @@ const renderers = {
     });
 
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
-    $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("phone"); });
+    $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("connections"); });
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
@@ -791,6 +787,120 @@ const renderers = {
       toast("All data deleted. See you soon!");
       go("welcome");
     });
+  },
+
+  // -- Connections (reachable via "Manage" on the profile/dashboard) ---------------
+  connections() {
+    const phoneVerified = state.profile?.notifications?.phone_verified;
+    const outlookConnected = state.profile?.connections?.outlook;
+    const events = state.outlookEvents.map((e) => `
+      <div class="event-row">
+        <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
+        <span><span class="event-title">${e.title}</span>
+          <span class="event-loc">${e.location}</span>
+          ${e.hard_constraint ? '<span class="event-hard">Hard deadline</span>' : ""}
+        </span>
+      </div>
+    `).join("");
+
+    screen.replaceChildren(el(`
+      <div class="dash-greeting">
+        <h1>Connections</h1>
+        <p class="muted">Manage your linked accounts and notification channels.</p>
+      </div>
+
+      <div class="section-title"><h2>Phone number</h2></div>
+      <div class="card">
+        ${phoneVerified ? `
+          <div class="success-banner">✓ ${state.profile.notifications.phone} is confirmed</div>
+          <p class="muted" style="margin-top:10px">To change your number, disconnect first and re-verify.</p>
+          <button class="btn danger block" id="phone-disconnect" type="button">Remove number</button>
+        ` : `
+          <p class="muted">With a confirmed number we can reach you with alerts and replanning suggestions via SMS/WhatsApp — even when the app is closed.</p>
+          <label class="field">Phone number
+            <input type="tel" id="phone-input" placeholder="+49 151 12345678" autocomplete="tel" value="${state.profile?.notifications?.phone || ""}">
+          </label>
+          <button class="btn primary block" id="phone-send" type="button">Send code</button>
+          <div id="phone-confirm-area" hidden>
+            <label class="field" style="margin-top:16px">Confirmation code
+              <input type="text" id="phone-code" class="code-input" inputmode="numeric" maxlength="4" placeholder="····">
+            </label>
+            <button class="btn primary block" id="phone-verify" type="button">Confirm</button>
+          </div>
+          <p class="error" id="phone-error"></p>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> No real SMS is sent — the code is shown as a notification.</div>
+        `}
+      </div>
+
+      <div class="section-title"><h2>Outlook calendar</h2></div>
+      <div class="card">
+        <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
+        ${outlookConnected ? `
+          <div class="success-banner">✓ Outlook calendar connected</div>
+          ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
+          <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
+        ` : `
+          <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
+          <div id="outlook-device-flow"></div>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
+        `}
+      </div>
+    `));
+
+    $("#navbar").hidden = true;
+    $("#progress").hidden = true;
+    $("#tabbar").hidden = false;
+    setActiveTab("profile");
+
+    // --- Phone handlers ---
+    if (phoneVerified) {
+      $("#phone-disconnect").addEventListener("click", async () => {
+        const data = await api("/api/verify/phone", { method: "DELETE" });
+        state.profile = data.profile;
+        toast("Phone number removed");
+        renderers.connections();
+      });
+    } else {
+      $("#phone-send").addEventListener("click", async () => {
+        $("#phone-error").textContent = "";
+        try {
+          const data = await api("/api/verify/phone/start", {
+            method: "POST", body: { phone: $("#phone-input").value },
+          });
+          $("#phone-confirm-area").hidden = false;
+          $("#phone-code").focus();
+          toast(`📱 SMS to ${data.phone} (demo): your code is ${data.demo_code}`, 10000);
+        } catch (err) {
+          $("#phone-error").textContent = err.message;
+        }
+      });
+
+      $("#phone-verify").addEventListener("click", async () => {
+        $("#phone-error").textContent = "";
+        try {
+          const data = await api("/api/verify/phone/confirm", {
+            method: "POST", body: { code: $("#phone-code").value },
+          });
+          state.profile = data.profile;
+          toast("✓ Number confirmed");
+          renderers.connections();
+        } catch (err) {
+          $("#phone-error").textContent = err.message;
+        }
+      });
+    }
+
+    // --- Outlook handlers ---
+    if (outlookConnected) {
+      $("#outlook-disconnect").addEventListener("click", async () => {
+        const data = await api("/api/connect/outlook", { method: "DELETE" });
+        state.profile = data.profile;
+        state.outlookEvents = [];
+        renderers.connections();
+      });
+    } else {
+      $("#outlook-connect").addEventListener("click", () => startOutlookConnect());
+    }
   },
 
   // -- Trip chat: runs the ReAct orchestrator (the run_demo.py flow) ------------
@@ -900,6 +1010,96 @@ async function onChatSubmit(ev) {
       if ($("#chat-text")) $("#chat-text").focus();
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Outlook device-code flow: real MS Entra auth in the browser
+// ---------------------------------------------------------------------------
+
+async function startOutlookConnect() {
+  const btn = $("#outlook-connect");
+  if (btn) btn.disabled = true;
+  const container = $("#outlook-device-flow");
+  if (container) container.innerHTML = '<div class="device-waiting"><span class="spinner"></span>Starting sign-in…</div>';
+
+  try {
+    const data = await api("/api/connect/outlook/start", { method: "POST" });
+    if (data.mode === "simulated") {
+      // No Entra app configured → fall back to the simulated consent dialog
+      if (btn) btn.disabled = false;
+      if (container) container.innerHTML = "";
+      $("#ms-mail").textContent = state.account.email;
+      $("#ms-modal").hidden = false;
+      return;
+    }
+    // Real device-code flow — show code + link, then poll for completion
+    if (data.pending || !data.user_code) {
+      // prompt_callback didn't fire in time — retry
+      if (container) container.innerHTML = '<p class="device-error">Could not start sign-in. Please try again.</p>';
+      if (btn) btn.disabled = false;
+      return;
+    }
+    renderDeviceCodeScreen(data, container);
+    pollOutlookStatus(container);
+  } catch (err) {
+    if (container) container.innerHTML = `<p class="device-error">⚠️ ${err.message}</p>`;
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderDeviceCodeScreen(data, container) {
+  container.innerHTML = `
+    <div class="device-code-box">
+      <div class="device-code-label">Enter this code at Microsoft</div>
+      <div class="device-code-value">${data.user_code}</div>
+      <button class="device-code-copy" id="dc-copy" type="button">Copy code</button>
+    </div>
+    <a class="device-link" href="${data.verification_uri}" target="_blank" rel="noopener">Open Microsoft sign-in ↗</a>
+    <div class="device-waiting"><span class="spinner"></span>Waiting for you to sign in…</div>
+  `;
+  $("#dc-copy").addEventListener("click", () => {
+    navigator.clipboard.writeText(data.user_code).then(() => {
+      $("#dc-copy").textContent = "Copied ✓";
+      setTimeout(() => { const c = $("#dc-copy"); if (c) c.textContent = "Copy code"; }, 2000);
+    }).catch(() => {});
+  });
+}
+
+let outlookPollTimer = null;
+
+async function pollOutlookStatus(container) {
+  clearTimeout(outlookPollTimer);
+  const poll = async () => {
+    try {
+      const data = await api("/api/connect/outlook/status");
+      if (data.status === "complete") {
+        state.profile = data.profile;
+        state.outlookEvents = data.events || [];
+        toast(`✓ Outlook connected — ${(data.events || []).length} events detected`);
+        renderers[state.step]?.();
+        return;
+      }
+      if (data.status === "expired") {
+        container.innerHTML = '<p class="device-error">The code expired. <button class="device-code-copy" id="dc-retry" type="button" style="margin-left:8px">Try again</button></p>';
+        const retry = $("#dc-retry");
+        if (retry) retry.addEventListener("click", () => startOutlookConnect());
+        return;
+      }
+      if (data.status === "error") {
+        container.innerHTML = `<p class="device-error">⚠️ ${data.error}</p>`;
+        const btn = $("#outlook-connect");
+        if (btn) btn.disabled = false;
+        return;
+      }
+      // pending — keep polling
+      outlookPollTimer = setTimeout(poll, 2000);
+    } catch (err) {
+      container.innerHTML = `<p class="device-error">⚠️ ${err.message}</p>`;
+      const btn = $("#outlook-connect");
+      if (btn) btn.disabled = false;
+    }
+  };
+  poll();
 }
 
 // ---------------------------------------------------------------------------
@@ -1020,7 +1220,7 @@ $("#ms-accept").addEventListener("click", async () => {
     state.profile = data.profile;
     state.outlookEvents = data.events;
     toast(`✓ Outlook verbunden — ${data.events.length} Termine erkannt`);
-    renderers.outlook();
+    renderers[state.step]?.();
   } catch (err) {
     toast(`⚠️ ${err.message}`);
   }
