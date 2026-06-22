@@ -1091,6 +1091,12 @@ async function pollOutlookStatus(container) {
         if (btn) btn.disabled = false;
         return;
       }
+      if (data.status === "none") {
+        container.innerHTML = '<p class="device-error">Sign-in session was lost. Please click Sign in with Microsoft again.</p>';
+        const btn = $("#outlook-connect");
+        if (btn) btn.disabled = false;
+        return;
+      }
       // pending — keep polling
       outlookPollTimer = setTimeout(poll, 2000);
     } catch (err) {
