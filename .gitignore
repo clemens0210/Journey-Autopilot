@@ -22,4 +22,9 @@ db_service/package-lock.json
 
 
 data/chromadb/
-journey_autopilot/data/chromadb/
+src/journey_autopilot/data/chromadb/
+
+# Packaging / editable-install artifacts
+*.egg-info/
+build/
+dist/

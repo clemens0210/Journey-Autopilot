@@ -1,0 +1,20 @@
+# Autonomy policy — resolves each write tool to auto / ask (the veto gate).
+# A single global level shifts all defaults; this is what gets swept to produce
+# the autonomy/control trade-off numbers. See build spec §8 and src/.../policy.py.
+#
+# STATUS: scaffold. Read by policy.py once the write path (M4) is built; until
+# then the read/write split is enforced at the agent level (Monitoring/Planner
+# hold no write tools).
+
+global_autonomy_level: balanced        # conservative | balanced | aggressive
+
+write_tools:
+  send_whatsapp_to_user:        auto    # user is the recipient + the veto channel
+  file_compensation_claim:      auto    # purely beneficial, low downside   (OPEN: auto vs notify-after)
+  reschedule_outlook_event:
+    tentative:                  auto
+    confirmed:                  ask
+  book_alternative_connection:
+    ask_if_cost_over_eur:       50       # OPEN: confirm threshold with team
+  book_hotel:                   ask      # cost + overnight = high commitment
+  send_email_to_participants:   ask      # affects third parties, professional context

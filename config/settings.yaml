@@ -1,0 +1,23 @@
+# Runtime settings — model tier per agent, thresholds, poll interval.
+# See build spec §10. Per-agent model is a config value because it feeds the
+# cost/quality trade-off.
+#
+# STATUS: scaffold. config.py currently builds all roles from one OpenAI-compatible
+# endpoint (University of Cologne GPT via LiteLLM), configured through the
+# UNI_GPT_* environment variables (see .env.example). This file documents the
+# target shape; wiring config.py to read it is a follow-up (not in this pass).
+
+models:
+  # All roles share the Uni-GPT endpoint today; split per role once more models
+  # are available (e.g. cheap tier for monitoring, stronger tier for planner).
+  orchestrator: uni_gpt
+  monitoring:   uni_gpt     # runs frequently/in a loop -> prefer the cheap tier
+  planner:      uni_gpt     # most demanding reasoning -> prefer the stronger tier
+  communicator: uni_gpt
+
+thresholds:
+  # Monitoring flips at_risk when the risk band reaches this level.
+  at_risk_band: MEDIUM      # LOW | MEDIUM | HIGH
+
+monitoring:
+  poll_interval_seconds: 300   # how often the monitoring loop would re-check

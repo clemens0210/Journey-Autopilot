@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "journey-autopilot"
+version = "0.1.0"
+description = "Multi-agent system that turns rail-travel disruptions into solved problems (Google ADK)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Orchestration: Google ADK 2.x. [extensions] pulls in LiteLLM for the
+    # University of Cologne GPT backend (OpenAI-compatible endpoint).
+    "google-adk[extensions]>=2.0,<3.0",
+    "google-genai>=1.0,<3.0",
+    "python-dotenv>=1.0,<2.0",
+    # Communicator (WhatsApp via Twilio) + web app (FastAPI).
+    "twilio>=9.0,<10.0",
+    "fastapi>=0.110,<1.0",
+    "uvicorn>=0.29,<1.0",
+    # Calendar (Outlook / Microsoft Graph).
+    "azure-identity>=1.17,<2.0",
+    "msgraph-sdk>=1.0,<2.0",
+    # Passenger-rights RAG / crawler.
+    "chromadb>=1.5,<2.0",
+    "sentence-transformers>=5.0,<6.0",
+    "beautifulsoup4>=4.12,<5.0",
+    "requests>=2.31,<3.0",
+    # google-adk 2.2.x caps OpenTelemetry at 1.41.1; pin so ChromaDB doesn't
+    # upgrade the exporter stack beyond ADK's supported range.
+    "opentelemetry-api>=1.36,<=1.41.1",
+    "opentelemetry-sdk>=1.36,<=1.41.1",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.36,<=1.41.1",
+]
+
+[project.optional-dependencies]
+# Only for (re-)building the historical delay reference
+# (scripts/build_db_delay_reference.py). The runtime just reads the JSON.
+reference-build = ["pyarrow", "huggingface_hub"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# Ship the pre-aggregated punctuality archive with the package.
+journey_autopilot = ["data/*.json"]
