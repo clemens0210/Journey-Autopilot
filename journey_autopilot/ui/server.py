@@ -22,11 +22,14 @@ stations without it.
 
 from __future__ import annotations
 
+import logging
 import re
 import secrets
 import random
+import sys
 import threading
 from datetime import date, timedelta
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
@@ -40,6 +43,19 @@ from journey_autopilot.onboarding import accounts, store
 from journey_autopilot.rerouting import db_api
 from . import chat
 
+if TYPE_CHECKING:
+    from azure.core.credentials import AccessToken, TokenCredential
+
+# Logger for the Outlook device-code flow — timestamped lines on stderr, visible
+# in the terminal where ``python run_onboarding.py`` runs.
+_outlog = logging.getLogger("journey_autopilot.outlook")
+if not _outlog.handlers:
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter("%(asctime)s [outlook] %(levelname)s %(message)s"))
+    _outlog.addHandler(_h)
+    _outlog.setLevel(logging.INFO)
+_outlog.propagate = False
+
 app = FastAPI(title="Journey Autopilot — Web App", version="0.1.0")
 
 _STATIC = Path(__file__).resolve().parent / "static"
@@ -52,8 +68,10 @@ _SESSIONS: dict[str, str] = {}
 _PENDING_PHONE: dict[str, tuple[str, str]] = {}
 
 # Pending Outlook device-code flows: user_id -> {thread, result, error,
-# device_code (dict with user_code/verification_uri/expires_at) or None}
-# The thread runs get_token() (blocking); /status checks if it's done.
+# device_code}. The worker thread blocks on ``get_token()``; /status wraps
+# the returned AccessToken in a StaticTokenCredential for the Graph preview
+# call so MSAL's silent-auth path isn't re-entered (it's unreliable right
+# after a device flow and would trigger a second interactive flow).
 _OUTLOOK_AUTH: dict[str, dict] = {}
 
 
@@ -185,15 +203,10 @@ def phone_remove(authorization: str | None = Header(default=None)) -> dict:
 
 def _outlook_preview_dates() -> list[str]:
     """Dates to fetch for the post-connect preview — pinned to the demo scenario.
-
-    Lucas' first trip (DEMO_DATE) and the workshop date (today+12d) match the
-    events the simulated path returns, so the real and simulated previews look
-    the same.
     """
-    from journey_autopilot.onboarding.accounts import DEMO_DATE
 
     d3 = date.today() + timedelta(days=12)
-    return [DEMO_DATE.isoformat(), d3.isoformat()]
+    return [date.today().isoformat(), d3.isoformat()]
 
 
 @app.post("/api/connect/outlook/start")
@@ -208,8 +221,6 @@ def outlook_start(authorization: str | None = Header(default=None)) -> dict:
     fall back to the existing simulated consent dialog.
     """
     user_id = _user_id(authorization)
-
-    # Cancel any previous pending flow for this user
     _OUTLOOK_AUTH.pop(user_id, None)
 
     try:
@@ -220,11 +231,11 @@ def outlook_start(authorization: str | None = Header(default=None)) -> dict:
     if not is_outlook_configured():
         return {"mode": "simulated"}
 
-    # Real device-code flow — capture the code via prompt_callback, poll in a thread
     auth_state: dict = {"thread": None, "result": None, "error": None, "device_code": None}
     _OUTLOOK_AUTH[user_id] = auth_state
 
     def prompt_callback(verification_uri: str, user_code: str, expires_on) -> None:
+        _outlog.info("device code received — user_code=%s, verification_uri=%s", user_code, verification_uri)
         auth_state["device_code"] = {
             "user_code": user_code,
             "verification_uri": verification_uri,
@@ -237,22 +248,22 @@ def outlook_start(authorization: str | None = Header(default=None)) -> dict:
         try:
             cred = create_device_credential(prompt_callback)
             auth_state["result"] = cred.get_token(*SCOPES)
+            _outlog.info("device flow completed — token acquired")
         except Exception as exc:
+            _outlog.error("device flow failed: %s", exc, exc_info=True)
             auth_state["error"] = str(exc)
 
-    t = threading.Thread(target=_run_device_flow, daemon=True)
+    t = threading.Thread(target=_run_device_flow, daemon=True, name="outlook-device-flow")
     auth_state["thread"] = t
     t.start()
 
-    # Wait briefly for prompt_callback to fire (it runs as soon as the device
-    # code is received, before polling starts)
+    # Wait briefly for prompt_callback to fire (before the blocking poll starts)
     t.join(timeout=5)
 
     dc = auth_state.get("device_code")
     if dc:
         return {"mode": "device_code", **dc}
-    # prompt_callback didn't fire in time — frontend will see "pending" and
-    # can retry /start or show an error
+    _outlog.warning("device code not received within 5s — returning pending")
     return {"mode": "device_code", "user_code": None, "verification_uri": None, "pending": True}
 
 
@@ -275,33 +286,43 @@ async def outlook_status(authorization: str | None = Header(default=None)) -> di
         return {"status": "none"}
 
     thread: threading.Thread | None = auth_state["thread"]
+    dc = auth_state.get("device_code") or {}
 
     if thread is not None and thread.is_alive():
-        dc = auth_state.get("device_code") or {}
         return {
             "status": "pending",
             "user_code": dc.get("user_code"),
             "verification_uri": dc.get("verification_uri"),
         }
 
-    # Thread finished — check result
     if auth_state.get("error"):
-        err = auth_state["error"]
         _OUTLOOK_AUTH.pop(user_id, None)
-        return {"status": "error", "error": err}
+        return {"status": "error", "error": auth_state["error"]}
 
     if auth_state.get("result"):
+        # Wrap the just-acquired AccessToken in a StaticTokenCredential so the
+        # Graph preview call doesn't re-enter MSAL — its silent-auth path is
+        # unreliable right after a device flow and would trigger a second
+        # interactive flow that hangs the request.
+        access_token = auth_state["result"]
         _OUTLOOK_AUTH.pop(user_id, None)
         profile = store.update_profile(user_id, {"connections": {"outlook": True}})
-        events = await _fetch_outlook_preview(user_id)
+        from journey_autopilot.calendar import StaticTokenCredential
+
+        events = await _fetch_outlook_preview(
+            user_id, credential=StaticTokenCredential(access_token)
+        )
+        _outlog.info("outlook connected — %d preview events", len(events) if events else 0)
         return {"status": "complete", "profile": profile, "events": events}
 
-    # Thread died without result or error (e.g. timeout)
+    _outlog.warning("device flow ended without a token — status=expired")
     _OUTLOOK_AUTH.pop(user_id, None)
     return {"status": "expired"}
 
 
-async def _fetch_outlook_preview(user_id: str) -> list[dict]:
+async def _fetch_outlook_preview(
+    user_id: str, credential: TokenCredential | None = None
+) -> list[dict]:
     """Fetch real Outlook events for the pinned demo dates.
 
     Falls back to simulated events on any Graph error so the preview never
@@ -311,9 +332,9 @@ async def _fetch_outlook_preview(user_id: str) -> list[dict]:
         from journey_autopilot.calendar import get_calendar_events_range
 
         dates = _outlook_preview_dates()
-        events = await get_calendar_events_range(dates[0], dates[-1])
-        return events
-    except Exception:
+        return await get_calendar_events_range(dates[0], dates[-1], credential=credential)
+    except Exception as exc:
+        _outlog.warning("Graph preview failed (%s: %s) — using simulated events", type(exc).__name__, exc)
         return accounts.outlook_events(user_id)
 
 
