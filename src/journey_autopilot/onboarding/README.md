@@ -8,16 +8,20 @@ DB Navigator design, and the API).
 | Module        | Responsibility                                                                 |
 | ------------- | ------------------------------------------------------------------------------ |
 | `accounts.py` | Simulated DB accounts, booked trips, and Outlook events. The **swap point** for a real DB/Microsoft integration — the interface (`authenticate`, `booked_trips`, `outlook_events`) stays stable. Also holds the station fallback list. |
-| `store.py`    | SQLite store for users, the profile (a single JSON blob, see `DEFAULT_PROFILE`), and imported trips. Standard-library `sqlite3` only — no FastAPI dependency. |
+
+The SQLite store itself lives one level up in
+[`../persistence/store.py`](../persistence/store.py) (users, the profile as a
+single JSON blob — see `DEFAULT_PROFILE` — and imported trips; standard-library
+`sqlite3` only, no FastAPI dependency).
 
 ## Why this split?
 
 - The **UI** doesn't need ADK; the **agents** don't need FastAPI. Keeping the
   logic here and the presentation in `ui/` makes that boundary explicit.
 - The agents reach the profile through one shared touchpoint only:
-  `journey_autopilot.tools` calls `store.any_profile()` (single-user: "the most
-  recently maintained profile") to rank reroute options against the user's
-  preferences.
+  `journey_autopilot.tools` calls `persistence.store.any_profile()` (single-user:
+  "the most recently maintained profile") to rank reroute options against the
+  user's preferences.
 
 ## Demo data note
 

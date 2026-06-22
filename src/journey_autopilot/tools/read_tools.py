@@ -130,12 +130,12 @@ def get_user_profile() -> dict:
         completed yet.
     """
     try:
-        # Lazy import: keeps the ADK package independent of the onboarding
-        # package as long as the tool is not called.
+        # Lazy import: keeps the ADK package independent of the persistence
+        # layer (SQLite store) as long as the tool is not called.
         from journey_autopilot.persistence import store
 
         profile = store.any_profile()
-    except Exception as exc:  # Onboarding package/DB not available
+    except Exception as exc:  # persistence layer / DB not available
         return {"error": f"Profile not readable: {exc}"}
     if profile is None:
         return {"error": "No user profile available — onboarding has not been completed yet."}

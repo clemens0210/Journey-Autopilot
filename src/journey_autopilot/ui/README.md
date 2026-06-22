@@ -104,7 +104,7 @@ bubble with a collapsible **agent trace** (which agent called which tool).
 | Feature                   | Status        | Note                                                                    |
 | ------------------------- | ------------- | ---------------------------------------------------------------------- |
 | Home station search       | **live**\*    | real DB station data via the `db_service` sidecar, otherwise fallback list |
-| Profile persistence       | **real**      | SQLite (`../onboarding/store.py`)                                       |
+| Profile persistence       | **real**      | SQLite (`../persistence/store.py`)                                      |
 | DB account login & import | *simulated*   | `../onboarding/accounts.py` — no official DB API available             |
 | SMS verification          | *simulated*   | no SMS gateway; the code is returned and displayed inline              |
 | Outlook calendar (OAuth)  | *simulated*   | no registered Microsoft app; consent dialog + sample appointments      |
@@ -121,7 +121,8 @@ the affected endpoints — the rest (UI, store, profile structure) remains untou
 ## Architecture
 
 The presentation layer (`ui/`) is kept separate from the onboarding logic
-(`onboarding/`): the UI imports the logic, never the other way around.
+(`onboarding/`) and the SQLite store (`persistence/`): the UI imports the logic,
+never the other way around.
 
 ```
 journey_autopilot/
@@ -133,10 +134,11 @@ journey_autopilot/
 │       ├── index.html   DB Navigator frame: status bar, header, tab bar, DB logo
 │       ├── style.css    DB Navigator dark theme (DB red #EC0016, dark slate surfaces)
 │       └── app.js       framework-free UI: render(step), wizard patches, trip chat
-└── onboarding/          ← the logic (the "functions"), imported by ui/
-    ├── accounts.py      simulated DB accounts, bookings, Outlook events, station fallback
-    ├── store.py         SQLite store: users, profile (JSON blob), imported trips
-    └── __init__.py
+├── onboarding/          ← the logic (the "functions"), imported by ui/
+│   ├── accounts.py      simulated DB accounts, bookings, Outlook events, station fallback
+│   └── __init__.py
+└── persistence/
+    └── store.py         SQLite store: users, profile (JSON blob), imported trips
 ```
 
 - **No build step, no JS framework.** The UI is vanilla JS; `render(step)`
@@ -149,12 +151,12 @@ journey_autopilot/
   agent dependencies installed.
 - **Profile** is stored as a single JSON blob per user (prototype-friendly,
   no migrations). The structure including defaults is in
-  [`store.py`](../onboarding/store.py) → `DEFAULT_PROFILE`.
+  [`store.py`](../persistence/store.py) → `DEFAULT_PROFILE`.
 
 ### Connection to the agents
 
 `journey_autopilot.tools` reads the same SQLite via
-`onboarding.store.any_profile()` (single-user: “the most recently maintained profile”).
+`persistence.store.any_profile()` (single-user: “the most recently maintained profile”).
 The Planner agent ranks reroute options against this profile — without a FastAPI
 dependency; the only shared touch point is the store. The chat goes the other
 way: `ui/chat.py` drives `journey_autopilot.agent.root_agent` directly.

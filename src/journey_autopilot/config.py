@@ -45,10 +45,10 @@ def _uni_model() -> LiteLlm:
 
 
 # A shared endpoint for all roles. Once the Uni offers additional models,
-# a different model name can be set per role here.
+# a different model name can be set per role here. (No RISK_MODEL: risk scoring
+# is a deterministic statistic in tools/risk_model.py, never an LLM judgment.)
 MONITORING_MODEL = _uni_model()
 PLANNER_MODEL = _uni_model()
-RISK_MODEL = _uni_model()
 ORCHESTRATOR_MODEL = _uni_model()
 DRAFTER_MODEL = _uni_model()
 

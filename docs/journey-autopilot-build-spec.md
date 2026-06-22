@@ -1,6 +1,8 @@
 # Journey Autopilot — Architecture & Build Spec
 
-> **How to use this:** This is the authoritative architecture spec. Save it as `docs/ARCHITECTURE.md` in the repo (or paste it into your first Claude Code prompt). Build strictly against the decisions marked **DECIDED**. Items marked **OPEN** get a sensible default + a `TODO` comment, not a long detour.
+> **How to use this:** This is the authoritative architecture spec (`docs/journey-autopilot-build-spec.md`). Build strictly against the decisions marked **DECIDED**. Items marked **OPEN** get a sensible default + a `TODO` comment, not a long detour.
+>
+> **Implementation note (kept in sync with the code):** The architecture below is realized on **Google ADK** with the **University of Cologne GPT** as the model backend (OpenAI-compatible, via LiteLLM), not on LangGraph / the Anthropic API. That framework swap is recorded in [`docs/adr/0001-framework-adk.md`](adr/0001-framework-adk.md); §2, §6, §9 and §10 reflect the ADK realization. The *architecture* (orchestrator-workers, read/write tool separation, policy layer, Context Record, mock-everything integrations, persistence) is framework-agnostic and adopted as written.
 
 ---
 
@@ -15,10 +17,10 @@ A multi-agent system that turns rail-travel disruptions into solved problems for
 ## 2. Recommended stack
 
 - **Language:** Python 3.11+
-- **Orchestration:** **LangGraph** (`StateGraph`). It gives three things this design needs for free: a typed shared state, a **SQLite checkpointer** (= our persistence), and `interrupt()` for the **veto gate** (= human-in-the-loop). *(Framework choice is an ADR — the lighter alternative is the raw Anthropic SDK + a custom orchestration loop. Default to LangGraph unless you hit a wall.)*
-- **Models (Anthropic API), tiered for cost:** Haiku for cheap/structured steps, Sonnet for Planner/Communicator reasoning, Opus only where genuinely needed. Make the per-agent model a config value — it feeds the cost/quality trade-off.
-- **Risk model:** scikit-learn / LightGBM, trained offline, loaded as a tool. **Start with a transparent heuristic stub** so the pipeline runs day one; swap in the trained model later.
-- **Persistence:** SQLite (LangGraph checkpointer for run state + a small app DB for profile, constraints, history, policy).
+- **Orchestration:** **Google ADK** (`LlmAgent` + `AgentTool`). The orchestrator is itself an `LlmAgent` that wraps the workers as `AgentTool` and routes them in a ReAct loop; run state is transported by the ADK `SessionService`, and the veto gate is realized as the approval/veto queue in `integrations/whatsapp.py`. *(Framework choice is recorded in [ADR-0001](adr/0001-framework-adk.md). The originally recommended alternative was LangGraph — `StateGraph` + SQLite checkpointer + `interrupt()` — which the ADR maps onto these ADK primitives.)*
+- **Models (University of Cologne GPT via LiteLLM), per-agent config value:** all roles currently share the one OpenAI-compatible Uni-GPT endpoint (`config.py` builds a `LiteLlm` per role). The per-agent split (cheap tier for Monitoring, stronger tier for Planner) is wired but collapses to one model until more are available — it still feeds the cost/quality trade-off.
+- **Risk model:** deterministic punctuality statistics over a real DB delay archive (`tools/risk_model.py`), loaded as a read tool — **never an LLM judgment**. A trained scikit-learn / LightGBM model can replace the statistics later behind the same tool interface.
+- **Persistence:** SQLite. Cross-session *app* data (profile, constraints, trips) lives in `persistence/store.py`; ADK run state is owned by the `SessionService` (`InMemoryRunner` today, `DatabaseSessionService` optional — see `persistence/checkpointer.py`).
 - **Packaging:** Docker + docker-compose; `docker compose up` runs the whole thing.
 
 ---
@@ -81,7 +83,7 @@ The **Communicator brackets execution**: it presents options and captures the ve
 
 ## 6. Shared state — Context Record (initial schema, refine as needed)
 
-This is the LangGraph state object, persisted via the checkpointer.
+This is the typed **data contract** agents and tools exchange (`state.py`). In the LangGraph reference design it would be the graph state persisted via the checkpointer; under ADK it is the shared vocabulary, while live run state is transported by the `SessionService`.
 
 ```python
 class ContextRecord(TypedDict):
@@ -134,46 +136,61 @@ write_tools:
 ## 9. Control flow & resilience
 
 - **Trigger:** Monitoring runs on a poll loop; when `evaluate_threshold` flips `at_risk`, the orchestrator wakes the Planner.
-- **Gate:** after Planner, the Communicator presents options; the graph hits an `interrupt()` for any approval the policy marks `ask`. Resume with the user's choice/veto.
+- **Gate:** after Planner, the Communicator presents options; any approval the policy marks `ask` pauses for the user's veto. Under ADK this is the approval/veto queue in `integrations/whatsapp.py` (YES/NO/EDIT), the equivalent of LangGraph's `interrupt()`. Resume with the user's choice/veto.
 - **Error policy** (`errors.py`): every tool call is wrapped — retry with backoff → fallback (cached timetable / RAG instead of live API) → graceful degradation (tell the user what couldn't be done). This is exactly the **failure-case** deliverable; design the wrapper so a broken tool call is recoverable inside the loop, not a crash.
 
 ---
 
 ## 10. Repo structure
 
+Actual layout (ADK realization; scaffolds marked, see §11 build order for when each is wired):
+
 ```
 journey-autopilot/
   docker-compose.yml
   Dockerfile
   README.md
-  pyproject.toml
+  pyproject.toml               # src/ layout, packaging, deps
+  requirements.txt
+  CONTEXT_RECORD.md            # locked decisions/constraints (clarification phase)
+  run_onboarding.py            # launches the web app (FastAPI)
   config/
-    policy.yaml
-    settings.yaml            # model tiers per agent, thresholds, poll interval
-  data/
-    fixtures/                # mock trips, disruptions, weather, events, calendar, rights
-    journey_autopilot.db     # sqlite (gitignored)
+    policy.yaml                # write-tool auto/ask matrix      (scaffold, read by policy.py in M4)
+    settings.yaml              # model tier per agent, thresholds, poll interval (scaffold)
+  data/                        # runtime sqlite + chromadb (gitignored)
+  db_service/                  # Node sidecar: real DB live data via db-vendo-client (optional)
   docs/
-    adr/                     # 0001-framework.md, 0002-agent-split.md, 0003-risk-model.md, ...
-  src/journey_autopilot/
-    state.py                 # ContextRecord + sub-types
-    graph.py                 # StateGraph: nodes, edges, gate interrupt
-    orchestrator.py          # routing, policy enforcement, error policy
-    policy.py
-    errors.py
-    agents/      monitoring.py  planner.py  communicator.py  executor.py
-    tools/       read_tools.py  write_tools.py  risk_model.py
-    integrations/  db_ops.py  outlook.py  whatsapp.py  rights_rag.py   # mock impls behind interfaces
-    persistence/   store.py  checkpointer.py
+    journey-autopilot-build-spec.md   # this file
+    adr/                       # 0001-framework-adk … 0006-sqlite-persistence
+    OUTLOOK_SETUP.md
+  scripts/                     # dev utilities: check_db, calendar_demo, run_crawler, build_db_delay_reference
   scenarios/
-    happy_path.py            # clean reroute
-    edge_case.py             # cascading disruption
-    failure_case.py          # broken tool call -> recovery
+    happy_path.py              # clean reroute (wired)
+    pretrip_risk.py            # pre-trip delay risk + ETA (wired)
+    edge_case.py               # cascading disruption            (stub, M5)
+    failure_case.py            # broken tool call -> recovery     (stub, M5)
   baseline/
-    single_shot.py           # "just ask Opus once" naive baseline
+    single_shot.py             # naive "ask the model once" baseline (stub, M6)
   eval/
-    run.py                   # latency, tokens, cost, intervention rate, success
+    run.py                     # latency, tokens, cost, intervention rate, success (stub, M6)
+  src/journey_autopilot/
+    __init__.py                # package marker (ADK discovery)
+    agent.py                   # thin shim: re-exports root_agent for `adk web` / `adk run`
+    orchestrator.py            # root_agent (LlmAgent + AgentTool, ReAct routing)
+    state.py                   # ContextRecord + sub-types (data contract)
+    policy.py  errors.py       # veto-gate resolution + error policy (scaffold, M4/M5)
+    config.py  mock_data.py    # per-role LiteLlm models + fixtures
+    data/db_delay_reference.json  # pre-aggregated punctuality archive (shipped)
+    agents/      monitoring.py  planner.py  communicator.py  executor.py(stub, M4)
+    tools/       read_tools.py  write_tools.py(stub, M4)  risk_model.py
+    integrations/  db_ops.py  stations.py  whatsapp.py  whatsapp_webhook.py  whatsapp_models.py
+                   outlook/  rights_rag/      # mock impls behind interfaces
+    persistence/   store.py  checkpointer.py(stub)
+    onboarding/    accounts.py                # simulated DB login + trip import
+    ui/            server.py  chat.py  static/  # DB-Navigator-style web app
 ```
+
+> Deviations from the original (LangGraph) draft, by decision: no `graph.py` (orchestrator is an `LlmAgent`); fixtures live inline in `mock_data.py` rather than `data/fixtures/`; the sqlite db sits under `src/journey_autopilot/data/`; the integrations layer grew sub-packages (`outlook/`, `rights_rag/`) plus the `db_service/` Node sidecar; `onboarding/` + `ui/` (web app) and `scripts/` (dev utilities) are additions beyond the original spec.
 
 ---
 
@@ -201,4 +218,4 @@ journey-autopilot/
 
 ## 13. ADRs worth writing as you go
 
-Framework choice (LangGraph vs. SDK), the four-agent split, risk-as-model vs. LLM, veto-per-action + configurable autonomy, SQLite for persistence, mock-everything integration strategy. One short doc each under `docs/adr/`.
+Framework choice (ADK vs. LangGraph/SDK — see ADR-0001), the four-agent split, risk-as-model vs. LLM, veto-per-action + configurable autonomy, SQLite for persistence, mock-everything integration strategy. One short doc each under `docs/adr/` (0001–0006 written).

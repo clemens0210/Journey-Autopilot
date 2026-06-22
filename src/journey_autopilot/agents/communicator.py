@@ -1,8 +1,12 @@
 """Communicator Agent — drafts context-aware WhatsApp messages.
 
-The write-side agent that talks to the traveler and participants. Follows the
-same pattern as planner.py and monitoring.py: LlmAgent from the Google ADK,
-model from config.DRAFTER_MODEL (Uni-GPT endpoint via LiteLLM).
+The write-side agent that talks to the traveler and participants. Like its
+siblings it exposes a ``build_communicator_agent()`` factory returning an
+ADK ``LlmAgent`` (model from ``config.DRAFTER_MODEL``, the Uni-GPT endpoint via
+LiteLLM). It differs from monitoring/planner in one respect: it is parametrized
+by recipient ``role`` and is driven directly (its own ``InMemoryRunner``) rather
+than wrapped as an ``AgentTool`` on the Orchestrator — the draft is bracketed by
+the veto gate, not chosen inside the ReAct loop.
 
 The remaining functionality (Twilio sending, approval/veto queue) lives in
 ``integrations/whatsapp.py``; inbound YES/NO/EDIT traffic is handled by
@@ -60,9 +64,15 @@ def _build_prompt(event: DisruptionEvent, recipient: Recipient) -> str:
     )
 
 
-def _build_agent(role: str) -> LlmAgent:
+def build_communicator_agent(role: str) -> LlmAgent:
+    """Creates the Communicator LlmAgent for a given recipient role.
+
+    Unlike ``build_monitoring_agent`` / ``build_planner_agent`` this takes a
+    ``role`` (traveler / colleague / client / private) — the Communicator's
+    instruction is parametrized by who is being written to.
+    """
     return LlmAgent(
-        name="drafter_agent",
+        name="communicator_agent",
         model=DRAFTER_MODEL,
         instruction=_ROLE_INSTRUCTION[role] + " Always write in English.",
     )
@@ -70,7 +80,7 @@ def _build_agent(role: str) -> LlmAgent:
 
 async def draft_message_async(event: DisruptionEvent, recipient: Recipient) -> str:
     """Drafts a WhatsApp message via the LlmAgent."""
-    agent = _build_agent(recipient.role)
+    agent = build_communicator_agent(recipient.role)
     runner = InMemoryRunner(agent=agent, app_name=_APP_NAME)
     session = await runner.session_service.create_session(
         app_name=_APP_NAME, user_id=_USER_ID

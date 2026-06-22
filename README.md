@@ -274,7 +274,8 @@ run_onboarding.py              # launches the web app
 ## Target Vision (still open)
 
 The system grows modularly along the agent roles (see
-`journey_autopilot_projektgrundlage.md`):
+[`CONTEXT_RECORD.md`](CONTEXT_RECORD.md) and
+[`docs/journey-autopilot-build-spec.md`](docs/journey-autopilot-build-spec.md)):
 
 - **Context Capture** — deterministic function, freezes constraints
 - **Monitoring Agent** ✅ — polls (mocked) live data, scores disruption risk
