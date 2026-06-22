@@ -1,157 +1,102 @@
-"""Mocked data for the prototype.
+"""Mocked data for the prototype — loaded from JSON fixtures.
 
-Deliberate decision (see project foundation / ADR): We have no real
-DB API access. All live ops data is simulated here as fixtures. The
-structure is aligned to a realistic scenario for the persona "Lucas Wild"
-so that Monitoring and Planner Agents have something meaningful to do.
+Deliberate decision (see CONTEXT_RECORD.md / ADR 0005): we have no real DB API
+access, so all live-ops data is simulated. The fixtures now live as JSON under
+``data/fixtures/`` and are loaded here into the module-level names the tools and
+scenarios already import (``DEMO_TRIP``, ``LIVE_TRIP_STATUS``, ...). Keeping the
+names stable means consumers (``tools/read_tools.py``, ``scenarios/``, the
+WhatsApp event) don't change.
 
-Later, a real API connection (or an MCP server) will replace exactly these
-functions — the tool interface stays the same.
+Pick a fixture set with the ``JA_FIXTURES`` environment variable (default
+``happy_path``); this is the swap point that lets the edge-case / failure-case
+scenarios run against their own dataset without touching code. Later, a real API
+(or an MCP server) replaces the read tools — the interface stays the same.
 """
 
 from __future__ import annotations
 
-# --- Demo trip: Lucas Wild, Munich → Berlin (happy/edge scenario) --------------
+import json
+import os
+from pathlib import Path
 
-DEMO_TRIP = {
-    "trip_id": "DB-2026-0619-MUC-BLN",
-    "passenger": "Lucas Wild",
-    "origin": "Munich Hbf",
-    "destination": "Berlin Hbf",
-    "train": "ICE 1006",
-    "planned_departure": "2026-06-19T08:00:00",
-    "planned_arrival": "2026-06-19T12:04:00",
-}
+_FIXTURES_DIR = Path(__file__).resolve().parent / "data" / "fixtures"
+_ACTIVE = os.getenv("JA_FIXTURES", "happy_path")
 
-# Mocked live status of the trip. A signal box malfunction near Nuremberg causes
-# growing delay → Monitoring should detect elevated risk.
-LIVE_TRIP_STATUS = {
-    "DB-2026-0619-MUC-BLN": {
-        "trip_id": "DB-2026-0619-MUC-BLN",
-        "train": "ICE 1006",
-        "current_delay_minutes": 28,
-        "trend": "increasing",
-        "current_position": "between Nuremberg and Erfurt",
-        "incidents": [
-            {
-                "type": "Signal box malfunction",
-                "location": "Nuremberg area",
-                "impact": "Individual tracks blocked, cascading delays expected",
-            }
-        ],
-        "connection_risk": "Connection in Berlin-Spandau at risk",
-        "data_timestamp": "2026-06-19T09:42:00",
-    }
-}
 
-# Mocked network-wide disruption status per region.
-NETWORK_DISRUPTIONS = {
-    "bavaria": [
-        {
-            "line": "ICE line Nuremberg-Erfurt",
-            "type": "Signal box malfunction",
-            "severity": "high",
-            "expected_resolution": "2026-06-19T11:30:00",
-        }
-    ],
-    "berlin": [],
-}
+def _load_fixtures(name: str) -> dict:
+    """Load the named fixture set from ``data/fixtures/<name>.json``."""
+    path = _FIXTURES_DIR / f"{name}.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        available = ", ".join(sorted(p.stem for p in _FIXTURES_DIR.glob("*.json"))) or "none"
+        raise FileNotFoundError(
+            f"Fixture set '{name}' not found at {path}. "
+            f"Set JA_FIXTURES to one of: {available}."
+        ) from exc
 
-# --- Planner knowledge: reroute alternatives, calendar, passenger rights ------
 
-REROUTE_OPTIONS = {
-    ("Munich Hbf", "Berlin Hbf"): [
-        {
-            "option_id": "R1",
-            "description": "Transfer in Erfurt to ICE 1008 towards Berlin",
-            "new_arrival": "2026-06-19T12:38:00",
-            "transfers": 1,
-            "added_delay_minutes": 34,
-            "comfort": "Seat reservation transferable",
-        },
-        {
-            "option_id": "R2",
-            "description": "Via Leipzig with ICE 1612, then RE to Berlin",
-            "new_arrival": "2026-06-19T13:15:00",
-            "transfers": 2,
-            "added_delay_minutes": 71,
-            "comfort": "No reserved seat, more transfers",
-        },
-    ]
-}
+def _by_route(records: list[dict], value_key: str) -> dict:
+    """Rebuild a {(origin, destination): value} map from a list of records.
 
-# Mocked calendar of the persona. The meeting in Berlin is the hard deadline.
-USER_CALENDAR = {
-    "2026-06-19": [
-        {
-            "title": "Client meeting Berlin (on-site)",
-            "location": "Berlin Mitte",
-            "start": "2026-06-19T14:00:00",
-            "hard_constraint": True,
-        }
-    ]
-}
+    JSON has no tuple keys, so route-keyed maps are stored as a list of
+    ``{"origin": ..., "destination": ..., <value_key>: ...}`` records.
+    """
+    return {(r["origin"], r["destination"]): r[value_key] for r in records}
 
-# Simplified passenger rights knowledge base (placeholder for future RAG/ChromaDB).
-PASSENGER_RIGHTS = [
-    {"min_delay_minutes": 60, "compensation": "25% of ticket price"},
-    {"min_delay_minutes": 120, "compensation": "50% of ticket price"},
-]
 
-# --- Risk knowledge: pre-trip delay history & scheduled connection ------------
+_FX = _load_fixtures(_ACTIVE)
+
+# --- Demo trip + live ops (Monitoring) ----------------------------------------
+DEMO_TRIP: dict = _FX["demo_trip"]
+LIVE_TRIP_STATUS: dict = _FX["live_trip_status"]
+NETWORK_DISRUPTIONS: dict = _FX["network_disruptions"]
+
+# --- Planner knowledge --------------------------------------------------------
+REROUTE_OPTIONS: dict = _by_route(_FX["reroute_options"], "options")
+USER_CALENDAR: dict = _FX["user_calendar"]
+PASSENGER_RIGHTS: list = _FX["passenger_rights"]
+
+# --- Risk knowledge (pre-trip): delay history + scheduled connection ----------
 # Fallbacks for the Risk Agent when the db_service sidecar is unavailable, so the
-# agent sees the same fields whether the data is live or simulated. Values are
-# modelled on the real situation of the Munich -> Berlin route (construction
-# works Nuremberg-Erfurt) and keyed by the English station names used elsewhere.
+# agent sees the same fields whether the data is live or simulated.
+CONNECTION_DELAY_HISTORY: dict = _by_route(_FX["connection_delay_history"], "stats")
+PLANNED_CONNECTIONS: dict = _by_route(_FX["planned_connections"], "connection")
 
-CONNECTION_DELAY_HISTORY = {
-    ("Munich Hbf", "Berlin Hbf"): {
-        "window": "30-day history (simulated)",
-        "sample_count": 42,
-        "mean_delay_minutes": 18.4,
-        "median_delay_minutes": 12.0,
-        "p90_delay_minutes": 47.0,
-        "max_delay_minutes": 88.0,
-        "on_time_rate_pct": 38,
-        "delayed_over_15_rate_pct": 41,
-        "cancellations": 2,
-        "common_causes": [
-            "Construction works between Nuremberg and Erfurt",
-            "Signal box malfunction in the Nuremberg area",
-            "High network utilisation in long-distance traffic",
-        ],
-    },
-}
 
-# Planned connection (scheduled times) as the ETA anchor when the sidecar is
-# unavailable. Structure identical to ``delay_stats.scheduled_connection``.
-PLANNED_CONNECTIONS = {
-    ("Munich Hbf", "Berlin Hbf"): {
-        "train": "ICE 1006",
-        "planned_departure": "2026-06-19T08:00:00",
-        "planned_arrival": "2026-06-19T12:04:00",
-        "transfers": 0,
-        "realtime_arrival_delay_minutes": None,
-    },
-}
+# --- WhatsApp communicator: event fields derived from the active scenario -----
+# Real phone numbers come from .env at runtime; ``recipients`` is populated by
+# the scenario from DEMO_TRAVELER_NUMBER / DEMO_CLIENT_NUMBER etc.
 
-# --- WhatsApp communicator: event fields derived from the existing mock scenario -
-# Real phone numbers come from .env at runtime (run_demo.py).
-# recipients is populated there from DEMO_TRAVELER_NUMBER / DEMO_CLIENT_NUMBER etc.
-_r1 = REROUTE_OPTIONS[("Munich Hbf", "Berlin Hbf")][0]
-_meeting = USER_CALENDAR["2026-06-19"][0]
 
-# The WhatsApp communicator messages the traveler in English, so the event fields
-# carry an English reroute summary (the orchestrator's REROUTE_OPTIONS above stay
-# German for the German orchestrator demo).
-DEMO_EVENT_FIELDS: dict = {
-    "traveler_name": DEMO_TRIP["passenger"],
-    "original_train": DEMO_TRIP["train"],
-    "delay_minutes": LIVE_TRIP_STATUS[DEMO_TRIP["trip_id"]]["current_delay_minutes"],
-    "reroute_summary": (
-        f"Change at Erfurt to ICE 1008 toward Berlin "
-        f"(arrival {_r1['new_arrival'][11:16]}, +{_r1['added_delay_minutes']} min)"
-    ),
-    "meeting_time_original": _meeting["start"][11:16],
-    "meeting_time_new": _meeting["start"][11:16],  # Appointment holds — arrival 12:38 is before 14:00
-}
+def _demo_event_fields() -> dict:
+    """Build the DisruptionEvent fields from the loaded fixture (scenario-agnostic)."""
+    route = (DEMO_TRIP["origin"], DEMO_TRIP["destination"])
+    reroutes = REROUTE_OPTIONS.get(route, [])
+    first = reroutes[0] if reroutes else None
+
+    date = DEMO_TRIP.get("planned_arrival", "")[:10]
+    meetings = USER_CALENDAR.get(date, [])
+    meeting_time = meetings[0]["start"][11:16] if meetings else ""
+
+    status = LIVE_TRIP_STATUS.get(DEMO_TRIP["trip_id"], {})
+    if first is not None:
+        reroute_summary = (
+            f"Change at Erfurt to ICE 1008 toward Berlin "
+            f"(arrival {first['new_arrival'][11:16]}, +{first['added_delay_minutes']} min)"
+        )
+    else:
+        reroute_summary = "No reroute available."
+
+    return {
+        "traveler_name": DEMO_TRIP["passenger"],
+        "original_train": DEMO_TRIP["train"],
+        "delay_minutes": status.get("current_delay_minutes", 0),
+        "reroute_summary": reroute_summary,
+        "meeting_time_original": meeting_time,
+        # Appointment holds — the reroute arrival is before the meeting start.
+        "meeting_time_new": meeting_time,
+    }
+
+
+DEMO_EVENT_FIELDS: dict = _demo_event_fields()

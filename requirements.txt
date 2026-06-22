@@ -13,6 +13,10 @@ fastapi>=0.110,<1.0
 uvicorn>=0.29,<1.0
 google-genai>=1.0,<3.0
 python-dotenv>=1.0,<2.0
+
+# Config files (config/settings.yaml, policy.yaml)
+pyyaml>=6.0,<7.0
+
 azure-identity>=1.17,<2.0
 msgraph-sdk>=1.0,<2.0
 

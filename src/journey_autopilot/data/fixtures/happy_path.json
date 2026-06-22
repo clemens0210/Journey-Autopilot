@@ -1,0 +1,119 @@
+{
+  "_meta": {
+    "scenario": "happy_path",
+    "persona": "Lucas Wild",
+    "description": "Munich -> Berlin with a signal-box disruption near Nuremberg; one confirmed on-site meeting as the hard deadline. The clean reroute (R1) still makes the 14:00 meeting.",
+    "note": "Route/connection maps are stored as lists of records with explicit origin/destination; mock_data.py rebuilds the (origin, destination) tuple-keyed dicts on load."
+  },
+  "demo_trip": {
+    "trip_id": "DB-2026-0619-MUC-BLN",
+    "passenger": "Lucas Wild",
+    "origin": "Munich Hbf",
+    "destination": "Berlin Hbf",
+    "train": "ICE 1006",
+    "planned_departure": "2026-06-19T08:00:00",
+    "planned_arrival": "2026-06-19T12:04:00"
+  },
+  "live_trip_status": {
+    "DB-2026-0619-MUC-BLN": {
+      "trip_id": "DB-2026-0619-MUC-BLN",
+      "train": "ICE 1006",
+      "current_delay_minutes": 28,
+      "trend": "increasing",
+      "current_position": "between Nuremberg and Erfurt",
+      "incidents": [
+        {
+          "type": "Signal box malfunction",
+          "location": "Nuremberg area",
+          "impact": "Individual tracks blocked, cascading delays expected"
+        }
+      ],
+      "connection_risk": "Connection in Berlin-Spandau at risk",
+      "data_timestamp": "2026-06-19T09:42:00"
+    }
+  },
+  "network_disruptions": {
+    "bavaria": [
+      {
+        "line": "ICE line Nuremberg-Erfurt",
+        "type": "Signal box malfunction",
+        "severity": "high",
+        "expected_resolution": "2026-06-19T11:30:00"
+      }
+    ],
+    "berlin": []
+  },
+  "reroute_options": [
+    {
+      "origin": "Munich Hbf",
+      "destination": "Berlin Hbf",
+      "options": [
+        {
+          "option_id": "R1",
+          "description": "Transfer in Erfurt to ICE 1008 towards Berlin",
+          "new_arrival": "2026-06-19T12:38:00",
+          "transfers": 1,
+          "added_delay_minutes": 34,
+          "comfort": "Seat reservation transferable"
+        },
+        {
+          "option_id": "R2",
+          "description": "Via Leipzig with ICE 1612, then RE to Berlin",
+          "new_arrival": "2026-06-19T13:15:00",
+          "transfers": 2,
+          "added_delay_minutes": 71,
+          "comfort": "No reserved seat, more transfers"
+        }
+      ]
+    }
+  ],
+  "user_calendar": {
+    "2026-06-19": [
+      {
+        "title": "Client meeting Berlin (on-site)",
+        "location": "Berlin Mitte",
+        "start": "2026-06-19T14:00:00",
+        "hard_constraint": true
+      }
+    ]
+  },
+  "passenger_rights": [
+    { "min_delay_minutes": 60, "compensation": "25% of ticket price" },
+    { "min_delay_minutes": 120, "compensation": "50% of ticket price" }
+  ],
+  "connection_delay_history": [
+    {
+      "origin": "Munich Hbf",
+      "destination": "Berlin Hbf",
+      "stats": {
+        "window": "30-day history (simulated)",
+        "sample_count": 42,
+        "mean_delay_minutes": 18.4,
+        "median_delay_minutes": 12.0,
+        "p90_delay_minutes": 47.0,
+        "max_delay_minutes": 88.0,
+        "on_time_rate_pct": 38,
+        "delayed_over_15_rate_pct": 41,
+        "cancellations": 2,
+        "common_causes": [
+          "Construction works between Nuremberg and Erfurt",
+          "Signal box malfunction in the Nuremberg area",
+          "High network utilisation in long-distance traffic"
+        ]
+      }
+    }
+  ],
+  "planned_connections": [
+    {
+      "origin": "Munich Hbf",
+      "destination": "Berlin Hbf",
+      "connection": {
+        "train": "ICE 1006",
+        "planned_departure": "2026-06-19T08:00:00",
+        "planned_arrival": "2026-06-19T12:04:00",
+        "transfers": 0,
+        "realtime_arrival_delay_minutes": null
+      }
+    }
+  ]
+}

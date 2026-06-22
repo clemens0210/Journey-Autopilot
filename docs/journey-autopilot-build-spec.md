@@ -179,8 +179,9 @@ journey-autopilot/
     orchestrator.py            # root_agent (LlmAgent + AgentTool, ReAct routing)
     state.py                   # ContextRecord + sub-types (data contract)
     policy.py  errors.py       # veto-gate resolution + error policy (scaffold, M4/M5)
-    config.py  mock_data.py    # per-role LiteLlm models + fixtures
+    config.py  mock_data.py    # settings.yaml-driven models + fixture loader
     data/db_delay_reference.json  # pre-aggregated punctuality archive (shipped)
+    data/fixtures/happy_path.json # scenario fixtures (JA_FIXTURES selects the set)
     agents/      monitoring.py  planner.py  communicator.py  executor.py(stub, M4)
     tools/       read_tools.py  write_tools.py(stub, M4)  risk_model.py
     integrations/  db_ops.py  stations.py  whatsapp.py  whatsapp_webhook.py  whatsapp_models.py
@@ -190,7 +191,7 @@ journey-autopilot/
     ui/            server.py  chat.py  static/  # DB-Navigator-style web app
 ```
 
-> Deviations from the original (LangGraph) draft, by decision: no `graph.py` (orchestrator is an `LlmAgent`); fixtures live inline in `mock_data.py` rather than `data/fixtures/`; the sqlite db sits under `src/journey_autopilot/data/`; the integrations layer grew sub-packages (`outlook/`, `rights_rag/`) plus the `db_service/` Node sidecar; `onboarding/` + `ui/` (web app) and `scripts/` (dev utilities) are additions beyond the original spec.
+> Deviations from the original (LangGraph) draft, by decision: no `graph.py` (orchestrator is an `LlmAgent`); fixtures live as JSON under `src/journey_autopilot/data/fixtures/` (shipped with the package, loaded by `mock_data.py`, swappable via the `JA_FIXTURES` env var) rather than a repo-root `data/fixtures/`; the sqlite db sits under `src/journey_autopilot/data/`; the integrations layer grew sub-packages (`outlook/`, `rights_rag/`) plus the `db_service/` Node sidecar; `onboarding/` + `ui/` (web app) and `scripts/` (dev utilities) are additions beyond the original spec.
 
 ---
 

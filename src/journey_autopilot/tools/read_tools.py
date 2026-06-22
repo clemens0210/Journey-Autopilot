@@ -15,9 +15,8 @@ import os
 
 from . import risk_model
 
-from ..integrations import db_ops
-
 from .. import mock_data
+from ..errors import with_resilience, with_resilience_async
 from ..integrations.rights_rag.rag_store import FahrgastrechteRAG
 from ..integrations.rights_rag.rights_service import calculate_compensation
 from ..integrations.outlook import get_calendar_events
@@ -102,19 +101,21 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     """
     mock_events = mock_data.USER_CALENDAR.get(date, [])
 
-    if _calendar_configured():
-        try:
-            events = await get_calendar_events(date, user_email)
-            return {"date": date, "events": events, "source": "outlook"}
-        except Exception as exc:
-            return {
-                "date": date,
-                "events": mock_events,
-                "source": "mock (Graph-Fallback)",
-                "error": str(exc),
-            }
+    if not _calendar_configured():
+        return {"date": date, "events": mock_events, "source": "mock"}
 
-    return {"date": date, "events": mock_events, "source": "mock"}
+    async def _primary() -> dict:
+        events = await get_calendar_events(date, user_email)
+        return {"date": date, "events": events, "source": "outlook"}
+
+    def _fallback() -> dict:
+        return {"date": date, "events": mock_events, "source": "mock (Graph-Fallback)"}
+
+    outcome = await with_resilience_async(_primary, _fallback, tool="get_user_calendar")
+    result = outcome.value
+    if outcome.failure is not None:  # Graph access failed -> surface why
+        result["error"] = outcome.failure["fallback_taken"]
+    return result
 
 
 def get_user_profile() -> dict:
@@ -271,28 +272,33 @@ def get_connection_delay_history(origin: str, destination: str, train: str = "")
         "mock_history"). Contains "error" if neither live nor mock data is
         available for the connection.
     """
-    try:
+    def _primary() -> dict:
         stats = risk_model.connection_delay_history(origin, destination, train=train)
-        if stats.get("sample_count", 0) > 0:
-            stats["source"] = "db_service_live"
-            return stats
-    except db_ops.DBServiceError:
-        pass  # sidecar unreachable -> simulated history
-    except Exception:
-        pass  # unexpected parsing problem -> simulated history
+        stats["source"] = "db_service_live"
+        return stats
 
-    mock = mock_data.CONNECTION_DELAY_HISTORY.get((origin, destination))
-    if mock is None:
-        return {
-            "origin": origin,
-            "destination": destination,
-            "error": "No delay history available for this connection.",
-        }
-    result = dict(mock)
-    result.update(
-        {"origin": origin, "destination": destination, "train": train or None, "source": "mock_history"}
-    )
-    return result
+    def _fallback() -> dict:
+        mock = mock_data.CONNECTION_DELAY_HISTORY.get((origin, destination))
+        if mock is None:
+            return {
+                "origin": origin,
+                "destination": destination,
+                "error": "No delay history available for this connection.",
+            }
+        result = dict(mock)
+        result.update(
+            {"origin": origin, "destination": destination, "train": train or None, "source": "mock_history"}
+        )
+        return result
+
+    # Live sidecar, else simulated history. An empty sample (sample_count == 0)
+    # counts as a miss, just like an unreachable sidecar.
+    return with_resilience(
+        _primary,
+        _fallback,
+        tool="get_connection_delay_history",
+        accept=lambda r: r.get("sample_count", 0) > 0,
+    ).value
 
 
 def get_planned_connection(origin: str, destination: str, departure: str = "") -> dict:
@@ -313,23 +319,22 @@ def get_planned_connection(origin: str, destination: str, departure: str = "") -
         ``transfers``, any real-time arrival delay, and ``source``. Contains
         "error" if no connection was found.
     """
-    try:
+    def _primary() -> dict | None:
         conn = risk_model.scheduled_connection(origin, destination, departure or None)
         if conn:
             conn["source"] = "db_service_live"
-            return conn
-    except db_ops.DBServiceError:
-        pass  # sidecar unreachable -> simulated scheduled times
-    except Exception:
-        pass
+        return conn  # None (no journey found) is rejected -> fall back
 
-    mock = mock_data.PLANNED_CONNECTIONS.get((origin, destination))
-    if mock is None:
-        return {
-            "origin": origin,
-            "destination": destination,
-            "error": "No planned connection found for this route.",
-        }
-    result = dict(mock)
-    result.update({"origin": origin, "destination": destination, "source": "mock_planned"})
-    return result
+    def _fallback() -> dict:
+        mock = mock_data.PLANNED_CONNECTIONS.get((origin, destination))
+        if mock is None:
+            return {
+                "origin": origin,
+                "destination": destination,
+                "error": "No planned connection found for this route.",
+            }
+        result = dict(mock)
+        result.update({"origin": origin, "destination": destination, "source": "mock_planned"})
+        return result
+
+    return with_resilience(_primary, _fallback, tool="get_planned_connection").value

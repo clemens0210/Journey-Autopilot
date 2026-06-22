@@ -2,10 +2,12 @@
 # See build spec §10. Per-agent model is a config value because it feeds the
 # cost/quality trade-off.
 #
-# STATUS: scaffold. config.py currently builds all roles from one OpenAI-compatible
-# endpoint (University of Cologne GPT via LiteLLM), configured through the
-# UNI_GPT_* environment variables (see .env.example). This file documents the
-# target shape; wiring config.py to read it is a follow-up (not in this pass).
+# READ BY config.py (single source of truth). Each model value is an *alias*
+# resolved in config.py's _MODEL_BUILDERS; "uni_gpt" is the University of Cologne
+# GPT endpoint (OpenAI-compatible via LiteLLM), configured through the UNI_GPT_*
+# environment variables (see .env.example). Add an alias + builder to introduce a
+# second endpoint. If this file or PyYAML is missing, config.py falls back to
+# these same defaults.
 
 models:
   # All roles share the Uni-GPT endpoint today; split per role once more models
