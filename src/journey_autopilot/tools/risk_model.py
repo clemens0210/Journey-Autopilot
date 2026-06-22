@@ -61,12 +61,16 @@ def _to_minutes(delay_seconds: Any) -> float | None:
 
 
 def _is_long_distance(entry: dict) -> bool:
-    """Long-distance (ICE/IC/EC)? Other products would distort the corridor statistics."""
+    """Long-distance train? Other products would distort the corridor statistics.
+
+    Uses the SAME train-type set as the historical archive (``_LONG_DISTANCE``)
+    so the live history and the archive count the exact same products — a plain
+    ``startswith(("ICE", "IC", "EC"))`` would silently drop RJ/RJX/TGV/NJ/EN.
+    """
     line = entry.get("line") or {}
     if line.get("product") in ("nationalExpress", "national"):
         return True
-    name = str(line.get("name") or "")
-    return name.startswith(("ICE", "IC", "EC"))
+    return _train_type(line.get("name") or "") in _LONG_DISTANCE
 
 
 def _percentile(values: list[float], pct: float) -> float:

@@ -58,8 +58,9 @@ USER_CALENDAR: dict = _FX["user_calendar"]
 PASSENGER_RIGHTS: list = _FX["passenger_rights"]
 
 # --- Risk knowledge (pre-trip): delay history + scheduled connection ----------
-# Fallbacks for the Risk Agent when the db_service sidecar is unavailable, so the
-# agent sees the same fields whether the data is live or simulated.
+# Fallbacks for the Monitoring Agent's pre-trip risk path when the db_service
+# sidecar is unavailable, so the agent sees the same fields whether the data is
+# live or simulated.
 CONNECTION_DELAY_HISTORY: dict = _by_route(_FX["connection_delay_history"], "stats")
 PLANNED_CONNECTIONS: dict = _by_route(_FX["planned_connections"], "connection")
 

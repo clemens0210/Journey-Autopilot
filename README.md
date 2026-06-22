@@ -137,9 +137,9 @@ client is configured via `DB_API_URL` / `DB_API_TIMEOUT` in `.env`.
 > tools try the sidecar first and fall back to `mock_data`, tagging the result
 > with a `source` field.
 
-### Historical delay reference (Risk Agent)
+### Historical delay reference (Monitoring Agent, pre-trip risk)
 
-The Risk Agent bases its baseline on a real punctuality **archive** spanning
+The Monitoring Agent bases its pre-trip baseline on a real punctuality **archive** spanning
 several months. The committed `src/journey_autopilot/data/db_delay_reference.json`
 (~370 kB) is pre-aggregated from the
 [`piebro/deutsche-bahn-data`](https://github.com/piebro/deutsche-bahn-data)

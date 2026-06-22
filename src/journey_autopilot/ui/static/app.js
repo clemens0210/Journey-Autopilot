@@ -646,7 +646,7 @@ const renderers = {
     });
   },
 
-  // -- Trip chat: runs the ReAct orchestrator (the run_demo.py flow) ------------
+  // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
   chat() {
     const trip = state.chat.trip;
     screen.replaceChildren(el(`

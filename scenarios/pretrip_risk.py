@@ -1,4 +1,4 @@
-"""Verbose standalone demo of the risk agent — pre-trip risk & ETA before departure.
+"""Verbose standalone demo of the pre-trip risk path — risk & ETA before departure.
 
 Makes every step of the pre-trip risk assessment transparent — BEFORE the trip
 has started:
@@ -7,12 +7,13 @@ has started:
      into the analysis, with its actual real-world delay.
   2) Metrics     — how the statistics and ETA building blocks are
      deterministically computed from these trips (median, p90, on-time rate ...).
-  3) Agent trace — the full ReAct trace of the `risk_agent`: every thought,
+  3) Agent trace — the full ReAct trace of the `monitoring_agent` on the
+     pre-trip path: every thought,
      every tool call (with arguments), and every tool result (raw).
   4) Response    — the final assessment delivered to the user (score + ETA).
 
 Usage:
-    python run_risk_demo.py
+    python scenarios/pretrip_risk.py
 
 Requires: a configured Uni-GPT backend in .env (UNI_GPT_*; see README). If the
 db_service sidecar is running, delay data comes live from the DB arrivals
@@ -34,8 +35,6 @@ if _SRC.is_dir() and str(_SRC) not in sys.path:
 
 from google.adk.runners import InMemoryRunner
 from google.genai import types
-from journey_autopilot.tools import risk_model as delay_stats
-from journey_autopilot.integrations import db_ops as db_api
 
 try:
     from dotenv import load_dotenv
@@ -46,7 +45,6 @@ except ImportError:
     pass
 
 from journey_autopilot.tools import read_tools as tools
-from journey_autopilot.mock_data import DEMO_TRIP
 # Risk is folded into the Monitoring agent; this demo drives that agent on the
 # pre-trip path (delay risk + ETA before departure).
 from journey_autopilot.agents.monitoring import build_monitoring_agent
@@ -54,15 +52,10 @@ from journey_autopilot.agents.monitoring import build_monitoring_agent
 APP_NAME = "journey_autopilot_risk"
 USER_ID = "lucas"
 
-# ORIGIN = DEMO_TRIP["origin"]
-# DESTINATION = DEMO_TRIP["destination"]
-# TRAIN = DEMO_TRIP["train"]
-# DEPARTURE = DEMO_TRIP["planned_departure"]
-
-ORIGIN = 'Köln Hbf'
-DESTINATION = 'Bonn Hbf'
-TRAIN = 'IC 2007'
-DEPARTURE = '10:32'
+ORIGIN = "Köln Hbf"
+DESTINATION = "Bonn Hbf"
+TRAIN = "IC 2007"
+DEPARTURE = "10:32"
 
 # Pre-trip request: the journey has not started yet.
 PROMPT = (
@@ -103,31 +96,12 @@ def _delay_label(minutes: float | None, status: str) -> str:
     return f"+{minutes:.0f} min"
 
 
-def _fetch_history_verbose() -> dict:
-    """Like the tool, but with individual trips (details=True) for output.
-
-    Mirrors the tool's live/mock fallback, so the data basis matches exactly
-    what the agent will use next.
-    """
-    try:
-        stats = delay_stats.connection_delay_history(
-            ORIGIN, DESTINATION, train=TRAIN, details=True
-        )
-        if stats.get("sample_count", 0) > 0:
-            stats["source"] = "db_service_live"
-            return stats
-    except db_api.DBServiceError:
-        pass
-    except Exception:
-        pass
-    # Fallback: aggregierte Mock-Historie (ohne Einzelfahrten).
-    return tools.get_connection_delay_history(ORIGIN, DESTINATION, TRAIN)
-
-
 def print_data_basis() -> tuple[dict, dict]:
     """Sections 0-3: baseline archive, considered connections, metrics, ETA."""
     reference = tools.get_connection_delay_reference(ORIGIN, DESTINATION, TRAIN)
-    history = _fetch_history_verbose()
+    # Same live/mock fallback the agent's tool uses, but with details=True so the
+    # individual considered arrivals (samples) are available for verbose output.
+    history = tools._connection_delay_history(ORIGIN, DESTINATION, TRAIN, details=True)
     planned = tools.get_planned_connection(ORIGIN, DESTINATION, DEPARTURE)
 
     print("--- 0) Historical punctuality reference (baseline, monthly archive) -")
@@ -160,7 +134,7 @@ def print_data_basis() -> tuple[dict, dict]:
     else:
         print("  (simulated aggregate history — no individual trips available)")
 
-    print("\n--- 2) Metrics (computed deterministically in delay_stats.py) ------")
+    print("\n--- 2) Metrics (computed deterministically in risk_model.py) ------")
     if history.get("sample_count"):
         median = history.get("median_delay_minutes")
         p90 = history.get("p90_delay_minutes")
@@ -222,14 +196,14 @@ def _describe_event(event) -> None:
 
 async def main() -> None:
     print("=" * 72)
-    print("Journey Autopilot — Demo run (Risk Agent: pre-trip risk & ETA) [VERBOSE]")
+    print("Journey Autopilot — Demo run (Monitoring Agent: pre-trip risk & ETA) [VERBOSE]")
     print("=" * 72)
     print(f"User: {PROMPT}\n")
 
     print_data_basis()
 
-    risk_agent = build_monitoring_agent()
-    runner = InMemoryRunner(agent=risk_agent, app_name=APP_NAME)
+    monitoring_agent = build_monitoring_agent()
+    runner = InMemoryRunner(agent=monitoring_agent, app_name=APP_NAME)
     session = await runner.session_service.create_session(
         app_name=APP_NAME, user_id=USER_ID
     )

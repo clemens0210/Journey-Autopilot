@@ -5,7 +5,7 @@ events along, so the collaboration of Monitoring and Planner Agents
 becomes visible (which agent is called when, which tools run).
 
 Usage:
-    python run_demo.py
+    python scenarios/happy_path.py
 
 Prerequisite: a configured Uni-GPT backend in .env (UNI_GPT_*; see
 README). Alternatively, the ADK Dev UI also works:  adk web   or
@@ -44,7 +44,6 @@ os.environ.setdefault("LITELLM_LOG", "CRITICAL")
 # ssl.SSLError: [ASN1: NOT_ENOUGH_DATA] when aiohttp calls ssl.create_default_context()
 # at module-load time. Patching load_default_certs to swallow that error lets the
 # rest of the store (and certifi's bundle) still work fine.
-import sys
 import ssl as _ssl
 
 if sys.platform.startswith("win"):
@@ -100,13 +99,13 @@ def _describe_event(event) -> None:
             print(f"  [{author}] {text.strip()}")
 
 
-def _build_demo_context(os_module) -> tuple | None:
+def _build_demo_context() -> tuple | None:
     """Shared setup logic for both WhatsApp demos.
 
     Returns (event, traveler, non_traveler, twilio_ready) or None if
     DEMO_TRAVELER_NUMBER is missing.
     """
-    traveler_number = os_module.getenv("DEMO_TRAVELER_NUMBER", "")
+    traveler_number = os.getenv("DEMO_TRAVELER_NUMBER", "")
     if not traveler_number:
         print(
             "[!] DEMO_TRAVELER_NUMBER not set in .env.\n"
@@ -118,33 +117,31 @@ def _build_demo_context(os_module) -> tuple | None:
     recipients: list[Recipient] = [
         Recipient(name="Lucas Wild", role="traveler", whatsapp_number=traveler_number),
     ]
-    if client_number := os_module.getenv("DEMO_CLIENT_NUMBER", ""):
+    if client_number := os.getenv("DEMO_CLIENT_NUMBER", ""):
         recipients.append(Recipient(name="Frau Dr. Bauer", role="client", whatsapp_number=client_number))
-    if colleague_number := os_module.getenv("DEMO_COLLEAGUE_NUMBER", ""):
+    if colleague_number := os.getenv("DEMO_COLLEAGUE_NUMBER", ""):
         recipients.append(Recipient(name="Thomas Müller", role="colleague", whatsapp_number=colleague_number))
-    if private_number := os_module.getenv("DEMO_PRIVATE_NUMBER", ""):
+    if private_number := os.getenv("DEMO_PRIVATE_NUMBER", ""):
         recipients.append(Recipient(name="Anna Wild", role="private", whatsapp_number=private_number))
 
     event = DisruptionEvent(**DEMO_EVENT_FIELDS, recipients=recipients)
     traveler = next(r for r in recipients if r.role == "traveler")
     non_traveler = [r for r in recipients if r.role != "traveler"]
     twilio_ready = bool(
-        os_module.getenv("TWILIO_ACCOUNT_SID")
-        and os_module.getenv("TWILIO_AUTH_TOKEN")
-        and os_module.getenv("TWILIO_WHATSAPP_FROM")
+        os.getenv("TWILIO_ACCOUNT_SID")
+        and os.getenv("TWILIO_AUTH_TOKEN")
+        and os.getenv("TWILIO_WHATSAPP_FROM")
     )
     return event, traveler, non_traveler, twilio_ready
 
 
 async def _demo_direct_notify() -> None:
     """Demo 1 — Direct message: disruption notice sent straight to the traveler, no communicator."""
-    import os
-
     print("\n" + "=" * 72)
     print("WhatsApp Demo 1 — Direct message to traveler (no drafter)")
     print("=" * 72)
 
-    ctx = _build_demo_context(os)
+    ctx = _build_demo_context()
     if ctx is None:
         return
     event, traveler, _non_traveler, twilio_ready = ctx
@@ -175,13 +172,11 @@ async def _demo_direct_notify() -> None:
 
 async def _demo_approval_flow() -> None:
     """Demo 2 — Approval workflow: drafter drafts, traveler approves via WhatsApp."""
-    import os
-
     print("\n" + "=" * 72)
     print("WhatsApp Demo 2 — Drafter + approval workflow")
     print("=" * 72)
 
-    ctx = _build_demo_context(os)
+    ctx = _build_demo_context()
     if ctx is None:
         return
     event, traveler, non_traveler, twilio_ready = ctx

@@ -11,7 +11,7 @@ This package is the **presentation layer only**. The onboarding *logic* —
 simulated DB accounts/trips and the SQLite profile store — lives next door in
 [`journey_autopilot/onboarding/`](../onboarding/) and is imported here. The
 chat endpoint runs [`journey_autopilot.agent.root_agent`](../agent.py), the
-same orchestrator as [`run_demo.py`](../../run_demo.py).
+same orchestrator as [`scenarios/happy_path.py`](../../../scenarios/happy_path.py).
 
 > **Why a standalone app instead of a real DB Navigator plugin?** DB does not
 > offer third parties an official API/extension interface for account login or
@@ -87,7 +87,7 @@ profile summary, connections, and the GDPR deletion option.
 **Tapping a monitored trip** on the dashboard opens a chat in DB Navigator
 style. Every message is sent to `POST /api/chat`, which runs the ReAct
 orchestrator (`journey_autopilot.agent.root_agent`) — the same flow as
-[`run_demo.py`](../../run_demo.py). The selected trip is added as context on the
+[`scenarios/happy_path.py`](../../../scenarios/happy_path.py). The selected trip is added as context on the
 first message, so the orchestrator monitors it, and (on elevated risk) calls the
 planner for reroutes and checks the calendar. The reply is shown as a chat
 bubble with a collapsible **agent trace** (which agent called which tool).

@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
-# uvicorn runs this module in its own process, so (unlike run_demo.py) it must
+# uvicorn runs this module in its own process, so (unlike scenarios/happy_path.py) it must
 # load the .env itself — otherwise TWILIO_* and friends are unset here.
 try:
     from dotenv import load_dotenv

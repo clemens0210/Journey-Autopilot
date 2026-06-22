@@ -7,7 +7,7 @@ Start:
 This is the presentation layer. The onboarding *logic* (simulated DB
 accounts/trips and the SQLite profile store) lives in
 ``journey_autopilot.onboarding`` and is imported here. The chat endpoint
-(``/api/chat``) runs the same ReAct orchestrator as ``run_demo.py``.
+(``/api/chat``) runs the same ReAct orchestrator as ``scenarios/happy_path.py``.
 
 What's simulated here (and why) is documented in the Context Record: DB
 (Deutsche Bahn) offers no official API for account login / ticket import,
@@ -248,7 +248,7 @@ def stations(query: str = "") -> dict:
         return {"stations": hits[:6], "source": "fallback"}
 
 
-# --- Chat (runs the ReAct orchestrator, like run_demo.py) --------------------------------
+# --- Chat (runs the ReAct orchestrator, like scenarios/happy_path.py) --------------------------------
 
 
 @app.post("/api/chat")
@@ -258,7 +258,7 @@ async def chat_endpoint(
     """Drives the ReAct orchestrator from the chat UI.
 
     Clicking a trip opens a chat; each message is handed to ``root_agent``
-    (the same orchestrator ``run_demo.py`` uses). On the first message the
+    (the same orchestrator ``scenarios/happy_path.py`` uses). On the first message the
     selected trip is added as context so the orchestrator monitors it. The
     agent/tool trace and the final answer are returned for display.
 

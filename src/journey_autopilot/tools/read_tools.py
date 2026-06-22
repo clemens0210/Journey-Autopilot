@@ -252,6 +252,47 @@ def get_connection_delay_reference(origin: str, destination: str, train: str = "
     return ref
 
 
+def _connection_delay_history(
+    origin: str, destination: str, train: str = "", *, details: bool = False
+) -> dict:
+    """Shared live/fallback resolution for the connection delay history.
+
+    Live sidecar first (arrival board at the destination), simulated history on
+    failure or an empty sample. ``details=True`` asks the live source for the
+    individual considered arrivals (``samples``) — used by the verbose risk
+    scenario; the agent-facing tool keeps it off to stay context-lean.
+    """
+    def _primary() -> dict:
+        stats = risk_model.connection_delay_history(
+            origin, destination, train=train, details=details
+        )
+        stats["source"] = "db_service_live"
+        return stats
+
+    def _fallback() -> dict:
+        mock = mock_data.CONNECTION_DELAY_HISTORY.get((origin, destination))
+        if mock is None:
+            return {
+                "origin": origin,
+                "destination": destination,
+                "error": "No delay history available for this connection.",
+            }
+        result = dict(mock)
+        result.update(
+            {"origin": origin, "destination": destination, "train": train or None, "source": "mock_history"}
+        )
+        return result
+
+    # An empty sample (sample_count == 0) counts as a miss, just like an
+    # unreachable sidecar.
+    return with_resilience(
+        _primary,
+        _fallback,
+        tool="get_connection_delay_history",
+        accept=lambda r: r.get("sample_count", 0) > 0,
+    ).value
+
+
 def get_connection_delay_history(origin: str, destination: str, train: str = "") -> dict:
     """Returns delay metrics for a connection from past data.
 
@@ -272,33 +313,7 @@ def get_connection_delay_history(origin: str, destination: str, train: str = "")
         "mock_history"). Contains "error" if neither live nor mock data is
         available for the connection.
     """
-    def _primary() -> dict:
-        stats = risk_model.connection_delay_history(origin, destination, train=train)
-        stats["source"] = "db_service_live"
-        return stats
-
-    def _fallback() -> dict:
-        mock = mock_data.CONNECTION_DELAY_HISTORY.get((origin, destination))
-        if mock is None:
-            return {
-                "origin": origin,
-                "destination": destination,
-                "error": "No delay history available for this connection.",
-            }
-        result = dict(mock)
-        result.update(
-            {"origin": origin, "destination": destination, "train": train or None, "source": "mock_history"}
-        )
-        return result
-
-    # Live sidecar, else simulated history. An empty sample (sample_count == 0)
-    # counts as a miss, just like an unreachable sidecar.
-    return with_resilience(
-        _primary,
-        _fallback,
-        tool="get_connection_delay_history",
-        accept=lambda r: r.get("sample_count", 0) > 0,
-    ).value
+    return _connection_delay_history(origin, destination, train)
 
 
 def get_planned_connection(origin: str, destination: str, departure: str = "") -> dict:

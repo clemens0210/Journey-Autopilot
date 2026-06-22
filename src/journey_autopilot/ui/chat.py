@@ -1,7 +1,7 @@
 """Orchestrator-backed chat for the dashboard.
 
-Runs the same ReAct Orchestrator as ``run_demo.py``, but driven by chat
-messages from the UI instead of a single hard-coded prompt. Clicking a trip in
+Runs the same ReAct Orchestrator as ``scenarios/happy_path.py``, but driven by
+chat messages from the UI instead of a single hard-coded prompt. Clicking a trip in
 the dashboard opens a chat; each message is handed to ``root_agent``, and the
 agent/tool trace plus the final answer are returned to the browser.
 
@@ -29,7 +29,7 @@ def _load_env() -> None:
 
     The agent config (``journey_autopilot.config``) reads the LiteLLM
     credentials from the environment at import time, so .env must be loaded
-    *before* the agent is imported. ``run_demo.py`` does the same before pulling
+    *before* the agent is imported. ``scenarios/happy_path.py`` does the same before pulling
     in ADK; doing it here — right before the lazy agent import — means the chat
     works regardless of how the server was started (``python run_onboarding.py``
     or ``uvicorn journey_autopilot.ui.server:app`` directly).
@@ -60,7 +60,7 @@ def _seed_prompt(trip: dict | None, message: str) -> str:
     """First message of a chat: prepend the selected trip as context.
 
     The orchestrator expects a trip_id (and route/date) to call the monitoring
-    agent — exactly what ``run_demo.py`` passes in its hard-coded prompt. Here
+    agent — exactly what ``scenarios/happy_path.py`` passes in its hard-coded prompt. Here
     the values come from the trip the user clicked.
     """
     if not trip:
@@ -80,7 +80,7 @@ def _seed_prompt(trip: dict | None, message: str) -> str:
 def _describe(event: Any) -> list[dict]:
     """Turn one ADK event into compact trace entries for the chat UI.
 
-    Mirrors ``run_demo._describe_event`` but returns structured data (which
+    Mirrors ``happy_path._describe_event`` but returns structured data (which
     agent called which tool, tool results, intermediate texts) instead of
     printing it.
     """

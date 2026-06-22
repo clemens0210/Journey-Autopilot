@@ -24,7 +24,7 @@ if _SRC.is_dir() and str(_SRC) not in sys.path:
 
 try:
     # Load .env so ONBOARDING_HOST/PORT, DB_API_URL and the agent's UNI_GPT_*
-    # credentials are available (same as run_demo.py).
+    # credentials are available (same as scenarios/happy_path.py).
     from dotenv import load_dotenv
 
     load_dotenv()
