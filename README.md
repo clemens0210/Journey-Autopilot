@@ -17,8 +17,8 @@ endpoint, via LiteLLM).
   model name from the Uni GPT service. ADK talks to the endpoint via LiteLLM;
   the agent code remains untouched by this.
 - **Twilio account** (optional) — only for the WhatsApp Communicator. Sandbox
-  access suffices. Without Twilio configuration, `run_demo.py` runs in dry-run
-  mode and only prints the generated messages to the console.
+  access suffices. Without Twilio configuration, `scenarios/happy_path.py` runs
+  in dry-run mode and only prints the generated messages to the console.
 - **Node.js 18+** — only needed for the DB live data sidecar (`db_service/`). If
   you're working without real DB data (mock mode), you don't need Node.
 
@@ -35,8 +35,10 @@ conda activate journey-autopilot
 #   python -m venv .venv
 #   source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
-# 3. Dependencies (google-adk is only on PyPI → via pip)
-pip install -r requirements.txt
+# 3. Install the package (editable, src/ layout) + dependencies
+pip install -e .
+#   ... or just the deps:  pip install -r requirements.txt
+#   (the run scripts add src/ to sys.path themselves, so they work either way)
 
 # 4. Store credentials
 cp .env.example .env        # Windows (PowerShell): copy .env.example .env
@@ -93,12 +95,12 @@ ngrok http 8000
 Three ways, same `root_agent` (the Orchestrator):
 
 ```bash
-python run_demo.py              # End-to-End demo in terminal, streams agent trace
+python scenarios/happy_path.py  # End-to-End demo in terminal, streams agent trace
 adk web                         # Dev UI in browser — select agent & chat
-adk run journey_autopilot       # directly in terminal, interactive
+adk run src/journey_autopilot   # directly in terminal, interactive (src/ layout)
 ```
 
-`run_demo.py` first shows the Orchestrator run (Monitoring → Planner) and then —
+`scenarios/happy_path.py` first shows the Orchestrator run (Monitoring → Planner) and then —
 provided `DEMO_TRAVELER_NUMBER` is set — the WhatsApp Communicator demo: the
 Drafter Agent drafts messages for each configured recipient and (with a complete
 Twilio configuration) sends them to the traveler for approval.
@@ -112,7 +114,7 @@ runs as a small **sidecar** (`db_service/`): a local JSON service that the
 Python side talks to over HTTP.
 
 ```
-[ ADK agents ] -> tools.py -> db_api.py --HTTP--> db_service (Node) -> DB
+[ ADK agents ] -> read_tools.py -> db_ops.py --HTTP--> db_service (Node) -> DB
 ```
 
 Start the sidecar (separate terminal):
@@ -124,20 +126,21 @@ cd db_service && npm start      # runs on http://127.0.0.1:3000
 Test the connection (sidecar must be running):
 
 ```bash
-python check_db.py              # health check + EVA resolution + one connection
+python scripts/check_db.py              # health check + EVA resolution + one connection
 ```
 
 Endpoints and options are documented in `db_service/README.md`. The Python
 client is configured via `DB_API_URL` / `DB_API_TIMEOUT` in `.env`.
 
-> **Status:** The sidecar and Python client (`db_api.py`, `stations.py`) are
-> finished and independently testable. The agents currently still run on
-> `mock_data` — `tools.py` will be switched over to `db_api` in the next step.
+> **Status:** The sidecar and Python client (`integrations/db_ops.py`,
+> `integrations/stations.py`) are finished and independently testable. The read
+> tools try the sidecar first and fall back to `mock_data`, tagging the result
+> with a `source` field.
 
-### Historical delay reference (Risk Agent)
+### Historical delay reference (Monitoring Agent, pre-trip risk)
 
-The Risk Agent bases its baseline on a real punctuality **archive** spanning
-several months. The committed `journey_autopilot/data/db_delay_reference.json`
+The Monitoring Agent bases its pre-trip baseline on a real punctuality **archive** spanning
+several months. The committed `src/journey_autopilot/data/db_delay_reference.json`
 (~370 kB) is pre-aggregated from the
 [`piebro/deutsche-bahn-data`](https://github.com/piebro/deutsche-bahn-data)
 dataset (real DB stops, **CC BY 4.0**) — arrival delay metrics per station and
@@ -158,9 +161,9 @@ python scripts/build_db_delay_reference.py 2025-08 2025-09 2025-10
 ## Onboarding, Profile & Trip Chat (Web App)
 
 The web app runs in the **DB Navigator look** (FastAPI + SQLite). It is split
-into the presentation layer (`journey_autopilot/ui/`) and the onboarding logic
-(`journey_autopilot/onboarding/`); see
-[`journey_autopilot/ui/README.md`](journey_autopilot/ui/README.md) for details.
+into the presentation layer (`src/journey_autopilot/ui/`) and the onboarding logic
+(`src/journey_autopilot/onboarding/`); see
+[`src/journey_autopilot/ui/README.md`](src/journey_autopilot/ui/README.md) for details.
 
 ```bash
 python run_onboarding.py        # -> http://127.0.0.1:8000
@@ -176,17 +179,17 @@ notifications & autonomy level → summary → dashboard.
 - The **only requirement** is the DB login; mobile number and Outlook can be
   skipped, all preferences have defaults.
 - **Trip chat:** tapping a monitored trip on the dashboard opens a chat that
-  runs the ReAct orchestrator live (the same flow as `run_demo.py`) and shows
+  runs the ReAct orchestrator live (the same flow as `scenarios/happy_path.py`) and shows
   the reply plus a collapsible agent trace. Lucas' Munich → Berlin trip is the
   scripted demo scenario. Requires a configured Uni-GPT backend in `.env`.
 - **Simulated** are DB login/trip import, Microsoft consent, and SMS sending
   (no official APIs for a university project) — but the API contracts match
   what a real integration would need to deliver (swap point:
-  `journey_autopilot/onboarding/accounts.py`). Rationale in the Context Record.
+  `src/journey_autopilot/onboarding/accounts.py`). Rationale in the Context Record.
 - **Real** is the home station search: if the `db_service` sidecar is running,
   station suggestions come live from the DB API (green dot), otherwise a
   static fallback list is used.
-- **Persistence:** SQLite under `data/journey_autopilot.db`. The agents read
+- **Persistence:** SQLite under `src/journey_autopilot/data/journey_autopilot.db`. The agents read
   the profile via the `get_user_profile` / `get_upcoming_trips` tools — the
   Planner weighs reroute options using it. GDPR deletion with one click in the
   dashboard.
@@ -194,74 +197,85 @@ notifications & autonomy level → summary → dashboard.
 ### Webhook server (receive WhatsApp replies)
 
 ```bash
-uvicorn journey_autopilot.whatsapp_communicator.webhook:app --port 8000
+uvicorn journey_autopilot.integrations.whatsapp_webhook:app --port 8000
 ```
 
 Twilio sends the traveler's replies (YES / NO / EDIT \<text\>) to
 `POST /whatsapp/reply`. The server forwards them to the approval logic in
-`whatsapp_communicator/tools.py` and, upon approval, dispatches the message to the
+`integrations/whatsapp.py` and, upon approval, dispatches the message to the
 actual recipient via Twilio.
-python run_demo.py              # end-to-end demo in terminal, streams the agent trace
-python run_risk_demo.py         # focused demo: upfront risk & ETA (Risk Agent)
-adk web                         # dev UI in browser — select agent & chat
-adk run journey_autopilot       # directly in terminal, interactive
-```
 
-`run_demo.py` is the fastest way to see the agents working together:
+`scenarios/happy_path.py` is the fastest way to see the agents working together:
 it shows how the Orchestrator first calls the Monitoring Agent and — only if
-risk is elevated — brings in the Planner afterward. `run_risk_demo.py` shows
-the **Risk Agent** in isolation: upfront delay risk (score 0-100) and
-predicted arrival (ETA), **before** the trip has started.
+risk is elevated — brings in the Planner afterward. `scenarios/pretrip_risk.py`
+drives the Monitoring agent on its **pre-trip** path: upfront delay risk
+(score 0-100) and predicted arrival (ETA), **before** the trip has started.
 
 ---
 
 ## Current State (Baseline)
 
-A first runnable foundation is implemented with **three specialist agents, an
-orchestrator, and a WhatsApp communication layer**. Data is deliberately mocked.
+A runnable foundation is implemented with an **orchestrator and its specialist
+workers** plus a WhatsApp communication layer, reorganized into the target
+architecture (see `docs/journey-autopilot-build-spec.md` and `docs/adr/`). Data
+is deliberately mocked.
 
-- **Orchestrator** (`journey_autopilot/agent.py`, `root_agent`) — `LlmAgent`
-  that wraps the specialists as `AgentTool` and decides in a ReAct loop
-  who to call when. Always calls Monitoring first, then (if risk present) Planner.
-- **Monitoring Agent** (`monitoring.py`) — reads mocked live data and
-  disruption status, returns a risk level (LOW/MEDIUM/HIGH).
-- **Planner Agent** (`planner.py`) — generates reroute options, checks them against
-  hard deadlines (calendar), and cites passenger rights. Proposes, does not book.
-- **Drafter Agent** (`whatsapp_communicator/drafter.py`) — `LlmAgent` that drafts
+- **Orchestrator** (`orchestrator.py`, `root_agent`) — `LlmAgent` that wraps the
+  workers as `AgentTool` and decides in a ReAct loop who to call when. Calls
+  Monitoring first, then (if risk present) Planner. `agent.py` is a thin shim
+  exposing `root_agent` for ADK discovery.
+- **Monitoring Agent** (`agents/monitoring.py`) — read-only risk detection. Both
+  pre-trip (delay risk + ETA from punctuality history) and en-route (live status
+  + disruptions). Risk is a deterministic model tool, not an LLM judgment.
+- **Planner Agent** (`agents/planner.py`) — read-only. Generates reroute options,
+  checks them against hard deadlines (calendar), cites passenger rights.
+- **Communicator Agent** (`agents/communicator.py`) — write. Drafts
   role-appropriate WhatsApp messages for each recipient.
-- **Communicator Tools** (`whatsapp_communicator/tools.py`) — sender (Twilio) plus
-  approval queue (in-memory, 5-minute timeout).
-- **Webhook** (`whatsapp_communicator/webhook.py`) — FastAPI endpoint for
-  YES / NO / EDIT replies.
-- **Tools & Mock Data** (`tools.py`, `mock_data.py`) — Function tools backed by
-  fixtures; the insertion points for real DB/calendar/RAG sources.
+- **Read tools / risk model** (`tools/read_tools.py`, `tools/risk_model.py`) —
+  function tools + deterministic delay statistics, backed by fixtures
+  (`mock_data.py`); insertion points for real DB/calendar/RAG sources.
+- **Integrations** (`integrations/`) — DB sidecar (`db_ops`/`stations`), Outlook
+  (`outlook/`), WhatsApp Twilio sender + approval/veto queue (`whatsapp.py`,
+  `whatsapp_webhook.py`), passenger-rights RAG (`rights_rag/`). All mocked behind
+  interfaces.
+- **Persistence** (`persistence/store.py`) — SQLite profile/constraints/trips.
+- **Scaffolds** (target architecture, not yet wired): `state.py`, `policy.py`,
+  `errors.py`, `agents/executor.py`, `tools/write_tools.py`,
+  `persistence/checkpointer.py`, plus `config/*.yaml`, `scenarios/`, `baseline/`,
+  `eval/`, and `Dockerfile`/`docker-compose.yml`.
 - **Model Configuration** (`config.py`) — a single place where the model is set
   per role; talks to the Uni-Cologne-GPT (OpenAI-compatible) via LiteLLM.
 
 ### File Layout
 
 ```
-journey_autopilot/
-  __init__.py                  # makes the package discoverable for adk (root_agent)
-  agent.py                     # Orchestrator (root_agent, ReAct)
-  monitoring.py                # Monitoring Agent
-  planner.py                   # Planner Agent
-  tools.py                     # Function Tools (mocked)
-  mock_data.py                 # Fixtures (demo trip Munich→Berlin)
-  config.py                    # Model per role (UNI_GPT_*)
-  whatsapp_communicator/
-    __init__.py
-    models.py                  # Recipient, DisruptionEvent
-    drafter.py                 # Drafter Agent (LlmAgent)
-    tools.py                   # Sender (Twilio) + approval queue
-    webhook.py                 # FastAPI webhook (YES/NO/EDIT)
-run_demo.py                    # End-to-End demo (agents + WhatsApp)
+config/                        # policy.yaml, settings.yaml (scaffold)
+data/                          # sqlite + chromadb (gitignored)
+docs/adr/                      # architecture decision records
+scenarios/                     # happy_path.py + edge/failure stubs
+scripts/                       # check_db, calendar_demo, run_crawler, build_*
+baseline/  eval/               # naive baseline + eval harness (stubs)
+src/journey_autopilot/
+  __init__.py                  # package marker (adk discovery)
+  agent.py                     # shim: re-exports root_agent for adk
+  orchestrator.py              # Orchestrator (root_agent, ReAct)
+  state.py  policy.py  errors.py   # context record + policy + error policy (scaffold)
+  config.py  mock_data.py
+  agents/      monitoring.py  planner.py  communicator.py  executor.py(stub)
+  tools/       read_tools.py  write_tools.py(stub)  risk_model.py
+  integrations/  db_ops.py  stations.py  outlook/  whatsapp.py  whatsapp_webhook.py
+                 whatsapp_models.py  rights_rag/
+  persistence/   store.py  checkpointer.py(stub)
+  onboarding/    accounts.py
+  ui/            server.py  chat.py  static/
+run_onboarding.py              # launches the web app
 ```
 
 ## Target Vision (still open)
 
 The system grows modularly along the agent roles (see
-`journey_autopilot_projektgrundlage.md`):
+[`CONTEXT_RECORD.md`](CONTEXT_RECORD.md) and
+[`docs/journey-autopilot-build-spec.md`](docs/journey-autopilot-build-spec.md)):
 
 - **Context Capture** — deterministic function, freezes constraints
 - **Monitoring Agent** ✅ — polls (mocked) live data, scores disruption risk
