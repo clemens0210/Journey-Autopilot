@@ -675,6 +675,45 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 .chat-send:hover { background: var(--db-red-dark); }
 .chat-send:disabled { background: var(--line); color: var(--ink-faint); cursor: not-allowed; }
 
+/* Reroute option cards shown under an assistant reply. Clicking a card sends
+   "Take option <id>" as the next user turn; the batch then greys out. */
+.option-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 11px;
+}
+.option-card {
+  text-align: left;
+  background: var(--field);
+  border: 1.4px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color .12s, box-shadow .12s, opacity .12s;
+}
+.option-card:hover { border-color: var(--db-red); box-shadow: inset 0 0 0 1px var(--db-red); }
+.option-card.selected { border-color: var(--db-red); box-shadow: inset 0 0 0 1.5px var(--db-red); opacity: .9; }
+.option-card.disabled, .option-card:disabled { opacity: .4; cursor: default; }
+.option-card.disabled:hover { border-color: var(--line); box-shadow: none; }
+
+.option-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.option-badge {
+  font-weight: 800; font-size: 12px;
+  background: var(--db-red); color: #fff;
+  padding: 1px 7px; border-radius: 7px;
+}
+.option-source { font-size: 10.5px; font-weight: 700; margin-left: auto; }
+.option-source.live { color: var(--green-badge-ink); }
+.option-source.mock { color: var(--ink-soft); }
+.option-trains { font-weight: 700; font-size: 13.5px; overflow-wrap: anywhere; }
+.option-times { font-size: 13px; color: var(--ink); margin-top: 2px; }
+.option-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--ink-soft); margin-top: 4px; }
+.option-delay { color: var(--coral); font-weight: 700; }
+.option-remark { display: block; font-size: 11px; color: var(--ink-soft); margin-top: 5px; overflow-wrap: anywhere; }
+
 @media (max-width: 470px) {
   body { background: var(--bg); }
   .phone { box-shadow: none; max-width: none; }

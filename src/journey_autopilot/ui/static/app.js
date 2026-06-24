@@ -1146,6 +1146,10 @@ const renderers = {
     renderChatLog();
     $("#chat-back").addEventListener("click", () => { state.chat = null; go("dashboard"); });
     $("#chat-form").addEventListener("submit", onChatSubmit);
+    // Delegated click handler for reroute option cards — one listener on the
+    // log survives re-renders. Clicking sends "Take option <id>" as the next
+    // user turn and marks the batch as chosen so the cards grey out.
+    $("#chat-log").addEventListener("click", onOptionCardClick);
     $("#chat-text").focus();
   },
 };
@@ -1184,11 +1188,68 @@ function renderChatLog() {
     if (m.role === "user") return `<div class="bubble user">${escapeHtml(m.text)}</div>`;
     if (m.role === "error") return `<div class="bubble error">⚠️ ${escapeHtml(m.text)}</div>`;
     const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
-    return `<div class="bubble assistant">${escapeHtml(m.text)}${trace}</div>`;
+    const cards = m.options && m.options.length ? renderOptionCards(m.options, m.optionsSource, m) : "";
+    return `<div class="bubble assistant">${escapeHtml(m.text)}${cards}${trace}</div>`;
   });
   if (state.chat.busy) parts.push(`<div class="bubble assistant typing"><i></i><i></i><i></i></div>`);
   log.innerHTML = parts.join("");
   log.scrollTop = log.scrollHeight;
+}
+
+// Render reroute option cards below the agent's prose. Clicking a card sends
+// "Take option <id>" as the next user turn and disables the batch so the user
+// can't pick twice. The per-option `source` (db_service_live / mock_*) decides
+// the live/demo badge; optionsSource is the fallback for the whole batch.
+function renderOptionCards(options, optionsSource, message) {
+  const chosen = message.chosenOption || null;
+  const items = options.map((o) => {
+    const id = escapeHtml(o.option_id || "?");
+    const trains = (o.trains || []).map(escapeHtml).join(" → ") || escapeHtml(o.description || "Connection");
+    const dep = o.departure ? fmtTime(o.departure) : "—";
+    const arr = o.new_arrival ? fmtTime(o.new_arrival) : "—";
+    const transfers = o.transfers != null ? `${o.transfers} change${o.transfers === 1 ? "" : "s"}` : "—";
+    const delay = o.added_delay_minutes != null ? `+${o.added_delay_minutes} min` : "";
+    const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
+    const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+    const src = o.source || optionsSource || "";
+    const liveBadge = src.startsWith("db_service_live")
+      ? '<span class="option-source live">● Live DB</span>'
+      : src.startsWith("mock_")
+        ? '<span class="option-source mock">Demo fallback</span>'
+        : "";
+    const picked = chosen === (o.option_id || "");
+    const stateCls = picked ? " selected" : chosen ? " disabled" : "";
+    return `
+      <button type="button" class="option-card${stateCls}" data-option-id="${id}"${chosen ? " disabled" : ""}>
+        <div class="option-head"><span class="option-badge">${id}</span>${liveBadge}</div>
+        <div class="option-trains">${trains}</div>
+        <div class="option-times">${dep} → ${arr}</div>
+        <div class="option-meta">
+          <span>${transfers}</span>${delay ? `<span class="option-delay">${delay}</span>` : ""}${price ? `<span>${price}</span>` : ""}
+        </div>
+        ${remarks}
+      </button>`;
+  }).join("");
+  return `<div class="option-cards" data-chosen="${chosen || ""}">${items}</div>`;
+}
+
+function onOptionCardClick(ev) {
+  const card = ev.target.closest(".option-card");
+  if (!card || card.disabled) return;
+  if (state.chat.busy) return;
+  const optionId = card.dataset.optionId;
+  if (!optionId) return;
+  // Mark the originating assistant message so its batch greys out on re-render.
+  for (let i = state.chat.messages.length - 1; i >= 0; i--) {
+    const m = state.chat.messages[i];
+    if (m.options && m.options.some((o) => (o.option_id || "?") === optionId)) {
+      m.chosenOption = optionId;
+      break;
+    }
+  }
+  const input = $("#chat-text");
+  if (input) input.value = `Take option ${optionId}`;
+  $("#chat-form").requestSubmit();
 }
 
 async function onChatSubmit(ev) {
@@ -1213,7 +1274,13 @@ async function onChatSubmit(ev) {
     if (data.error) {
       chat.messages.push({ role: "error", text: data.error });
     } else {
-      chat.messages.push({ role: "assistant", text: data.reply, trace: data.trace });
+      chat.messages.push({
+        role: "assistant",
+        text: data.reply,
+        trace: data.trace,
+        options: data.options || null,
+        optionsSource: data.options_source || null,
+      });
     }
   } catch (err) {
     chat.messages.push({ role: "error", text: err.message });

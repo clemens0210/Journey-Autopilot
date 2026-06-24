@@ -135,6 +135,48 @@ def _region_anchor(region: str) -> str | None:
     return anchors.get(region.lower())
 
 
+# --- In-process capture of the last reroute result (for the chat UI) -------
+# The Orchestrator wraps the Planner in a base ``AgentTool``, which runs the
+# sub-agent in its own runner and returns only the merged final *text*. The
+# ``find_reroute_options`` function_response therefore never reaches the
+# top-level event stream that ``ui.chat`` iterates, so the browser can't see
+# the structured option list via ADK events.
+#
+# Workaround: the tool stashes its result here while it runs (same process),
+# and ``ui.chat.chat_turn`` reads it after the run. This is safe for the
+# single-user prototype (the chat UI's ``busy`` guard prevents concurrent
+# turns). ``chat_turn`` clears the slot at the start of each turn so stale
+# options from a previous turn are never shown.
+_LAST_REROUTE: dict | None = None
+
+
+def last_reroute_options() -> dict | None:
+    """Returns the most recent ``find_reroute_options`` result, or ``None``.
+
+    Shape: ``{"origin", "destination", "options", "source"}`` — the same dict
+    the tool returns to the agent, minus any ``error`` key.
+    """
+    return _LAST_REROUTE
+
+
+def clear_reroute_options() -> None:
+    """Reset the in-process slot — called at the start of each chat turn."""
+    global _LAST_REROUTE
+    _LAST_REROUTE = None
+
+
+def _stash_reroute(result: dict) -> dict:
+    """Remember the reroute result for the UI; return it unchanged for the agent."""
+    global _LAST_REROUTE
+    _LAST_REROUTE = {
+        "origin": result.get("origin"),
+        "destination": result.get("destination"),
+        "options": result.get("options", []),
+        "source": result.get("source"),
+    }
+    return result
+
+
 def _board_warnings(board: Any) -> list[dict]:
     entries = []
     if isinstance(board, dict):
@@ -276,7 +318,7 @@ def find_reroute_options(
     destination: str,
     departure: str = "",
     original_arrival: str = "",
-    max_results: int = 5,
+    max_results: int = 8,
 ) -> dict:
     """Finds alternative connections (reroute options) between two stations.
 
@@ -333,12 +375,12 @@ def find_reroute_options(
                 }
             )
         if live_options:
-            return {
+            return _stash_reroute({
                 "origin": origin,
                 "destination": destination,
                 "options": live_options,
                 "source": "db_service_live",
-            }
+            })
     except db_api.DBServiceError:
         pass
     except Exception:
@@ -346,12 +388,12 @@ def find_reroute_options(
 
     options = mock_data.REROUTE_OPTIONS.get((origin, destination), [])
     if options:
-        return {
+        return _stash_reroute({
             "origin": origin,
             "destination": destination,
             "options": [{**option, "source": "mock_reroute_options"} for option in options],
             "source": "mock_reroute_options",
-        }
+        })
     return {
         "origin": origin,
         "destination": destination,
