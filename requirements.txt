@@ -13,6 +13,10 @@ fastapi>=0.110,<1.0
 uvicorn>=0.29,<1.0
 google-genai>=1.0,<3.0
 python-dotenv>=1.0,<2.0
+
+# Config files (config/settings.yaml, policy.yaml)
+pyyaml>=6.0,<7.0
+
 azure-identity>=1.17,<2.0
 msgraph-sdk>=1.0,<2.0
 
@@ -20,6 +24,9 @@ msgraph-sdk>=1.0,<2.0
 chromadb>=1.5,<2.0
 sentence-transformers>=5.0,<6.0
 beautifulsoup4>=4.12,<5.0
+
+# HTTP client — db-vendo-client sidecar (integrations/db_ops.py) and the
+# onboarding web app's station search (db_service/).
 requests>=2.31,<3.0
 
 # google-adk 2.2.x currently caps OpenTelemetry at 1.41.1.
@@ -28,13 +35,6 @@ requests>=2.31,<3.0
 opentelemetry-api>=1.36,<=1.41.1
 opentelemetry-sdk>=1.36,<=1.41.1
 opentelemetry-exporter-otlp-proto-grpc>=1.36,<=1.41.1
-
-# HTTP client for the db-vendo-client sidecar (see db_service/ and db_api.py).
-requests>=2.31
-
-# Onboarding web app (onboarding/): JSON API + DB Navigator-style UI.
-fastapi>=0.110
-uvicorn>=0.29
 
 # Optional, ONLY for (re-)building the historical delay reference with
 # journey_autopilot/disruption_monitoring/build_db_delay_reference.py

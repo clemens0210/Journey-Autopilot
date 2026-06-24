@@ -13,12 +13,18 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 import ssl as _ssl
 import uvicorn
 
+# Make the src/ layout importable when run directly without an editable install.
+_SRC = Path(__file__).resolve().parent / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 try:
     # Load .env so ONBOARDING_HOST/PORT, DB_API_URL and the agent's UNI_GPT_*
-    # credentials are available (same as run_demo.py).
+    # credentials are available (same as scenarios/happy_path.py).
     from dotenv import load_dotenv
 
     load_dotenv()

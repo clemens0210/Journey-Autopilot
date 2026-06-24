@@ -23,6 +23,11 @@ db_service/package-lock.json
 
 data/chromadb/
 journey_autopilot/data/chromadb/
+src/journey_autopilot/data/chromadb/
+# Packaging / editable-install artifacts
+*.egg-info/
+build/
+dist/
 
 # MS Entra / MSAL persistent token cache (created by azure-identity)
 data/msal_token_cache.bin

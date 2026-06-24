@@ -1,0 +1,31 @@
+# Journey Autopilot — one-command setup (build spec §2/§10).
+#
+# STATUS: scaffold for milestone M0. `docker compose up` is the intended single
+# entry point; the services below are wired but not yet exercised end-to-end.
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Point the Python side at the Node sidecar service name.
+      DB_API_URL: http://db-service:3000
+    volumes:
+      # Persist SQLite + Chroma across runs.
+      - ./src/journey_autopilot/data:/app/src/journey_autopilot/data
+    depends_on:
+      - db-service
+
+  # DB live-data sidecar (db-vendo-client). Optional: the tools fall back to
+  # mock data when it is unreachable. See db_service/README.md.
+  db-service:
+    build: ./db_service
+    environment:
+      # Bind inside the container so the app service can reach it by name.
+      DB_SERVICE_HOST: 0.0.0.0
+    ports:
+      - "3000:3000"
+# TODO(M0): add a healthcheck on db-service /health and an app smoke command.
