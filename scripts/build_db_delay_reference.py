@@ -15,7 +15,7 @@ set), grouped by train type — the same logic as the live board, just over
 months instead of hours.
 
 Usage (dev-time, needs pandas/pyarrow/huggingface_hub):
-    python journey_autopilot/disruption_monitoring/build_db_delay_reference.py 2025-08 2025-09 2025-10
+    python scripts/build_db_delay_reference.py 2025-08 2025-09 2025-10
 
 Output: src/journey_autopilot/data/db_delay_reference.json
 """

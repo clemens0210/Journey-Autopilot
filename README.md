@@ -151,7 +151,7 @@ Rebuild/update (downloads Parquet from Hugging Face, additionally needs
 `pyarrow` and `huggingface_hub`):
 
 ```bash
-python journey_autopilot/disruption_monitoring/build_db_delay_reference.py 2025-08 2025-09 2025-10
+python scripts/build_db_delay_reference.py 2025-08 2025-09 2025-10
 ```
 
 > **License/attribution:** Data © Deutsche Bahn, provided by

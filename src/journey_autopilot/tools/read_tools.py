@@ -5,7 +5,7 @@ it automatically into a FunctionTool and derives the parameter schema from the
 type hints and docstring. Therefore docstrings and types here are not decoration
 but part of the API that the LLM sees.
 
-DB-related functions are live-first via `rerouting.db_api` and fall back to
+DB-related functions are live-first via `integrations.db_ops` and fall back to
 `mock_data` when the sidecar is unavailable. Calendar and demo account data
 keep the same presentation-safe fallback pattern.
 """
@@ -20,10 +20,9 @@ from . import risk_model
 
 from .. import mock_data
 from ..errors import with_resilience, with_resilience_async
-from ..integrations.rights_rag.rag_store import FahrgastrechteRAG
 from ..integrations.rights_rag.rights_service import calculate_compensation
-from ..integrations.outlook import get_calendar_events
-from .rerouting import db_api, stations
+from ..integrations import db_ops as db_api
+from ..integrations import stations
 
 
 
@@ -41,7 +40,7 @@ def _outlook_connected() -> bool:
     successful web-based device-code login.
     """
     try:
-        from journey_autopilot.onboarding import store
+        from journey_autopilot.persistence import store
 
         profile = store.any_profile()
         return bool(profile and profile.get("connections", {}).get("outlook"))
@@ -70,7 +69,7 @@ def _minutes_between(start: str | None, end: str | None) -> int | None:
 def _find_trip_context(trip_id: str) -> dict | None:
     """Find imported trip metadata for a tool call that only receives trip_id."""
     try:
-        from journey_autopilot.onboarding import store
+        from journey_autopilot.persistence import store
 
         profile = store.any_profile()
         if profile is not None:
@@ -389,10 +388,12 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     """
     mock_events = mock_data.USER_CALENDAR.get(date, [])
 
-    if not _calendar_configured():
+    if not (_calendar_configured() and _outlook_connected()):
         return {"date": date, "events": mock_events, "source": "mock"}
 
     async def _primary() -> dict:
+        from ..integrations.outlook import get_calendar_events
+
         events = await get_calendar_events(date, user_email)
         return {"date": date, "events": events, "source": "outlook"}
 
@@ -474,8 +475,6 @@ def get_passenger_rights(
     Returns:
         Dict with calculated compensation claim and legal context.
     """
-    from .passenger_rights.rights_service import calculate_compensation
-
     # 1. Deterministic calculation — no LLM, no network
     compensation = calculate_compensation(
         delay_minutes=delay_minutes,
@@ -487,7 +486,7 @@ def get_passenger_rights(
 
     # 2. RAG context for the agent — semantically matching chunks
     try:
-        from .passenger_rights.rag_store import FahrgastrechteRAG
+        from ..integrations.rights_rag.rag_store import FahrgastrechteRAG
 
         rag = getattr(get_passenger_rights, "_rag", None)
         if rag is None:

@@ -1,4 +1,4 @@
-"""Smoke test for the DB connection (db_service sidecar + db_api.py).
+"""Smoke test for the DB connection (db_service sidecar + db_ops.py).
 
 Requires the sidecar to be running (`cd db_service && npm start`, port 3000)
 and `requests` to be installed (`pip install -r requirements.txt`).

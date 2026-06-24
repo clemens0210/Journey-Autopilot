@@ -1,6 +1,6 @@
 """ADK entry point.
 
-`adk web` / `adk run journey_autopilot` discover the agent via a module named
+`adk web` / `adk run src/journey_autopilot` discover the agent via a module named
 ``agent`` that exposes ``root_agent``. The actual orchestrator lives in
 ``orchestrator.py``; this thin shim keeps the ADK discovery contract stable
 while the implementation sits under its architecture-aligned name.

@@ -9,7 +9,7 @@ Usage:
 
 Prerequisite: a configured Uni-GPT backend in .env (UNI_GPT_*; see
 README). Alternatively, the ADK Dev UI also works:  adk web   or
-adk run journey_autopilot
+adk run src/journey_autopilot
 """
 
 from __future__ import annotations

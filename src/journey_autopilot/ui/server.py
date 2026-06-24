@@ -41,7 +41,7 @@ from pydantic import BaseModel
 # imports it. The chat module is local to this UI package.
 from journey_autopilot.onboarding import accounts
 from journey_autopilot.persistence import store
-from journey_autopilot.rerouting import db_api
+from journey_autopilot.integrations import db_ops as db_api
 from . import chat
 
 if TYPE_CHECKING:
@@ -225,7 +225,10 @@ def outlook_start(authorization: str | None = Header(default=None)) -> dict:
     _OUTLOOK_AUTH.pop(user_id, None)
 
     try:
-        from journey_autopilot.calendar import create_device_credential, is_outlook_configured
+        from journey_autopilot.integrations.outlook import (
+            create_device_credential,
+            is_outlook_configured,
+        )
     except ImportError:
         return {"mode": "simulated"}
 
@@ -243,7 +246,7 @@ def outlook_start(authorization: str | None = Header(default=None)) -> dict:
             "expires_at": expires_on.isoformat() if hasattr(expires_on, "isoformat") else str(expires_on),
         }
 
-    from journey_autopilot.calendar.auth import SCOPES
+    from journey_autopilot.integrations.outlook.auth import SCOPES
 
     def _run_device_flow() -> None:
         try:
@@ -308,7 +311,7 @@ async def outlook_status(authorization: str | None = Header(default=None)) -> di
         access_token = auth_state["result"]
         _OUTLOOK_AUTH.pop(user_id, None)
         profile = store.update_profile(user_id, {"connections": {"outlook": True}})
-        from journey_autopilot.calendar import StaticTokenCredential
+        from journey_autopilot.integrations.outlook import StaticTokenCredential
 
         events = await _fetch_outlook_preview(
             user_id, credential=StaticTokenCredential(access_token)
@@ -330,7 +333,7 @@ async def _fetch_outlook_preview(
     breaks the onboarding flow.
     """
     try:
-        from journey_autopilot.calendar import get_calendar_events_range
+        from journey_autopilot.integrations.outlook import get_calendar_events_range
 
         dates = _outlook_preview_dates()
         return await get_calendar_events_range(dates[0], dates[-1], credential=credential)
@@ -368,7 +371,7 @@ def disconnect_outlook(authorization: str | None = Header(default=None)) -> dict
 
     cleared = False
     try:
-        from journey_autopilot.calendar import clear_token_cache
+        from journey_autopilot.integrations.outlook import clear_token_cache
 
         cleared = clear_token_cache()
     except Exception:

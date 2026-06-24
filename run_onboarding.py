@@ -37,7 +37,7 @@ except ImportError:
 # called. This affects MSAL's requests-based token polling during the Outlook
 # device-code flow (and aiohttp if ADK/LiteLLM are imported later via the chat
 # endpoint). Patching load_default_certs to swallow that error lets the rest of
-# the store (and certifi's bundle) still work fine. Mirrors run_demo.py.
+# the store (and certifi's bundle) still work fine. Mirrors scenarios/happy_path.py.
 if sys.platform.startswith("win"):
     _orig_load_default_certs = _ssl.SSLContext.load_default_certs
 

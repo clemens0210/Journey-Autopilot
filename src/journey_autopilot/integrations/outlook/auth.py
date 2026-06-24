@@ -9,7 +9,7 @@ Subsequent runs acquire tokens silently from the persistent cache.
 
 Two entry points:
 
-- ``acquire_credential()`` — for the agent (tools.py): returns a
+- ``acquire_credential()`` — for the agent (tools/read_tools.py): returns a
   DeviceCodeCredential whose ``get_token()`` is silent when the cache has
   a valid token. Used only when ``profile.connections.outlook`` is True.
 - ``create_device_credential(prompt_callback)`` — for the onboarding web

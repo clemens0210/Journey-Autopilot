@@ -7,7 +7,7 @@ It is deliberately separated from the RAG layer:
   - ``FahrgastrechteRAG``       → semantic search for context chunks
 
 The Planner Agent combines both: it receives from ``get_passenger_rights()``
-in tools.py both the calculated amount and the legal context chunks.
+in tools/read_tools.py both the calculated amount and the legal context chunks.
 
 Sources of rule logic (as of June 2026):
   - EU Regulation 2021/782 (passenger rights in rail transport)
