@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-
+import ssl as _ssl
 import uvicorn
 
 # Make the src/ layout importable when run directly without an editable install.
@@ -31,6 +31,24 @@ try:
     load_dotenv("journey_autopilot/.env")
 except ImportError:
     pass
+
+# Windows certificate store sometimes contains malformed certs that cause
+# ssl.SSLError: [ASN1: NOT_ENOUGH_DATA] when ssl.create_default_context() is
+# called. This affects MSAL's requests-based token polling during the Outlook
+# device-code flow (and aiohttp if ADK/LiteLLM are imported later via the chat
+# endpoint). Patching load_default_certs to swallow that error lets the rest of
+# the store (and certifi's bundle) still work fine. Mirrors scenarios/happy_path.py.
+if sys.platform.startswith("win"):
+    _orig_load_default_certs = _ssl.SSLContext.load_default_certs
+
+    def _patched_load_default_certs(self, purpose=_ssl.Purpose.SERVER_AUTH):
+        try:
+            _orig_load_default_certs(self, purpose)
+        except _ssl.SSLError as exc:
+            if "NOT_ENOUGH_DATA" not in str(exc):
+                raise
+
+    _ssl.SSLContext.load_default_certs = _patched_load_default_certs
 
 if __name__ == "__main__":
     host = os.getenv("ONBOARDING_HOST", "127.0.0.1")

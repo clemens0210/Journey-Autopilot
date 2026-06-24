@@ -7,7 +7,7 @@ the message; sending and managing it happens here:
   One open approval slot per traveler number (PoC).
 - **Sender**: sends approval requests and final messages via Twilio.
 
-As in the main package (`journey_autopilot/tools.py`), these are plain typed
+As in the read tools package (`journey_autopilot/tools/read_tools.py`), these are plain typed
 Python functions — the plug-in points for real queue/sending backends.
 """
 

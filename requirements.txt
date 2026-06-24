@@ -37,6 +37,7 @@ opentelemetry-sdk>=1.36,<=1.41.1
 opentelemetry-exporter-otlp-proto-grpc>=1.36,<=1.41.1
 
 # Optional, ONLY for (re-)building the historical delay reference with
-# scripts/build_db_delay_reference.py (aggregating Parquet from Hugging Face).
+# journey_autopilot/disruption_monitoring/build_db_delay_reference.py
+# (aggregating Parquet from Hugging Face).
 # The runtime doesn't need this — it only reads the finished JSON.
 #   pip install pyarrow huggingface_hub

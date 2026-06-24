@@ -524,6 +524,50 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 .modal.ms .btn.ghost { border-color: #d0d0d0; color: #1b1b1b; }
 .btn.ms-accept { background: #0067B8; color: #fff; border-radius: 2px; font-weight: 600; }
 
+/* --- Device-code flow (real Outlook auth) --------------------------------- */
+
+.device-code-box {
+  background: var(--field);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  margin-top: 14px;
+}
+.device-code-label { font-size: 12px; color: var(--ink-soft); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+.device-code-value {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 10px;
+  color: var(--ink);
+  margin: 8px 0 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.device-code-copy {
+  background: none; border: 1px solid var(--line); color: var(--ink-soft);
+  border-radius: 6px; padding: 4px 12px; font-size: 11.5px; cursor: pointer;
+  font-family: inherit; margin-top: 4px;
+}
+.device-code-copy:hover { color: var(--ink); border-color: var(--ink-soft); }
+.device-link {
+  display: block; width: 100%; margin-top: 14px;
+  background: #0067B8; color: #fff; border: none; border-radius: 999px;
+  padding: 13px 22px; font-size: 15px; font-weight: 800; cursor: pointer;
+  font-family: inherit; text-decoration: none; text-align: center;
+}
+.device-link:hover { background: #005a9e; }
+.device-waiting {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 16px; font-size: 13px; color: var(--ink-soft);
+}
+.device-waiting .spinner {
+  width: 16px; height: 16px; border: 2px solid var(--line);
+  border-top-color: var(--db-red); border-radius: 50%;
+  animation: device-spin 0.8s linear infinite;
+}
+@keyframes device-spin { to { transform: rotate(360deg); } }
+.device-error { color: #FF8A93; font-size: 13px; margin-top: 12px; }
+
 /* Dashboard */
 .dash-greeting { margin: 2px 0 14px; }
 .dash-greeting h1 { margin-bottom: 2px; }
@@ -531,10 +575,17 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 10px;
   margin: 20px 0 9px;
 }
 .section-title h2 { margin: 0; font-size: 15.5px; }
 .section-title button { background: none; border: none; color: var(--blue); font-weight: 700; font-size: 12.5px; cursor: pointer; font-family: inherit; }
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 
 /* --- Trip chat ------------------------------------------------------------- */
 

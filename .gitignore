@@ -28,3 +28,7 @@ src/journey_autopilot/data/chromadb/
 *.egg-info/
 build/
 dist/
+
+# MS Entra / MSAL persistent token cache (created by azure-identity)
+data/msal_token_cache.bin
+.IdentityService/

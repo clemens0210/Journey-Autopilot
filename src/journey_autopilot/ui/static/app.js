@@ -19,7 +19,7 @@ const state = {
   trips: [],
   outlookEvents: [],
   step: "welcome",
-  editReturn: false, // true = we came from the dashboard ("Edit")
+  editReturn: null, // "dashboard" / "profile" = return target after editing
   phone: { sent: false, verifiedThisSession: false },
   chat: null, // { sessionId, trip, messages: [...], busy } when a trip chat is open
 };
@@ -152,6 +152,43 @@ function setProgress(step) {
   }
 }
 
+function setupHomeStationAutocomplete(home) {
+  const input = $("#home-station");
+  const sugBox = $("#station-suggestions");
+  if (!input || !sugBox) return;
+
+  let selected = home.home_station || null;
+  let debounce = null;
+
+  input.addEventListener("input", () => {
+    selected = null;
+    clearTimeout(debounce);
+    debounce = setTimeout(async () => {
+      const q = input.value.trim();
+      sugBox.innerHTML = "";
+      if (q.length < 2) return;
+      const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
+      if (!data.stations.length) return;
+      const list = document.createElement("div");
+      list.className = "suggestions";
+      data.stations.forEach((s) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = data.source === "db-live" ? `🟢 ${s.name}` : s.name;
+        b.addEventListener("click", () => {
+          selected = s;
+          input.value = s.name;
+          sugBox.innerHTML = "";
+        });
+        list.appendChild(b);
+      });
+      sugBox.replaceChildren(list);
+    }, 250);
+  });
+
+  screen._getHomeStation = () => selected || (input.value.trim() ? { id: null, name: input.value.trim() } : null);
+}
+
 function updateTopbarAccount() {
   const node = $("#topbar-account");
   if (state.account) {
@@ -160,6 +197,12 @@ function updateTopbarAccount() {
   } else {
     node.hidden = true;
   }
+}
+
+function setActiveTab(tab) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+  const el = tab === "trips" ? $("#tab-trips") : tab === "profile" ? $("#tab-profile") : null;
+  if (el) el.classList.add("active");
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +374,8 @@ const renderers = {
           <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
         ` : `
           <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> Microsoft login is simulated — sample events will be loaded.</div>
+          <div id="outlook-device-flow"></div>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
         `}
       </div>
     `));
@@ -345,16 +389,14 @@ const renderers = {
         renderers.outlook();
       });
     } else {
-      $("#outlook-connect").addEventListener("click", () => {
-        $("#ms-mail").textContent = state.account.email;
-        $("#ms-modal").hidden = false;
-      });
+      $("#outlook-connect").addEventListener("click", () => startOutlookConnect());
     }
   },
 
   // -- 5: Travel preferences ---------------------------------------------------------------
   preferences() {
     const p = state.profile.preferences;
+    const h = state.profile.home;
     screen.replaceChildren(el(`
       <div class="card">
         <h2>Your travel preferences</h2>
@@ -401,6 +443,32 @@ const renderers = {
           <button type="button" class="choice" data-value="9"><span class="choice-title">No preference</span></button>
         </div>
       </div>
+      ${state.editReturn ? `
+        <div class="card">
+          <h2>Home &amp; hard limits</h2>
+          <label class="field">Home station
+            <span class="hint">Search uses live DB data once db_service is running</span>
+            <span class="autocomplete">
+              <input type="text" id="home-station" placeholder="e.g. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
+              <span id="station-suggestions"></span>
+            </span>
+          </label>
+
+          <label class="field">Latest arrival home
+            <span class="hint">After this, the autopilot prefers to suggest a hotel</span>
+            <input type="time" id="latest-arrival" value="${h.latest_arrival_home}">
+          </label>
+
+          <div class="switch-row">
+            <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
+            <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
+          </div>
+          <div class="switch-row">
+            <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
+            <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+          </div>
+        </div>
+      ` : ""}
     `));
     setNav({ back: true, next: state.editReturn ? "Save" : "Next" });
 
@@ -427,6 +495,7 @@ const renderers = {
     };
     $("#speed-comfort").addEventListener("input", sliderLabel);
     sliderLabel();
+    if (state.editReturn) setupHomeStationAutocomplete(h);
   },
 
   // -- 6: Home & constraints --------------------------------------------------------------
@@ -462,40 +531,7 @@ const renderers = {
     `));
     setNav({ back: true, next: state.editReturn ? "Save" : "Next" });
 
-    // Autocomplete against /api/stations (live sidecar with fallback)
-    const input = $("#home-station");
-    const sugBox = $("#station-suggestions");
-    let selected = h.home_station || null;
-    let debounce = null;
-
-    input.addEventListener("input", () => {
-      selected = null;
-      clearTimeout(debounce);
-      debounce = setTimeout(async () => {
-        const q = input.value.trim();
-        sugBox.innerHTML = "";
-        if (q.length < 2) return;
-        const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
-        if (!data.stations.length) return;
-        const list = document.createElement("div");
-        list.className = "suggestions";
-        data.stations.forEach((s) => {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.textContent = data.source === "db-live" ? `🟢 ${s.name}` : s.name;
-          b.addEventListener("click", () => {
-            selected = s;
-            input.value = s.name;
-            sugBox.innerHTML = "";
-          });
-          list.appendChild(b);
-        });
-        sugBox.replaceChildren(list);
-      }, 250);
-    });
-
-    // Remember the selection for when Next is clicked
-    screen._getHomeStation = () => selected || (input.value.trim() ? { id: null, name: input.value.trim() } : null);
+    setupHomeStationAutocomplete(h);
   },
 
   // -- 7: Notifications & autonomy ----------------------------------------------------------
@@ -603,7 +639,12 @@ const renderers = {
       <div class="section-title"><h2>Monitored trips</h2></div>
       ${cards || '<div class="card"><p class="muted">No trips imported.</p></div>'}
 
-      <div class="section-title"><h2>Your profile</h2><button id="edit-prefs" type="button">Edit</button></div>
+      <div class="section-title">
+        <h2>Your profile</h2>
+        <div class="section-actions">
+          <button id="edit-prefs" type="button">Edit profile</button>
+        </div>
+      </div>
       <div class="card" style="padding: 12px 16px">
         <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
         <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
@@ -627,23 +668,454 @@ const renderers = {
     $("#navbar").hidden = true;
     $("#progress").hidden = true;
     $("#tabbar").hidden = false; // mock tab bar of the DB Navigator
+    setActiveTab("trips");
 
     // Clicking a monitored trip opens the chat that runs the orchestrator demo.
     screen.querySelectorAll(".trip-card.clickable").forEach((cardEl) => {
       cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
     });
 
-    $("#edit-prefs").addEventListener("click", () => { state.editReturn = true; go("preferences"); });
-    $("#edit-connections").addEventListener("click", () => { state.editReturn = true; go("phone"); });
+    $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
+    $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: false });
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
     });
+  },
+
+  // -- Profile (reachable via the Profile tab in the bottom tab bar) ---------------
+  profile() {
+    const p = state.profile;
+    const pref = p.preferences;
+    const h = p.home;
+
+    screen.replaceChildren(el(`
+      <div class="dash-greeting">
+        <h1>Profile</h1>
+      </div>
+
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Name</span><span class="v">${state.account.display_name}</span></div>
+        <div class="summary-row"><span class="k">Email</span><span class="v">${state.account.email}</span></div>
+        <div class="summary-row"><span class="k">BahnCard</span><span class="v">${state.account.bahncard}</span></div>
+        <div class="summary-row"><span class="k">BahnBonus</span><span class="v">${state.account.bahnbonus_status} · ${state.account.bahnbonus_points.toLocaleString("en-US")} points</span></div>
+      </div>
+
+      <div class="section-title"><h2>Home station</h2></div>
+      <div class="card">
+        <label class="field">Home station
+          <span class="hint">Search uses live DB data once db_service is running</span>
+          <span class="autocomplete">
+            <input type="text" id="home-station" placeholder="e.g. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
+            <span id="station-suggestions"></span>
+          </span>
+        </label>
+
+        <label class="field">Latest arrival home
+          <span class="hint">After this, the autopilot prefers to suggest a hotel</span>
+          <input type="time" id="latest-arrival" value="${h.latest_arrival_home}">
+        </label>
+
+        <div class="switch-row">
+          <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
+          <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
+          <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
+      </div>
+
+      <div class="section-title"><h2>Travel preferences</h2><button id="edit-prefs" type="button">Edit</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
+        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
+        <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
+        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
+      </div>
+
+      <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
+        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
+        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ connected" : "not connected"}</span></div>
+      </div>
+
+      <div class="card">
+        <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
+        <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
+      </div>
+    `));
+
+    $("#navbar").hidden = true;
+    $("#progress").hidden = true;
+    $("#tabbar").hidden = false;
+    setActiveTab("profile");
+
+    setupHomeStationAutocomplete(h);
+
+    $("#save-home").addEventListener("click", async () => {
+      try {
+        await saveProfile({
+          home: {
+            home_station: screen._getHomeStation(),
+            latest_arrival_home: $("#latest-arrival").value,
+            hotel_ok: $("#hotel-ok").checked,
+            taxi_ok: $("#taxi-ok").checked,
+          },
+        });
+        toast("✓ Home settings saved");
+      } catch (err) {
+        toast(`⚠️ ${err.message}`);
+      }
+    });
+
+    $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
+    $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("connections"); });
+    $("#delete-profile").addEventListener("click", async () => {
+      if (!confirm("Really delete all data? This cannot be undone.")) return;
+      await api("/api/profile", { method: "DELETE" });
+      sessionStorage.removeItem("ja_token");
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
+      updateTopbarAccount();
+      toast("All data deleted. See you soon!");
+      go("welcome");
+    });
+  },
+
+  // -- Connections (reachable via "Manage" on the profile/dashboard) ---------------
+  connections() {
+    const phoneVerified = state.profile?.notifications?.phone_verified;
+    const outlookConnected = state.profile?.connections?.outlook;
+    const events = state.outlookEvents.map((e) => `
+      <div class="event-row">
+        <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
+        <span><span class="event-title">${e.title}</span>
+          <span class="event-loc">${e.location}</span>
+          ${e.hard_constraint ? '<span class="event-hard">Hard deadline</span>' : ""}
+        </span>
+      </div>
+    `).join("");
+
+    screen.replaceChildren(el(`
+      <div class="dash-greeting">
+        <h1>Connections</h1>
+        <p class="muted">Manage your linked accounts and notification channels.</p>
+      </div>
+
+      <div class="section-title"><h2>Phone number</h2></div>
+      <div class="card">
+        ${phoneVerified ? `
+          <div class="success-banner">✓ ${state.profile.notifications.phone} is confirmed</div>
+          <p class="muted" style="margin-top:10px">To change your number, disconnect first and re-verify.</p>
+          <button class="btn danger block" id="phone-disconnect" type="button">Remove number</button>
+        ` : `
+          <p class="muted">With a confirmed number we can reach you with alerts and replanning suggestions via SMS/WhatsApp — even when the app is closed.</p>
+          <label class="field">Phone number
+            <input type="tel" id="phone-input" placeholder="+49 151 12345678" autocomplete="tel" value="${state.profile?.notifications?.phone || ""}">
+          </label>
+          <button class="btn primary block" id="phone-send" type="button">Send code</button>
+          <div id="phone-confirm-area" hidden>
+            <label class="field" style="margin-top:16px">Confirmation code
+              <input type="text" id="phone-code" class="code-input" inputmode="numeric" maxlength="4" placeholder="····">
+            </label>
+            <button class="btn primary block" id="phone-verify" type="button">Confirm</button>
+          </div>
+          <p class="error" id="phone-error"></p>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> No real SMS is sent — the code is shown as a notification.</div>
+        `}
+      </div>
+
+      <div class="section-title"><h2>Outlook calendar</h2></div>
+      <div class="card">
+        <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
+        ${outlookConnected ? `
+          <div class="success-banner">✓ Outlook calendar connected</div>
+          ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
+          <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
+        ` : `
+          <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
+          <div id="outlook-device-flow"></div>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
+        `}
+      </div>
+    `));
+
+    $("#navbar").hidden = true;
+    $("#progress").hidden = true;
+    $("#tabbar").hidden = false;
+    setActiveTab("profile");
+
+    // --- Phone handlers ---
+    if (phoneVerified) {
+      $("#phone-disconnect").addEventListener("click", async () => {
+        const data = await api("/api/verify/phone", { method: "DELETE" });
+        state.profile = data.profile;
+        toast("Phone number removed");
+        renderers.connections();
+      });
+    } else {
+      $("#phone-send").addEventListener("click", async () => {
+        $("#phone-error").textContent = "";
+        try {
+          const data = await api("/api/verify/phone/start", {
+            method: "POST", body: { phone: $("#phone-input").value },
+          });
+          $("#phone-confirm-area").hidden = false;
+          $("#phone-code").focus();
+          toast(`📱 SMS to ${data.phone} (demo): your code is ${data.demo_code}`, 10000);
+        } catch (err) {
+          $("#phone-error").textContent = err.message;
+        }
+      });
+
+      $("#phone-verify").addEventListener("click", async () => {
+        $("#phone-error").textContent = "";
+        try {
+          const data = await api("/api/verify/phone/confirm", {
+            method: "POST", body: { code: $("#phone-code").value },
+          });
+          state.profile = data.profile;
+          toast("✓ Number confirmed");
+          renderers.connections();
+        } catch (err) {
+          $("#phone-error").textContent = err.message;
+        }
+      });
+    }
+
+    // --- Outlook handlers ---
+    if (outlookConnected) {
+      $("#outlook-disconnect").addEventListener("click", async () => {
+        const data = await api("/api/connect/outlook", { method: "DELETE" });
+        state.profile = data.profile;
+        state.outlookEvents = [];
+        renderers.connections();
+      });
+    } else {
+      $("#outlook-connect").addEventListener("click", () => startOutlookConnect());
+    }
+  },
+
+// --- Profile (reachable via the Profile tab in the bottom tab bar) ---------------
+  profile() {
+    const p = state.profile;
+    const pref = p.preferences;
+    const h = p.home;
+
+    screen.replaceChildren(el(`
+      <div class="dash-greeting">
+        <h1>Profile</h1>
+      </div>
+
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Name</span><span class="v">${state.account.display_name}</span></div>
+        <div class="summary-row"><span class="k">Email</span><span class="v">${state.account.email}</span></div>
+        <div class="summary-row"><span class="k">BahnCard</span><span class="v">${state.account.bahncard}</span></div>
+        <div class="summary-row"><span class="k">BahnBonus</span><span class="v">${state.account.bahnbonus_status} · ${state.account.bahnbonus_points.toLocaleString("en-US")} points</span></div>
+      </div>
+
+      <div class="section-title"><h2>Home station</h2></div>
+      <div class="card">
+        <label class="field">Home station
+          <span class="hint">Search uses live DB data once db_service is running</span>
+          <span class="autocomplete">
+            <input type="text" id="home-station" placeholder="e.g. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
+            <span id="station-suggestions"></span>
+          </span>
+        </label>
+
+        <label class="field">Latest arrival home
+          <span class="hint">After this, the autopilot prefers to suggest a hotel</span>
+          <input type="time" id="latest-arrival" value="${h.latest_arrival_home}">
+        </label>
+
+        <div class="switch-row">
+          <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
+          <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
+          <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
+      </div>
+
+      <div class="section-title"><h2>Travel preferences</h2><button id="edit-prefs" type="button">Edit</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
+        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
+        <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
+        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
+      </div>
+
+      <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
+        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
+        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ connected" : "not connected"}</span></div>
+      </div>
+
+      <div class="card">
+        <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
+        <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
+      </div>
+    `));
+
+    $("#navbar").hidden = true;
+    $("#progress").hidden = true;
+    $("#tabbar").hidden = false;
+    setActiveTab("profile");
+
+    setupHomeStationAutocomplete(h);
+
+    $("#save-home").addEventListener("click", async () => {
+      try {
+        await saveProfile({
+          home: {
+            home_station: screen._getHomeStation(),
+            latest_arrival_home: $("#latest-arrival").value,
+            hotel_ok: $("#hotel-ok").checked,
+            taxi_ok: $("#taxi-ok").checked,
+          },
+        });
+        toast("✓ Home settings saved");
+      } catch (err) {
+        toast(`⚠️ ${err.message}`);
+      }
+    });
+
+    $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
+    $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("connections"); });
+    $("#delete-profile").addEventListener("click", async () => {
+      if (!confirm("Really delete all data? This cannot be undone.")) return;
+      await api("/api/profile", { method: "DELETE" });
+      sessionStorage.removeItem("ja_token");
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
+      updateTopbarAccount();
+      toast("All data deleted. See you soon!");
+      go("welcome");
+    });
+  },
+
+  // -- Connections (reachable via "Manage" on the profile/dashboard) ---------------
+  connections() {
+    const phoneVerified = state.profile?.notifications?.phone_verified;
+    const outlookConnected = state.profile?.connections?.outlook;
+    const events = state.outlookEvents.map((e) => `
+      <div class="event-row">
+        <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
+        <span><span class="event-title">${e.title}</span>
+          <span class="event-loc">${e.location}</span>
+          ${e.hard_constraint ? '<span class="event-hard">Hard deadline</span>' : ""}
+        </span>
+      </div>
+    `).join("");
+
+    screen.replaceChildren(el(`
+      <div class="dash-greeting">
+        <h1>Connections</h1>
+        <p class="muted">Manage your linked accounts and notification channels.</p>
+      </div>
+
+      <div class="section-title"><h2>Phone number</h2></div>
+      <div class="card">
+        ${phoneVerified ? `
+          <div class="success-banner">✓ ${state.profile.notifications.phone} is confirmed</div>
+          <p class="muted" style="margin-top:10px">To change your number, disconnect first and re-verify.</p>
+          <button class="btn danger block" id="phone-disconnect" type="button">Remove number</button>
+        ` : `
+          <p class="muted">With a confirmed number we can reach you with alerts and replanning suggestions via SMS/WhatsApp — even when the app is closed.</p>
+          <label class="field">Phone number
+            <input type="tel" id="phone-input" placeholder="+49 151 12345678" autocomplete="tel" value="${state.profile?.notifications?.phone || ""}">
+          </label>
+          <button class="btn primary block" id="phone-send" type="button">Send code</button>
+          <div id="phone-confirm-area" hidden>
+            <label class="field" style="margin-top:16px">Confirmation code
+              <input type="text" id="phone-code" class="code-input" inputmode="numeric" maxlength="4" placeholder="····">
+            </label>
+            <button class="btn primary block" id="phone-verify" type="button">Confirm</button>
+          </div>
+          <p class="error" id="phone-error"></p>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> No real SMS is sent — the code is shown as a notification.</div>
+        `}
+      </div>
+
+      <div class="section-title"><h2>Outlook calendar</h2></div>
+      <div class="card">
+        <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
+        ${outlookConnected ? `
+          <div class="success-banner">✓ Outlook calendar connected</div>
+          ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
+          <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
+        ` : `
+          <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
+          <div id="outlook-device-flow"></div>
+          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
+        `}
+      </div>
+    `));
+
+    $("#navbar").hidden = true;
+    $("#progress").hidden = true;
+    $("#tabbar").hidden = false;
+    setActiveTab("profile");
+
+    // --- Phone handlers ---
+    if (phoneVerified) {
+      $("#phone-disconnect").addEventListener("click", async () => {
+        const data = await api("/api/verify/phone", { method: "DELETE" });
+        state.profile = data.profile;
+        toast("Phone number removed");
+        renderers.connections();
+      });
+    } else {
+      $("#phone-send").addEventListener("click", async () => {
+        $("#phone-error").textContent = "";
+        try {
+          const data = await api("/api/verify/phone/start", {
+            method: "POST", body: { phone: $("#phone-input").value },
+          });
+          $("#phone-confirm-area").hidden = false;
+          $("#phone-code").focus();
+          toast(`📱 SMS to ${data.phone} (demo): your code is ${data.demo_code}`, 10000);
+        } catch (err) {
+          $("#phone-error").textContent = err.message;
+        }
+      });
+
+      $("#phone-verify").addEventListener("click", async () => {
+        $("#phone-error").textContent = "";
+        try {
+          const data = await api("/api/verify/phone/confirm", {
+            method: "POST", body: { code: $("#phone-code").value },
+          });
+          state.profile = data.profile;
+          toast("✓ Number confirmed");
+          renderers.connections();
+        } catch (err) {
+          $("#phone-error").textContent = err.message;
+        }
+      });
+    }
+
+    // --- Outlook handlers ---
+    if (outlookConnected) {
+      $("#outlook-disconnect").addEventListener("click", async () => {
+        const data = await api("/api/connect/outlook", { method: "DELETE" });
+        state.profile = data.profile;
+        state.outlookEvents = [];
+        renderers.connections();
+      });
+    } else {
+      $("#outlook-connect").addEventListener("click", () => startOutlookConnect());
+    }
   },
 
   // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
@@ -756,6 +1228,102 @@ async function onChatSubmit(ev) {
 }
 
 // ---------------------------------------------------------------------------
+// Outlook device-code flow: real MS Entra auth in the browser
+// ---------------------------------------------------------------------------
+
+async function startOutlookConnect() {
+  const btn = $("#outlook-connect");
+  if (btn) btn.disabled = true;
+  const container = $("#outlook-device-flow");
+  if (container) container.innerHTML = '<div class="device-waiting"><span class="spinner"></span>Starting sign-in…</div>';
+
+  try {
+    const data = await api("/api/connect/outlook/start", { method: "POST" });
+    if (data.mode === "simulated") {
+      // No Entra app configured → fall back to the simulated consent dialog
+      if (btn) btn.disabled = false;
+      if (container) container.innerHTML = "";
+      $("#ms-mail").textContent = state.account.email;
+      $("#ms-modal").hidden = false;
+      return;
+    }
+    // Real device-code flow — show code + link, then poll for completion
+    if (data.pending || !data.user_code) {
+      // prompt_callback didn't fire in time — retry
+      if (container) container.innerHTML = '<p class="device-error">Could not start sign-in. Please try again.</p>';
+      if (btn) btn.disabled = false;
+      return;
+    }
+    renderDeviceCodeScreen(data, container);
+    pollOutlookStatus(container);
+  } catch (err) {
+    if (container) container.innerHTML = `<p class="device-error">⚠️ ${err.message}</p>`;
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderDeviceCodeScreen(data, container) {
+  container.innerHTML = `
+    <div class="device-code-box">
+      <div class="device-code-label">Enter this code at Microsoft</div>
+      <div class="device-code-value">${data.user_code}</div>
+      <button class="device-code-copy" id="dc-copy" type="button">Copy code</button>
+    </div>
+    <a class="device-link" href="${data.verification_uri}" target="_blank" rel="noopener">Open Microsoft sign-in ↗</a>
+    <div class="device-waiting"><span class="spinner"></span>Waiting for you to sign in…</div>
+  `;
+  $("#dc-copy").addEventListener("click", () => {
+    navigator.clipboard.writeText(data.user_code).then(() => {
+      $("#dc-copy").textContent = "Copied ✓";
+      setTimeout(() => { const c = $("#dc-copy"); if (c) c.textContent = "Copy code"; }, 2000);
+    }).catch(() => {});
+  });
+}
+
+let outlookPollTimer = null;
+
+async function pollOutlookStatus(container) {
+  clearTimeout(outlookPollTimer);
+  const poll = async () => {
+    try {
+      const data = await api("/api/connect/outlook/status");
+      if (data.status === "complete") {
+        state.profile = data.profile;
+        state.outlookEvents = data.events || [];
+        toast(`✓ Outlook connected — ${(data.events || []).length} events detected`);
+        renderers[state.step]?.();
+        return;
+      }
+      if (data.status === "expired") {
+        container.innerHTML = '<p class="device-error">The code expired. <button class="device-code-copy" id="dc-retry" type="button" style="margin-left:8px">Try again</button></p>';
+        const retry = $("#dc-retry");
+        if (retry) retry.addEventListener("click", () => startOutlookConnect());
+        return;
+      }
+      if (data.status === "error") {
+        container.innerHTML = `<p class="device-error">⚠️ ${data.error}</p>`;
+        const btn = $("#outlook-connect");
+        if (btn) btn.disabled = false;
+        return;
+      }
+      if (data.status === "none") {
+        container.innerHTML = '<p class="device-error">Sign-in session was lost. Please click Sign in with Microsoft again.</p>';
+        const btn = $("#outlook-connect");
+        if (btn) btn.disabled = false;
+        return;
+      }
+      // pending — keep polling
+      outlookPollTimer = setTimeout(poll, 2000);
+    } catch (err) {
+      container.innerHTML = `<p class="device-error">⚠️ ${err.message}</p>`;
+      const btn = $("#outlook-connect");
+      if (btn) btn.disabled = false;
+    }
+  };
+  poll();
+}
+
+// ---------------------------------------------------------------------------
 // Navigation: save the step, then move on
 // ---------------------------------------------------------------------------
 
@@ -763,7 +1331,7 @@ async function persistCurrentStep() {
   switch (state.step) {
     case "preferences": {
       const groupVal = (g) => screen.querySelector(`[data-group="${g}"] .choice.selected`)?.dataset.value;
-      await saveProfile({
+      const patch = {
         preferences: {
           travel_class: Number(groupVal("travel_class")),
           seat_location: groupVal("seat_location"),
@@ -772,7 +1340,16 @@ async function persistCurrentStep() {
           speed_vs_comfort: Number($("#speed-comfort").value),
           max_transfers: Number(groupVal("max_transfers")),
         },
-      });
+      };
+      if ($("#home-station")) {
+        patch.home = {
+          home_station: screen._getHomeStation(),
+          latest_arrival_home: $("#latest-arrival").value,
+          hotel_ok: $("#hotel-ok").checked,
+          taxi_ok: $("#taxi-ok").checked,
+        };
+      }
+      await saveProfile(patch);
       break;
     }
     case "home":
@@ -829,16 +1406,17 @@ async function next() {
     return;
   }
   if (state.editReturn) {
-    state.editReturn = false;
+    const ret = state.editReturn;
+    state.editReturn = null;
     toast("✓ Saved");
-    go("dashboard");
+    go(ret);
     return;
   }
   go(STEPS[STEPS.indexOf(state.step) + 1]);
 }
 
 function back() {
-  if (state.editReturn) { state.editReturn = false; go("dashboard"); return; }
+  if (state.editReturn) { const ret = state.editReturn; state.editReturn = null; go(ret); return; }
   const idx = STEPS.indexOf(state.step);
   // From the phone step back to the trip overview, not to login
   go(STEPS[Math.max(0, idx - 1)]);
@@ -851,7 +1429,7 @@ function back() {
 $("#btn-next").addEventListener("click", next);
 $("#btn-back").addEventListener("click", back);
 $("#btn-skip").addEventListener("click", () => {
-  if (state.editReturn) { state.editReturn = false; go("dashboard"); return; }
+  if (state.editReturn) { const ret = state.editReturn; state.editReturn = null; go(ret); return; }
   go(STEPS[STEPS.indexOf(state.step) + 1]);
 });
 
@@ -863,11 +1441,15 @@ $("#ms-accept").addEventListener("click", async () => {
     state.profile = data.profile;
     state.outlookEvents = data.events;
     toast(`✓ Outlook verbunden — ${data.events.length} Termine erkannt`);
-    renderers.outlook();
+    renderers[state.step]?.();
   } catch (err) {
     toast(`⚠️ ${err.message}`);
   }
 });
+
+// Tab bar: Trips ↔ Profile navigation
+$("#tab-trips").addEventListener("click", () => go("dashboard"));
+$("#tab-profile").addEventListener("click", () => go("profile"));
 
 async function boot() {
   if (state.token) {

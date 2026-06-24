@@ -41,9 +41,10 @@ the result, think again:
 1. ALWAYS call `monitoring_agent` first with the trip_id.
 2. Read the risk assessment.
    - If risk is LOW: Give a brief all-clear. Do NOT call the Planner.
-   - If risk is MEDIUM or HIGH: Call `planner_agent` with origin, destination AND
-     travel date (e.g. "Munich Hbf to Berlin Hbf on [DATE FROM USER REQUEST]").
-     Use the actual date from the user request, not the example.
+   - If risk is MEDIUM or HIGH: Call `planner_agent` with origin, destination,
+     travel date, planned departure, planned arrival, and train when those
+     values were present in the user's message.
+     Use the actual values from the user request, not the example.
 3. Summarize clearly for the user: current situation (from Monitoring) and,
    if available, the recommended plan (from Planner) incl. calendar check and
    compensation note.
@@ -52,6 +53,8 @@ Important:
 - You do not make any bookings. The plan is a proposal — the user retains veto power.
 - At the end, transparently state which agent contributed what.
 - Rely only on the agent results, invent nothing.
+- Tool results include a `source` field. If a source starts with `mock_`, say
+  that the live DB sidecar was unavailable and demo fallback data was used.
 """
 
 root_agent = LlmAgent(
