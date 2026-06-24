@@ -5,7 +5,7 @@ Lists all events for a given date, checks which ones are hard constraints
 to the console.
 
 Usage:
-    python run_calendar_demo.py [YYYY-MM-DD]
+    python scripts/calendar_demo.py [YYYY-MM-DD]
 
 Defaults to 2026-06-19 if no date is given.
 """

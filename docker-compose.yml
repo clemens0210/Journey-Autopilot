@@ -23,6 +23,9 @@ services:
   # mock data when it is unreachable. See db_service/README.md.
   db-service:
     build: ./db_service
+    environment:
+      # Bind inside the container so the app service can reach it by name.
+      DB_SERVICE_HOST: 0.0.0.0
     ports:
       - "3000:3000"
 # TODO(M0): add a healthcheck on db-service /health and an app smoke command.

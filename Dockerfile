@@ -14,10 +14,9 @@ COPY src ./src
 
 RUN pip install --no-cache-dir -e .
 
-# App data (SQLite, Chroma) lives under the package data dir; mount a volume in
-# compose to persist it across runs.
+# App data (SQLite, Chroma) lives under the package data dir already copied via
+# src/; compose mounts that directory to persist it across runs.
 COPY config ./config
-COPY data ./data
 COPY scenarios ./scenarios
 COPY scripts ./scripts
 COPY run_onboarding.py ./
