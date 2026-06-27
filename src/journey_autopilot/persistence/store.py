@@ -42,6 +42,14 @@ CREATE TABLE IF NOT EXISTS trips (
     imported_at TEXT NOT NULL,
     PRIMARY KEY (trip_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS complaints (
+    complaint_id TEXT NOT NULL,
+    user_id      TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    complaint    TEXT NOT NULL,   -- JSON: draft/submitted passenger-rights claim
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    PRIMARY KEY (complaint_id, user_id)
+);
 """
 
 # Empty profile with all fields and sensible defaults. The UI fills this in
@@ -177,6 +185,85 @@ def get_trips(user_id: str) -> list[dict]:
     trips = [json.loads(row[0]) for row in rows]
     trips.sort(key=lambda t: t.get("planned_departure") or "")
     return trips
+
+
+# --- Complaints (passenger-rights drafts) -----------------------------------------
+
+
+def _complaint_row(complaint_id: str, payload: dict, created_at: str, updated_at: str) -> dict:
+    return {
+        "complaint_id": complaint_id,
+        **payload,
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
+
+
+def create_complaint(user_id: str, complaint_id: str, payload: dict) -> dict:
+    now = _now()
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO complaints (complaint_id, user_id, complaint, created_at, updated_at) "
+            "VALUES (?,?,?,?,?)",
+            (complaint_id, user_id, json.dumps(payload), now, now),
+        )
+    return _complaint_row(complaint_id, payload, now, now)
+
+
+def get_complaints(user_id: str) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT complaint_id, complaint, created_at, updated_at FROM complaints "
+            "WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    out = []
+    for complaint_id, blob, created_at, updated_at in rows:
+        out.append(_complaint_row(complaint_id, json.loads(blob), created_at, updated_at))
+    return out
+
+
+def get_complaint(user_id: str, complaint_id: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT complaint_id, complaint, created_at, updated_at FROM complaints "
+            "WHERE user_id = ? AND complaint_id = ?",
+            (user_id, complaint_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return _complaint_row(row[0], json.loads(row[1]), row[2], row[3])
+
+
+def find_open_complaint(user_id: str, trip_id: str, travel_date: str) -> dict | None:
+    """Return an existing draft/submitted claim for the same trip and date."""
+    for item in get_complaints(user_id):
+        if item.get("trip_id") != trip_id:
+            continue
+        if item.get("travel_date") != travel_date:
+            continue
+        if item.get("status") in ("draft", "submitted"):
+            return item
+    return None
+
+
+def update_complaint(user_id: str, complaint_id: str, patch: dict) -> dict | None:
+    current = get_complaint(user_id, complaint_id)
+    if current is None:
+        return None
+    payload = {k: v for k, v in current.items() if k not in ("complaint_id", "created_at", "updated_at")}
+    payload = _merge(payload, patch)
+    if patch.get("status") == "submitted" and not payload.get("submitted_at"):
+        payload["submitted_at"] = _now()
+    now = _now()
+    created_at = current["created_at"]
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE complaints SET complaint = ?, updated_at = ? "
+            "WHERE user_id = ? AND complaint_id = ?",
+            (json.dumps(payload), now, user_id, complaint_id),
+        )
+    return _complaint_row(complaint_id, payload, created_at, now)
 
 
 def any_profile() -> dict | None:

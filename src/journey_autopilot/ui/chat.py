@@ -104,7 +104,15 @@ def _describe(event: Any) -> list[dict]:
         if call is not None:
             out.append({"kind": "call", "author": author, "name": call.name})
         elif response is not None:
-            out.append({"kind": "result", "author": author, "name": response.name})
+            entry: dict[str, Any] = {
+                "kind": "result",
+                "author": author,
+                "name": response.name,
+            }
+            raw = getattr(response, "response", None)
+            if isinstance(raw, dict):
+                entry["data"] = raw
+            out.append(entry)
         elif text and text.strip():
             out.append({"kind": "text", "author": author, "text": text.strip()})
     return out

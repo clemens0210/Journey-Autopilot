@@ -39,7 +39,7 @@ from pydantic import BaseModel
 
 # Onboarding logic ("the functions") lives in a separate package; the UI only
 # imports it. The chat module is local to this UI package.
-from journey_autopilot.onboarding import accounts
+from journey_autopilot.onboarding import accounts, complaints
 from journey_autopilot.persistence import store
 from journey_autopilot.integrations import db_ops as db_api
 from . import chat
@@ -102,6 +102,10 @@ class ChatRequest(BaseModel):
     trip: dict | None = None
 
 
+class ComplaintPatchRequest(BaseModel):
+    status: str
+
+
 # --- Auth helpers ---------------------------------------------------------------------
 
 
@@ -135,7 +139,7 @@ def db_login(body: LoginRequest) -> dict:
 
     token = secrets.token_urlsafe(24)
     _SESSIONS[token] = account["user_id"]
-    return {"token": token, "account": account, "trips": trips, "profile": profile}
+    return {"token": token, "account": account, "trips": trips, "profile": profile, "complaints": store.get_complaints(account["user_id"])}
 
 
 @app.get("/api/me")
@@ -145,6 +149,7 @@ def me(authorization: str | None = Header(default=None)) -> dict:
         "account": store.get_account(user_id),
         "profile": store.get_profile(user_id),
         "trips": store.get_trips(user_id),
+        "complaints": store.get_complaints(user_id),
     }
 
 
@@ -152,6 +157,30 @@ def me(authorization: str | None = Header(default=None)) -> dict:
 def trips(authorization: str | None = Header(default=None)) -> dict:
     user_id = _user_id(authorization)
     return {"trips": store.get_trips(user_id)}
+
+
+@app.get("/api/complaints")
+def list_complaints(authorization: str | None = Header(default=None)) -> dict:
+    user_id = _user_id(authorization)
+    return {"complaints": store.get_complaints(user_id)}
+
+
+@app.patch("/api/complaints/{complaint_id}")
+def patch_complaint(
+    complaint_id: str,
+    body: ComplaintPatchRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    user_id = _user_id(authorization)
+    if body.status == "submitted":
+        updated = complaints.submit_complaint(user_id, complaint_id)
+    elif body.status == "rejected":
+        updated = complaints.reject_complaint(user_id, complaint_id)
+    else:
+        raise HTTPException(status_code=422, detail="Unsupported status change.")
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+    return {"complaint": updated}
 
 
 # --- Mobile number: SMS verification (simulated) ------------------------------------------
@@ -455,9 +484,18 @@ async def chat_endpoint(
     ADK + a configured Uni-GPT backend (.env) are required here; errors are
     returned as ``error`` (HTTP 200) so the chat UI can show them inline.
     """
-    _user_id(authorization)  # chat is behind the login like the rest of the API
+    user_id = _user_id(authorization)
     try:
-        return await chat.chat_turn(body.session_id, body.message, body.trip)
+        result = await chat.chat_turn(body.session_id, body.message, body.trip)
+        created = complaints.maybe_create_from_trace(
+            user_id,
+            body.trip,
+            result.get("trace") or [],
+            store.get_account(user_id),
+        )
+        if created:
+            result["complaint_created"] = created
+        return result
     except Exception as exc:  # surfaced inline in the chat instead of a 500
         return {
             "session_id": body.session_id,

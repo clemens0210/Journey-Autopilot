@@ -25,6 +25,20 @@ from ..integrations import db_ops as db_api
 from ..integrations import stations
 
 
+_STATION_ALIASES: dict[str, str] = {
+    "münchen hbf": "Munich Hbf",
+    "münchen hauptbahnhof": "Munich Hbf",
+    "munich hauptbahnhof": "Munich Hbf",
+    "berlin hauptbahnhof": "Berlin Hbf",
+    "berlin hbf": "Berlin Hbf",
+    "frankfurt hbf": "Frankfurt Hbf",
+    "frankfurt(main)hbf": "Frankfurt Hbf",
+}
+
+def _normalize_station(name: str) -> str:
+    return _STATION_ALIASES.get(name.strip().lower(), name)
+
+
 
 def _calendar_configured() -> bool:
     """Return True if MS Entra credentials are present in the environment."""
@@ -344,7 +358,9 @@ def find_reroute_options(
     except Exception:
         pass
 
-    options = mock_data.REROUTE_OPTIONS.get((origin, destination), [])
+    origin_norm = _normalize_station(origin)
+    destination_norm = _normalize_station(destination)
+    options = mock_data.REROUTE_OPTIONS.get((origin_norm, destination_norm), [])
     if options:
         return {
             "origin": origin,
