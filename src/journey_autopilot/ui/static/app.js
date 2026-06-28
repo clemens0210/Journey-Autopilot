@@ -125,6 +125,22 @@ const LABELS = {
 const seatLabel = (pref) =>
   `${LABELS[pref.seat_location]}, ${LABELS[pref.seat_area]}${pref.quiet_zone ? ", quiet zone" : ""}`;
 
+// Policy / veto gate — display labels and the onboarding-autonomy mapping.
+const POLICY_LEVEL_LABEL = {
+  conservative: "Conservative — asks before everything",
+  balanced: "Balanced",
+  aggressive: "Automatic within limits",
+};
+const AUTONOMY_TO_LEVEL = {
+  notify_only: "conservative",
+  approve_each: "balanced",
+  auto_within_limits: "aggressive",
+};
+function policyOverrideCount(p) {
+  const wt = (p.policy && p.policy.write_tools) || {};
+  return Object.values(wt).filter((v) => v && v !== "default").length;
+}
+
 const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", {
   weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
 });
@@ -652,6 +668,12 @@ const renderers = {
         <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
       </div>
 
+      <div class="section-title"><h2>Automation &amp; veto</h2><button id="edit-policy" type="button">Manage</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Autonomy level</span><span class="v">${POLICY_LEVEL_LABEL[(p.policy && p.policy.global_autonomy_level) || "balanced"]}</span></div>
+        <div class="summary-row"><span class="k">Pinned action rules</span><span class="v">${policyOverrideCount(p)}</span></div>
+      </div>
+
       <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
       <div class="card" style="padding: 12px 16px">
         <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
@@ -677,6 +699,7 @@ const renderers = {
 
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
+    $("#edit-policy").addEventListener("click", () => go("policy"));
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
@@ -740,6 +763,12 @@ const renderers = {
         <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
       </div>
 
+      <div class="section-title"><h2>Automation &amp; veto</h2><button id="edit-policy" type="button">Manage</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Autonomy level</span><span class="v">${POLICY_LEVEL_LABEL[(p.policy && p.policy.global_autonomy_level) || "balanced"]}</span></div>
+        <div class="summary-row"><span class="k">Pinned action rules</span><span class="v">${policyOverrideCount(p)}</span></div>
+      </div>
+
       <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
       <div class="card" style="padding: 12px 16px">
         <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
@@ -778,6 +807,7 @@ const renderers = {
 
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("connections"); });
+    $("#edit-policy").addEventListener("click", () => go("policy"));
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
@@ -903,68 +933,69 @@ const renderers = {
     }
   },
 
-// --- Profile (reachable via the Profile tab in the bottom tab bar) ---------------
-  profile() {
-    const p = state.profile;
-    const pref = p.preferences;
-    const h = p.home;
+  // -- Automation & veto (policy layer) — per-write-tool auto/ask + global level ----
+  policy() {
+    const pol = state.profile.policy || { global_autonomy_level: "balanced", book_cost_threshold_eur: 50, write_tools: {} };
+    const wt = pol.write_tools || {};
+    const level = pol.global_autonomy_level || "balanced";
+    const thr = pol.book_cost_threshold_eur ?? 50;
+
+    const opt = (value, label, current) =>
+      `<option value="${value}" ${(current || "default") === value ? "selected" : ""}>${label}</option>`;
+    const toolSelect = (key, withThreshold = false) => `
+      <select data-tool="${key}" class="policy-select">
+        ${opt("default", "Default (by level)", wt[key])}
+        ${opt("auto", "Always auto", wt[key])}
+        ${opt("ask", "Always ask", wt[key])}
+        ${withThreshold ? opt("ask_over_threshold", "Ask if over limit", wt[key]) : ""}
+      </select>`;
+    const toolRow = (label, sub, control) => `
+      <div class="switch-row">
+        <span>${label}<span class="sub">${sub}</span></span>
+        ${control}
+      </div>`;
 
     screen.replaceChildren(el(`
       <div class="dash-greeting">
-        <h1>Profile</h1>
-      </div>
-
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Name</span><span class="v">${state.account.display_name}</span></div>
-        <div class="summary-row"><span class="k">Email</span><span class="v">${state.account.email}</span></div>
-        <div class="summary-row"><span class="k">BahnCard</span><span class="v">${state.account.bahncard}</span></div>
-        <div class="summary-row"><span class="k">BahnBonus</span><span class="v">${state.account.bahnbonus_status} · ${state.account.bahnbonus_points.toLocaleString("en-US")} points</span></div>
-      </div>
-
-      <div class="section-title"><h2>Home station</h2></div>
-      <div class="card">
-        <label class="field">Home station
-          <span class="hint">Search uses live DB data once db_service is running</span>
-          <span class="autocomplete">
-            <input type="text" id="home-station" placeholder="e.g. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
-            <span id="station-suggestions"></span>
-          </span>
-        </label>
-
-        <label class="field">Latest arrival home
-          <span class="hint">After this, the autopilot prefers to suggest a hotel</span>
-          <input type="time" id="latest-arrival" value="${h.latest_arrival_home}">
-        </label>
-
-        <div class="switch-row">
-          <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
-          <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <div class="switch-row">
-          <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
-          <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
-      </div>
-
-      <div class="section-title"><h2>Travel preferences</h2><button id="edit-prefs" type="button">Edit</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
-        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
-        <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
-        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
-      </div>
-
-      <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
-        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
-        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ connected" : "not connected"}</span></div>
+        <h1>Automation &amp; veto</h1>
+        <p class="muted">Decide which actions the autopilot may take on its own and which need your okay. These settings are saved and applied on every run.</p>
       </div>
 
       <div class="card">
-        <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
-        <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
+        <h2>How independent should the autopilot be?</h2>
+        <div class="choices cols-1" data-group="alevel">
+          <button type="button" class="choice" data-value="conservative">
+            <span class="choice-title">🛡️ Conservative</span>
+            <span class="choice-sub">Ask before every action — maximum control.</span>
+          </button>
+          <button type="button" class="choice" data-value="balanced">
+            <span class="choice-title">⚖️ Balanced</span>
+            <span class="choice-sub">Beneficial &amp; free actions run automatically, the rest asks.</span>
+          </button>
+          <button type="button" class="choice" data-value="aggressive">
+            <span class="choice-title">🤖 Automatic within limits</span>
+            <span class="choice-sub">Most actions run automatically; hotels &amp; emails to others still ask.</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Per-action overrides</h2>
+        <p class="muted" style="margin-top:0">"Default (by level)" follows the choice above. Pin a specific action to always run or always ask.</p>
+        ${toolRow("📲 Notify me", "You are the recipient — always automatic", '<span class="v muted">Always auto</span>')}
+        ${toolRow("💶 File compensation claim", "Purely beneficial, money back for you", toolSelect("file_compensation_claim"))}
+        ${toolRow("🗓️ Move a tentative appointment", "Reversible calendar change", toolSelect("reschedule_outlook_event_tentative"))}
+        ${toolRow("📅 Move a confirmed appointment", "Not freely reversible", toolSelect("reschedule_outlook_event_confirmed"))}
+        ${toolRow("🔀 Rebook an alternative train", "Cost depends on the option", toolSelect("book_alternative_connection", true))}
+        ${toolRow("🏨 Book a hotel", "Cost + overnight — high commitment", toolSelect("book_hotel"))}
+        ${toolRow("✉️ Email participants", "Affects third parties (clients, colleagues)", toolSelect("send_email_to_participants"))}
+
+        <label class="field" style="margin-top:12px">Rebooking cost limit (EUR)
+          <span class="hint">Used by "Ask if over limit" — under it rebooks automatically, over it asks</span>
+          <input type="number" id="book-threshold" min="0" step="5" value="${thr}">
+        </label>
+
+        <button class="btn primary block" id="save-policy" type="button" style="margin-top:14px">Save automation settings</button>
       </div>
     `));
 
@@ -973,149 +1004,31 @@ const renderers = {
     $("#tabbar").hidden = false;
     setActiveTab("profile");
 
-    setupHomeStationAutocomplete(h);
+    const box = screen.querySelector('[data-group="alevel"]');
+    box.querySelectorAll(".choice").forEach((btn) => {
+      if (btn.dataset.value === level) btn.classList.add("selected");
+      btn.addEventListener("click", () => {
+        box.querySelectorAll(".choice").forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+      });
+    });
 
-    $("#save-home").addEventListener("click", async () => {
+    $("#save-policy").addEventListener("click", async () => {
+      const write_tools = {};
+      screen.querySelectorAll("select[data-tool]").forEach((s) => { write_tools[s.dataset.tool] = s.value; });
       try {
         await saveProfile({
-          home: {
-            home_station: screen._getHomeStation(),
-            latest_arrival_home: $("#latest-arrival").value,
-            hotel_ok: $("#hotel-ok").checked,
-            taxi_ok: $("#taxi-ok").checked,
+          policy: {
+            global_autonomy_level: box.querySelector(".choice.selected")?.dataset.value || level,
+            book_cost_threshold_eur: Number($("#book-threshold").value) || 0,
+            write_tools,
           },
         });
-        toast("✓ Home settings saved");
+        toast("✓ Automation settings saved");
       } catch (err) {
         toast(`⚠️ ${err.message}`);
       }
     });
-
-    $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
-    $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("connections"); });
-    $("#delete-profile").addEventListener("click", async () => {
-      if (!confirm("Really delete all data? This cannot be undone.")) return;
-      await api("/api/profile", { method: "DELETE" });
-      sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
-      updateTopbarAccount();
-      toast("All data deleted. See you soon!");
-      go("welcome");
-    });
-  },
-
-  // -- Connections (reachable via "Manage" on the profile/dashboard) ---------------
-  connections() {
-    const phoneVerified = state.profile?.notifications?.phone_verified;
-    const outlookConnected = state.profile?.connections?.outlook;
-    const events = state.outlookEvents.map((e) => `
-      <div class="event-row">
-        <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
-        <span><span class="event-title">${e.title}</span>
-          <span class="event-loc">${e.location}</span>
-          ${e.hard_constraint ? '<span class="event-hard">Hard deadline</span>' : ""}
-        </span>
-      </div>
-    `).join("");
-
-    screen.replaceChildren(el(`
-      <div class="dash-greeting">
-        <h1>Connections</h1>
-        <p class="muted">Manage your linked accounts and notification channels.</p>
-      </div>
-
-      <div class="section-title"><h2>Phone number</h2></div>
-      <div class="card">
-        ${phoneVerified ? `
-          <div class="success-banner">✓ ${state.profile.notifications.phone} is confirmed</div>
-          <p class="muted" style="margin-top:10px">To change your number, disconnect first and re-verify.</p>
-          <button class="btn danger block" id="phone-disconnect" type="button">Remove number</button>
-        ` : `
-          <p class="muted">With a confirmed number we can reach you with alerts and replanning suggestions via SMS/WhatsApp — even when the app is closed.</p>
-          <label class="field">Phone number
-            <input type="tel" id="phone-input" placeholder="+49 151 12345678" autocomplete="tel" value="${state.profile?.notifications?.phone || ""}">
-          </label>
-          <button class="btn primary block" id="phone-send" type="button">Send code</button>
-          <div id="phone-confirm-area" hidden>
-            <label class="field" style="margin-top:16px">Confirmation code
-              <input type="text" id="phone-code" class="code-input" inputmode="numeric" maxlength="4" placeholder="····">
-            </label>
-            <button class="btn primary block" id="phone-verify" type="button">Confirm</button>
-          </div>
-          <p class="error" id="phone-error"></p>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> No real SMS is sent — the code is shown as a notification.</div>
-        `}
-      </div>
-
-      <div class="section-title"><h2>Outlook calendar</h2></div>
-      <div class="card">
-        <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
-        ${outlookConnected ? `
-          <div class="success-banner">✓ Outlook calendar connected</div>
-          ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
-          <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
-        ` : `
-          <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
-          <div id="outlook-device-flow"></div>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
-        `}
-      </div>
-    `));
-
-    $("#navbar").hidden = true;
-    $("#progress").hidden = true;
-    $("#tabbar").hidden = false;
-    setActiveTab("profile");
-
-    // --- Phone handlers ---
-    if (phoneVerified) {
-      $("#phone-disconnect").addEventListener("click", async () => {
-        const data = await api("/api/verify/phone", { method: "DELETE" });
-        state.profile = data.profile;
-        toast("Phone number removed");
-        renderers.connections();
-      });
-    } else {
-      $("#phone-send").addEventListener("click", async () => {
-        $("#phone-error").textContent = "";
-        try {
-          const data = await api("/api/verify/phone/start", {
-            method: "POST", body: { phone: $("#phone-input").value },
-          });
-          $("#phone-confirm-area").hidden = false;
-          $("#phone-code").focus();
-          toast(`📱 SMS to ${data.phone} (demo): your code is ${data.demo_code}`, 10000);
-        } catch (err) {
-          $("#phone-error").textContent = err.message;
-        }
-      });
-
-      $("#phone-verify").addEventListener("click", async () => {
-        $("#phone-error").textContent = "";
-        try {
-          const data = await api("/api/verify/phone/confirm", {
-            method: "POST", body: { code: $("#phone-code").value },
-          });
-          state.profile = data.profile;
-          toast("✓ Number confirmed");
-          renderers.connections();
-        } catch (err) {
-          $("#phone-error").textContent = err.message;
-        }
-      });
-    }
-
-    // --- Outlook handlers ---
-    if (outlookConnected) {
-      $("#outlook-disconnect").addEventListener("click", async () => {
-        const data = await api("/api/connect/outlook", { method: "DELETE" });
-        state.profile = data.profile;
-        state.outlookEvents = [];
-        renderers.connections();
-      });
-    } else {
-      $("#outlook-connect").addEventListener("click", () => startOutlookConnect());
-    }
   },
 
   // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
@@ -1365,12 +1278,16 @@ async function persistCurrentStep() {
     case "notifications": {
       const channels = [...screen.querySelectorAll("[data-channel]")]
         .filter((c) => c.checked).map((c) => c.dataset.channel);
+      const autonomy = screen.querySelector('[data-group="autonomy"] .choice.selected')?.dataset.value;
       await saveProfile({
         notifications: {
           channels,
           quiet_hours: { from: $("#quiet-from").value, to: $("#quiet-to").value },
         },
-        autonomy: screen.querySelector('[data-group="autonomy"] .choice.selected')?.dataset.value,
+        autonomy,
+        // Seed the policy/veto global level from the onboarding choice; the
+        // "Automation & veto" screen can refine it per action later.
+        ...(autonomy ? { policy: { global_autonomy_level: AUTONOMY_TO_LEVEL[autonomy] } } : {}),
       });
       break;
     }

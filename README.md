@@ -222,8 +222,9 @@ is deliberately mocked.
 
 - **Orchestrator** (`orchestrator.py`, `root_agent`) — `LlmAgent` that wraps the
   workers as `AgentTool` and decides in a ReAct loop who to call when. Calls
-  Monitoring first, then (if risk present) Planner. `agent.py` is a thin shim
-  exposing `root_agent` for ADK discovery.
+  Monitoring first, then (if risk present) Planner, and — once the user approves
+  an option — the Executor (write path, behind the veto gate). `agent.py` is a
+  thin shim exposing `root_agent` for ADK discovery.
 - **Monitoring Agent** (`agents/monitoring.py`) — read-only risk detection. Both
   pre-trip (delay risk + ETA from punctuality history) and en-route (live status
   + disruptions). Risk is a deterministic model tool, not an LLM judgment.
@@ -239,10 +240,15 @@ is deliberately mocked.
   `whatsapp_webhook.py`), passenger-rights RAG (`rights_rag/`). All mocked behind
   interfaces.
 - **Persistence** (`persistence/store.py`) — SQLite profile/constraints/trips.
-- **Scaffolds** (target architecture, not yet wired): `state.py`, `policy.py`,
-  `errors.py`, `agents/executor.py`, `tools/write_tools.py`,
-  `persistence/checkpointer.py`, plus `config/*.yaml`, `scenarios/`, `baseline/`,
-  `eval/`, and `Dockerfile`/`docker-compose.yml`.
+- **Policy layer / veto gate** (`policy.py`, `tools/write_tools.py`,
+  `agents/executor.py`) — `policy.resolve()` maps each write tool to `auto`/`ask`
+  from `config/policy.yaml`, shifted by a global autonomy level and overridden by
+  the user's profile (`policy` block, set in the "Automation & veto" UI). The
+  Executor holds the (simulated) write tools; a gated action returns
+  `veto_required` and only fires after the user approves in the chat.
+- **Scaffolds** (target architecture, not yet wired): `state.py`, `errors.py`,
+  `persistence/checkpointer.py`, plus `scenarios/`, `baseline/`, `eval/`, and
+  `Dockerfile`/`docker-compose.yml`.
 - **Model Configuration** (`config.py`) — a single place where the model is set
   per role; talks to the Uni-Cologne-GPT (OpenAI-compatible) via LiteLLM.
 
@@ -259,10 +265,11 @@ src/journey_autopilot/
   __init__.py                  # package marker (adk discovery)
   agent.py                     # shim: re-exports root_agent for adk
   orchestrator.py              # Orchestrator (root_agent, ReAct)
-  state.py  policy.py  errors.py   # context record + policy + error policy (scaffold)
+  state.py  errors.py        # context record + error policy (scaffold)
+  policy.py                  # veto gate: resolves write tools auto/ask (active)
   config.py  mock_data.py
-  agents/      monitoring.py  planner.py  communicator.py  executor.py(stub)
-  tools/       read_tools.py  write_tools.py(stub)  risk_model.py
+  agents/      monitoring.py  planner.py  communicator.py  executor.py
+  tools/       read_tools.py  write_tools.py  risk_model.py
   integrations/  db_ops.py  stations.py  outlook/  whatsapp.py  whatsapp_webhook.py
                  whatsapp_models.py  rights_rag/
   persistence/   store.py  checkpointer.py(stub)
@@ -282,7 +289,7 @@ The system grows modularly along the agent roles (see
 - **Planner Agent** ✅ — generates reroute options under constraints (RAG)
 - **Communicator Agent** ✅ — WhatsApp messages with approval workflow (Twilio)
 - **Negotiator Agent** — multi-stakeholder coordination
-- **Veto Gate** — human-in-the-loop, user retains veto
+- **Veto Gate** ✅ — human-in-the-loop, user retains veto (policy layer + Executor)
 - **Booking Agent** — book tickets, hotels, and mobility options (reversible)
 - **Memory & Learning** — persist preferences (SQLite)
 

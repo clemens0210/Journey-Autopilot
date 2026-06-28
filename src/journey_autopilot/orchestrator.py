@@ -21,19 +21,24 @@ from google.adk.tools.agent_tool import AgentTool
 from .config import ORCHESTRATOR_MODEL
 from .agents.monitoring import build_monitoring_agent
 from .agents.planner import build_planner_agent
+from .agents.executor import build_executor_agent
 
 # Instantiate sub-agents and make them available as tools.
 monitoring_agent = build_monitoring_agent()
 planner_agent = build_planner_agent()
+executor_agent = build_executor_agent()
 
 ORCHESTRATOR_INSTRUCTION = """\
 You are the **Orchestrator** of the "Journey Autopilot" system. You do not solve
-the request yourself, but coordinate two specialist agents that you can call
+the request yourself, but coordinate three specialist agents that you can call
 as tools:
 
 - `monitoring_agent`: assesses the disruption risk of a trip — both pre-trip
   (delay risk + ETA from punctuality history) and en route (live status).
 - `planner_agent`: creates reroute proposals under the user's hard deadlines.
+- `executor_agent`: carries out the actions for an option the user approved
+  (book reroute/hotel, reschedule calendar, file compensation, notify). Every
+  action runs through the policy/veto gate.
 
 Work according to the ReAct principle — think, act (call an agent), read
 the result, think again:
@@ -48,10 +53,23 @@ the result, think again:
 3. Summarize clearly for the user: current situation (from Monitoring) and,
    if available, the recommended plan (from Planner) incl. calendar check and
    compensation note.
+4. Acting on the plan (the veto gate):
+   - Do NOT call `executor_agent` just to present the plan — first let the user
+     decide. Present the recommended option and ask whether to proceed.
+   - When the user asks to carry out an option (or approves one), call
+     `executor_agent` with the concrete actions (reroute option id + cost,
+     calendar event + its tentative/confirmed status, compensation, who to
+     notify). The Executor applies the policy: some actions run automatically,
+     others come back as needing the user's explicit approval.
+   - If the Executor reports actions as `veto_required`, relay exactly what needs
+     approval and ask the user to confirm. Only after the user clearly approves,
+     call `executor_agent` again telling it the user approved those actions.
 
 Important:
-- You do not make any bookings. The plan is a proposal — the user retains veto power.
-- At the end, transparently state which agent contributed what.
+- You never bypass the veto gate. Bookings/messages that the policy gates only
+  happen after the user's explicit approval — the user always retains veto power.
+- At the end, transparently state which agent contributed what, and which
+  actions were executed vs. still awaiting approval.
 - Rely only on the agent results, invent nothing.
 - Tool results include a `source` field. If a source starts with `mock_`, say
   that the live DB sidecar was unavailable and demo fallback data was used.
@@ -61,12 +79,14 @@ root_agent = LlmAgent(
     name="journey_autopilot_orchestrator",
     model=ORCHESTRATOR_MODEL,
     description=(
-        "ReAct Orchestrator that coordinates Monitoring and Planner Agents to "
-        "detect disrupted train journeys and propose reroutes."
+        "ReAct Orchestrator that coordinates Monitoring, Planner, and Executor "
+        "Agents to detect disrupted train journeys, propose reroutes, and carry "
+        "out approved actions through the policy/veto gate."
     ),
     instruction=ORCHESTRATOR_INSTRUCTION,
     tools=[
         AgentTool(agent=monitoring_agent),
         AgentTool(agent=planner_agent),
+        AgentTool(agent=executor_agent),
     ],
 )

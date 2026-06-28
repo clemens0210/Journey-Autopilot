@@ -73,6 +73,16 @@ DEFAULT_PROFILE: dict = {
         "outlook": False,
     },
     "autonomy": "approve_each",           # notify_only | approve_each | auto_within_limits
+    # Policy / veto gate — read by journey_autopilot.policy.resolve(). The
+    # onboarding "autonomy" choice seeds global_autonomy_level; the advanced
+    # settings screen can pin per-write-tool overrides (auto | ask, plus
+    # "ask_over_threshold" for booking). Empty write_tools => fall back to the
+    # config/policy.yaml defaults shifted by the global level.
+    "policy": {
+        "global_autonomy_level": "balanced",   # conservative | balanced | aggressive
+        "book_cost_threshold_eur": 50,
+        "write_tools": {},                      # e.g. {"book_hotel": "ask"}
+    },
     "onboarding_completed": False,
 }
 
