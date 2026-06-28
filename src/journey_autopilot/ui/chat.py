@@ -79,6 +79,12 @@ def _seed_prompt(trip: dict | None, message: str) -> str:
         context += f", planned arrival {trip.get('planned_arrival')}"
     if when:
         context += f" on {when}"
+    if trip.get("price_eur") is not None:
+        # Give the agent the fare up front so a compensation claim doesn't stall
+        # asking the user for the ticket price.
+        context += f", ticket price {trip.get('price_eur')} EUR"
+    if trip.get("travel_class"):
+        context += f", {trip.get('travel_class')}. class"
     context += "."
     return f"{context}\n\n{message}"
 

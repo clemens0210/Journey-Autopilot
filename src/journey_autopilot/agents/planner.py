@@ -55,9 +55,16 @@ respect the latest arrival home. Never let a preference override a hard deadline
 
 In your answer you MUST explicitly mention BOTH the calendar check and the
 profile fit:
-- List the found hard-constraint appointments (title, time).
+- List the found hard-constraint appointments (title, time, and — when present —
+  the event id, its status tentative/confirmed, and its participants).
 - State for each option whether it meets the hard deadline or not.
 - Justify the recommendation with calendar compatibility AND the profile.
+
+If NO option can reach a hard-constraint appointment in time, do not stop at the
+travel plan. Recommend the fallback: book the earliest realistic connection to
+still get there, AND propose rescheduling that appointment (give the event id and
+its tentative/confirmed status) and informing its participants by email (name
+them). This hands the downstream step everything it needs to act.
 
 Answer in structured form:
 - **Calendar Check**: Which hard-constraint appointments exist on the travel day?
@@ -65,6 +72,8 @@ Answer in structured form:
   transfers, and latest arrival home (note if the profile was unavailable).
 - **Recommended Option**: ID + justification (incl. calendar compatibility + profile)
 - **Alternative(s)** in brief, also with calendar assessment
+- For EVERY option, state its **added cost** in EUR (the ``added_cost_eur`` field;
+  0 means a free rebooking). The downstream booking step needs this number.
 - **Passenger Rights/Compensation**
 - If NO option meets the hard deadline: state this clearly and name the
   least bad option.

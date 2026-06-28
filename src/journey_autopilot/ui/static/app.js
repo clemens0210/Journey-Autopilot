@@ -1075,7 +1075,9 @@ function openChat(trip) {
     messages: [{
       role: "assistant",
       text: `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip. `
-        + `Ask me anything — or just say "monitor my trip" to run a live check.`,
+        + `Say "monitor my trip" for a live check. If your appointment is no longer reachable you can ask me to act — `
+        + `e.g. "rebook me, move the clashing meeting and let the participants know" — and I'll only do what your `
+        + `automation settings allow without asking first.`,
     }],
   };
   go("chat");
