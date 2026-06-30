@@ -16,7 +16,7 @@ models:
   # bedrock_claude for higher capacity (e.g. planner: bedrock_claude).
   orchestrator: uni_gpt
   monitoring:   uni_gpt    # runs frequently/in a loop -> prefer the cheap tier
-  planner:      bedrock_claude     # most demanding reasoning -> prefer the stronger tier
+  planner:      uni_gpt   # most demanding reasoning -> prefer the stronger tier
   communicator: uni_gpt
 
 thresholds:

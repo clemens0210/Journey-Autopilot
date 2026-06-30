@@ -713,6 +713,16 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 .option-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--ink-soft); margin-top: 4px; }
 .option-delay { color: var(--coral); font-weight: 700; }
 .option-remark { display: block; font-size: 11px; color: var(--ink-soft); margin-top: 5px; overflow-wrap: anywhere; }
+.option-price { font-weight: 700; }
+
+/* Mode badges for non-train ecosystem alternatives (Flinkster / Call-a-Bike / Hotel) */
+.option-mode-badge {
+  font-size: 10.5px; font-weight: 700;
+  padding: 1px 7px; border-radius: 7px;
+}
+.option-mode-car   { background: var(--blue-badge-bg);  color: var(--blue); }
+.option-mode-bike  { background: var(--green-badge-bg); color: var(--green-badge-ink); }
+.option-mode-hotel { background: #2D1F3D; color: #C084FC; }
 
 @media (max-width: 470px) {
   body { background: var(--bg); }

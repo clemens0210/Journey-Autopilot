@@ -134,7 +134,7 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "purpose": "Workshop Cologne",
             },
             {
-                "trip_id": f"DB-{today:%Y-%m%d}-CGN-MUC",
+                "trip_id": f"DB-{today:%Y-%m-%d}-CGN-MUC",
                 "order_number": "MR4T9A",
                 "origin": "Köln Hbf",
                 "destination": "München Hbf",

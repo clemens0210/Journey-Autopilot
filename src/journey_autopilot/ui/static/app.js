@@ -397,6 +397,7 @@ const renderers = {
   preferences() {
     const p = state.profile.preferences;
     const h = state.profile.home;
+    const mob = state.profile.mobility || {};
     screen.replaceChildren(el(`
       <div class="card">
         <h2>Your travel preferences</h2>
@@ -467,6 +468,14 @@ const renderers = {
             <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
             <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
           </div>
+          <div class="switch-row">
+            <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+            <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+          </div>
+          <div class="switch-row">
+            <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+            <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+          </div>
         </div>
       ` : ""}
     `));
@@ -501,6 +510,7 @@ const renderers = {
   // -- 6: Home & constraints --------------------------------------------------------------
   home() {
     const h = state.profile.home;
+    const mob = state.profile.mobility || {};
     screen.replaceChildren(el(`
       <div class="card">
         <h2>Home &amp; hard limits</h2>
@@ -526,6 +536,14 @@ const renderers = {
         <div class="switch-row">
           <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
           <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+          <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+          <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
         </div>
       </div>
     `));
@@ -619,7 +637,7 @@ const renderers = {
     setNav({ back: true, next: "Finish onboarding 🚀" });
   },
 
-  // -- Dashboard -------------------------------------------------------------------------------
+  // -- Dashboard -------------------------------------------------------------------------
   dashboard() {
     const p = state.profile;
     const pref = p.preferences;
@@ -693,6 +711,7 @@ const renderers = {
     const p = state.profile;
     const pref = p.preferences;
     const h = p.home;
+    const mob = p.mobility || {};
 
     screen.replaceChildren(el(`
       <div class="dash-greeting">
@@ -728,6 +747,14 @@ const renderers = {
         <div class="switch-row">
           <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
           <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+          <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+          <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
         </div>
         <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
       </div>
@@ -768,6 +795,10 @@ const renderers = {
             latest_arrival_home: $("#latest-arrival").value,
             hotel_ok: $("#hotel-ok").checked,
             taxi_ok: $("#taxi-ok").checked,
+          },
+          mobility: {
+            car_sharing_ok: $("#car-sharing-ok").checked,
+            bike_sharing_ok: $("#bike-sharing-ok").checked,
           },
         });
         toast("✓ Home settings saved");
@@ -908,6 +939,7 @@ const renderers = {
     const p = state.profile;
     const pref = p.preferences;
     const h = p.home;
+    const mob = p.mobility || {};
 
     screen.replaceChildren(el(`
       <div class="dash-greeting">
@@ -943,6 +975,14 @@ const renderers = {
         <div class="switch-row">
           <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
           <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+          <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+          <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
         </div>
         <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
       </div>
@@ -983,6 +1023,10 @@ const renderers = {
             latest_arrival_home: $("#latest-arrival").value,
             hotel_ok: $("#hotel-ok").checked,
             taxi_ok: $("#taxi-ok").checked,
+          },
+          mobility: {
+            car_sharing_ok: $("#car-sharing-ok").checked,
+            bike_sharing_ok: $("#bike-sharing-ok").checked,
           },
         });
         toast("✓ Home settings saved");
@@ -1200,34 +1244,81 @@ function renderChatLog() {
 // "Take option <id>" as the next user turn and disables the batch so the user
 // can't pick twice. The per-option `source` (db_service_live / mock_*) decides
 // the live/demo badge; optionsSource is the fallback for the whole batch.
+// Cards branch on `o.mode` (train / car_sharing / bike_sharing / hotel).
+const _MODE_META = {
+  car_sharing:  { icon: "🚗", label: "Flinkster",    cls: "car"   },
+  bike_sharing: { icon: "🚲", label: "Call-a-Bike",  cls: "bike"  },
+  hotel:        { icon: "🏨", label: "Hotel",         cls: "hotel" },
+};
+
 function renderOptionCards(options, optionsSource, message) {
   const chosen = message.chosenOption || null;
   const items = options.map((o) => {
     const id = escapeHtml(o.option_id || "?");
-    const trains = (o.trains || []).map(escapeHtml).join(" → ") || escapeHtml(o.description || "Connection");
-    const dep = o.departure ? fmtTime(o.departure) : "—";
-    const arr = o.new_arrival ? fmtTime(o.new_arrival) : "—";
-    const transfers = o.transfers != null ? `${o.transfers} change${o.transfers === 1 ? "" : "s"}` : "—";
-    const delay = o.added_delay_minutes != null ? `+${o.added_delay_minutes} min` : "";
-    const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
-    const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+    const mode = o.mode || "train";
     const src = o.source || optionsSource || "";
     const liveBadge = src.startsWith("db_service_live")
       ? '<span class="option-source live">● Live DB</span>'
       : src.startsWith("mock_")
         ? '<span class="option-source mock">Demo fallback</span>'
         : "";
+    const meta = _MODE_META[mode];
+    const modeBadge = meta
+      ? `<span class="option-mode-badge option-mode-${meta.cls}">${meta.icon} ${meta.label}</span>`
+      : "";
     const picked = chosen === (o.option_id || "");
     const stateCls = picked ? " selected" : chosen ? " disabled" : "";
-    return `
-      <button type="button" class="option-card${stateCls}" data-option-id="${id}"${chosen ? " disabled" : ""}>
-        <div class="option-head"><span class="option-badge">${id}</span>${liveBadge}</div>
+
+    let body;
+    if (mode === "hotel") {
+      const name = escapeHtml(o.name || o.description || "Hotel");
+      const dist = o.distance_to_station_km != null ? `${o.distance_to_station_km} km from station` : "";
+      const price = o.price_per_night_eur != null ? `${Number(o.price_per_night_eur).toFixed(2)} €/night` : "";
+      const nights = o.nights != null ? `${o.nights} night${o.nights === 1 ? "" : "s"}` : "";
+      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+      body = `
+        <div class="option-trains">${name}</div>
+        <div class="option-meta">
+          ${dist ? `<span>${dist}</span>` : ""}${price ? `<span class="option-price">${price}</span>` : ""}${nights ? `<span>${nights}</span>` : ""}
+        </div>
+        ${remarks}`;
+    } else if (mode === "car_sharing" || mode === "bike_sharing") {
+      const desc = escapeHtml(o.description || "");
+      const pickup = o.pickup ? `<div class="option-times">${escapeHtml(o.pickup)}</div>` : "";
+      const dist = o.distance_km != null ? `${o.distance_km} km` : "";
+      const dur = o.est_duration_minutes != null ? `~${o.est_duration_minutes} min` : "";
+      const arr = o.new_arrival ? `→ ${fmtTime(o.new_arrival)}` : "";
+      const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
+      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+      body = `
+        <div class="option-trains">${desc}</div>
+        ${pickup}
+        <div class="option-meta">
+          ${dist ? `<span>${dist}</span>` : ""}${dur ? `<span>${dur}</span>` : ""}${arr ? `<span>${arr}</span>` : ""}${price ? `<span class="option-price">${price}</span>` : ""}
+        </div>
+        ${remarks}`;
+    } else {
+      // train (default)
+      const trains = (o.trains || []).map(escapeHtml).join(" → ") || escapeHtml(o.description || "Connection");
+      const dep = o.departure ? fmtTime(o.departure) : "—";
+      const arr = o.new_arrival ? fmtTime(o.new_arrival) : "—";
+      const transfers = o.transfers != null ? `${o.transfers} change${o.transfers === 1 ? "" : "s"}` : "—";
+      const delay = o.added_delay_minutes != null ? `+${o.added_delay_minutes} min` : "";
+      const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
+      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+      body = `
         <div class="option-trains">${trains}</div>
         <div class="option-times">${dep} → ${arr}</div>
         <div class="option-meta">
           <span>${transfers}</span>${delay ? `<span class="option-delay">${delay}</span>` : ""}${price ? `<span>${price}</span>` : ""}
         </div>
-        ${remarks}
+        ${remarks}`;
+    }
+
+    return `
+      <button type="button" class="option-card${stateCls}" data-option-id="${id}"${chosen ? " disabled" : ""}>
+        <div class="option-head"><span class="option-badge">${id}</span>${modeBadge}${liveBadge}</div>
+        ${body}
       </button>`;
   }).join("");
   return `<div class="option-cards" data-chosen="${chosen || ""}">${items}</div>`;
@@ -1415,6 +1506,10 @@ async function persistCurrentStep() {
           hotel_ok: $("#hotel-ok").checked,
           taxi_ok: $("#taxi-ok").checked,
         };
+        patch.mobility = {
+          car_sharing_ok: $("#car-sharing-ok").checked,
+          bike_sharing_ok: $("#bike-sharing-ok").checked,
+        };
       }
       await saveProfile(patch);
       break;
@@ -1426,6 +1521,10 @@ async function persistCurrentStep() {
           latest_arrival_home: $("#latest-arrival").value,
           hotel_ok: $("#hotel-ok").checked,
           taxi_ok: $("#taxi-ok").checked,
+        },
+        mobility: {
+          car_sharing_ok: $("#car-sharing-ok").checked,
+          bike_sharing_ok: $("#bike-sharing-ok").checked,
         },
       });
       break;

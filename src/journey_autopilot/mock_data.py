@@ -36,6 +36,39 @@ def _load_fixtures(name: str) -> dict:
         ) from exc
 
 
+def _norm(name: str) -> str:
+    """Normalize a station/location name for case-insensitive matching."""
+    return " ".join(name.strip().lower().split())
+
+
+# German <-> English aliases for the stations in the demo fixtures so the LLM
+# can use either spelling and the lookup still hits.
+_STATION_ALIASES: dict[str, str] = {
+    # Bare city names (LLM sometimes drops "Hbf") + German umlaut forms.
+    # Case / whitespace variants are already handled by the _norm scan in
+    # lookup_route / lookup_location, so those don't need entries here.
+    "munich":    "Munich Hbf",   "münchen": "Munich Hbf",  "münchen hbf": "Munich Hbf",
+    "berlin":    "Berlin Hbf",
+    "köln":      "Köln Hbf",     "cologne": "Köln Hbf",    "koeln": "Köln Hbf",
+    "frankfurt": "Frankfurt (Main) Hbf",
+    "hamburg":   "Hamburg Hbf",
+    "nürnberg":  "Nürnberg Hbf", "nuremberg": "Nürnberg Hbf",
+    "stuttgart": "Stuttgart Hbf",
+    "bonn":      "Bonn Hbf",
+    "hannover":  "Hannover Hbf",
+    "düsseldorf": "Düsseldorf Hbf", "dusseldorf": "Düsseldorf Hbf",
+}
+
+
+def _canonical(name: str) -> str:
+    """Return the fixture-canonical spelling for a station name.
+
+    Tries: exact match → alias table → strips ' Hbf' suffix fallback. If none
+    matches, returns the input unchanged.
+    """
+    return _STATION_ALIASES.get(_norm(name), name)
+
+
 def _by_route(records: list[dict], value_key: str) -> dict:
     """Rebuild a {(origin, destination): value} map from a list of records.
 
@@ -43,6 +76,46 @@ def _by_route(records: list[dict], value_key: str) -> dict:
     ``{"origin": ..., "destination": ..., <value_key>: ...}`` records.
     """
     return {(r["origin"], r["destination"]): r[value_key] for r in records}
+
+
+def lookup_route(table: dict, origin: str, destination: str) -> list:
+    """Case-insensitive route lookup against a ``_by_route`` table.
+
+    Tries the exact key first, then the alias-canonical key, then a
+    case-insensitive scan so that LLM-generated variants like 'München Hbf'
+    or 'munich hbf' still hit the right fixture entry.
+    """
+    hit = table.get((origin, destination))
+    if hit is not None:
+        return hit
+    co, cd = _canonical(origin), _canonical(destination)
+    hit = table.get((co, cd))
+    if hit is not None:
+        return hit
+    no, nd = _norm(origin), _norm(destination)
+    for (ko, kd), v in table.items():
+        if _norm(ko) == no and _norm(kd) == nd:
+            return v
+    return []
+
+
+def lookup_location(table: dict, location: str) -> list:
+    """Case-insensitive single-key lookup (for FLINKSTER_OPTIONS, PARTNER_HOTELS).
+
+    Tries exact → alias-canonical → case-insensitive scan.
+    """
+    hit = table.get(location)
+    if hit is not None:
+        return hit
+    cl = _canonical(location)
+    hit = table.get(cl)
+    if hit is not None:
+        return hit
+    nl = _norm(location)
+    for k, v in table.items():
+        if _norm(k) == nl:
+            return v
+    return []
 
 
 _FX = _load_fixtures(_ACTIVE)
@@ -56,6 +129,13 @@ NETWORK_DISRUPTIONS: dict = _FX["network_disruptions"]
 REROUTE_OPTIONS: dict = _by_route(_FX["reroute_options"], "options")
 USER_CALENDAR: dict = _FX["user_calendar"]
 PASSENGER_RIGHTS: list = _FX["passenger_rights"]
+
+# --- DB-ecosystem alternatives (Flinkster, Call-a-Bike, partner hotels) ------
+# Keyed by location name (station / city). Missing sections default to empty
+# dicts so fixtures that predate this feature still load without error.
+FLINKSTER_OPTIONS: dict = {r["location"]: r["options"] for r in _FX.get("flinkster_options", [])}
+CALLABIKE_OPTIONS: dict = {r["location"]: r["options"] for r in _FX.get("callabike_options", [])}
+PARTNER_HOTELS: dict = {r["location"]: r["hotels"] for r in _FX.get("partner_hotels", [])}
 
 # --- Risk knowledge (pre-trip): delay history + scheduled connection ----------
 # Fallbacks for the Monitoring Agent's pre-trip risk path when the db_service

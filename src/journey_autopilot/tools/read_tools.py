@@ -151,10 +151,11 @@ _LAST_REROUTE: dict | None = None
 
 
 def last_reroute_options() -> dict | None:
-    """Returns the most recent ``find_reroute_options`` result, or ``None``.
+    """Returns the accumulated option list for this turn, or ``None``.
 
-    Shape: ``{"origin", "destination", "options", "source"}`` — the same dict
-    the tool returns to the agent, minus any ``error`` key.
+    Shape: ``{"origin", "destination", "options", "source"}`` where ``options``
+    may contain train, car-sharing, bike-sharing, and hotel entries from multiple
+    tool calls within the same Planner turn.
     """
     return _LAST_REROUTE
 
@@ -165,16 +166,33 @@ def clear_reroute_options() -> None:
     _LAST_REROUTE = None
 
 
-def _stash_reroute(result: dict) -> dict:
-    """Remember the reroute result for the UI; return it unchanged for the agent."""
+def _stash_options(
+    options: list[dict],
+    *,
+    origin: str = "",
+    destination: str = "",
+    source: str = "",
+) -> list[dict]:
+    """Append new options to the in-process slot; return the list unchanged.
+
+    Options whose ``option_id`` already exists in the slot are skipped so
+    repeated calls (train first, then ecosystem) merge without duplicates.
+    """
     global _LAST_REROUTE
-    _LAST_REROUTE = {
-        "origin": result.get("origin"),
-        "destination": result.get("destination"),
-        "options": result.get("options", []),
-        "source": result.get("source"),
-    }
-    return result
+    if _LAST_REROUTE is None:
+        _LAST_REROUTE = {
+            "origin": origin,
+            "destination": destination,
+            "options": [],
+            "source": source,
+        }
+    seen_ids = {o.get("option_id") for o in _LAST_REROUTE["options"]}
+    for opt in options:
+        oid = opt.get("option_id")
+        if oid not in seen_ids:
+            _LAST_REROUTE["options"].append(opt)
+            seen_ids.add(oid)
+    return options
 
 
 def _board_warnings(board: Any) -> list[dict]:
@@ -362,6 +380,7 @@ def find_reroute_options(
             live_options.append(
                 {
                     "option_id": option.get("option_id"),
+                    "mode": "train",
                     "description": option.get("description"),
                     "departure": option.get("departure") or option.get("planned_departure"),
                     "new_arrival": arrival,
@@ -375,31 +394,126 @@ def find_reroute_options(
                 }
             )
         if live_options:
-            return _stash_reroute({
+            _stash_options(live_options, origin=origin, destination=destination, source="db_service_live")
+            return {
                 "origin": origin,
                 "destination": destination,
                 "options": live_options,
                 "source": "db_service_live",
-            })
+            }
     except db_api.DBServiceError:
         pass
     except Exception:
         pass
 
-    options = mock_data.REROUTE_OPTIONS.get((origin, destination), [])
+    options = mock_data.lookup_route(mock_data.REROUTE_OPTIONS, origin, destination)
     if options:
-        return _stash_reroute({
+        mock_options = [{**option, "mode": option.get("mode", "train"), "source": "mock_reroute_options"} for option in options]
+        _stash_options(mock_options, origin=origin, destination=destination, source="mock_reroute_options")
+        return {
             "origin": origin,
             "destination": destination,
-            "options": [{**option, "source": "mock_reroute_options"} for option in options],
+            "options": mock_options,
             "source": "mock_reroute_options",
-        })
+        }
     return {
         "origin": origin,
         "destination": destination,
         "options": [],
         "source": "none",
         "error": "No reroute options available for this route.",
+    }
+
+
+def find_mobility_alternatives(
+    location: str,
+    destination: str = "",
+    leg: str = "last_mile",
+    max_results: int = 4,
+) -> dict:
+    """Finds Flinkster (car sharing) and Call-a-Bike (bike sharing) options near a station.
+
+    Call this ONLY when no train option from ``find_reroute_options`` is viable —
+    i.e. all train alternatives miss the hard-constraint deadline, exceed
+    ``preferences.max_transfers``, or no train options were returned at all.
+    Only call when ``profile.mobility.car_sharing_ok`` or
+    ``profile.mobility.bike_sharing_ok`` is True (or the ``mobility`` section is
+    absent from the profile, in which case both are assumed True by default).
+
+    Swap point for a future real integration: replace the mock lookups below with
+    DB Connect / Flinkster API calls keyed on the station's coordinates.
+
+    Args:
+        location: Station or city where the traveler is stranded, e.g. "Munich Hbf".
+        destination: Target destination — used for context and drive-time estimates.
+        leg: "last_mile" for short local connections, "bridging" for longer legs.
+        max_results: Maximum number of alternatives to return in total.
+
+    Returns:
+        A dict with ``flinkster`` (car-sharing options, option_id C#) and
+        ``callabike`` (bike-sharing options, option_id B#) lists. Each option
+        carries: ``mode`` ("car_sharing" / "bike_sharing"), ``option_id``,
+        ``description``, ``pickup`` location, ``distance_km``,
+        ``est_duration_minutes``, ``new_arrival`` (ISO string or null),
+        ``price_eur``, ``remarks``, and ``source`` ("mock_flinkster" /
+        "mock_callabike"). Also includes ``source`` on the top-level dict.
+    """
+    flinkster = [
+        {**o, "source": "mock_flinkster"}
+        for o in mock_data.lookup_location(mock_data.FLINKSTER_OPTIONS, location)[:max_results]
+    ]
+    callabike = [
+        {**o, "source": "mock_callabike"}
+        for o in mock_data.lookup_location(mock_data.CALLABIKE_OPTIONS, location)[:max_results]
+    ]
+    all_options = flinkster + callabike
+    if all_options:
+        _stash_options(all_options, origin=location, destination=destination, source="mock_mobility")
+    return {
+        "location": location,
+        "destination": destination,
+        "leg": leg,
+        "flinkster": flinkster,
+        "callabike": callabike,
+        "source": "mock_mobility" if all_options else "none",
+    }
+
+
+def find_partner_hotels(
+    location: str,
+    check_in_date: str,
+    max_results: int = 4,
+) -> dict:
+    """Finds DB partner hotel options near a stranded station for an overnight stay.
+
+    Call this ONLY when no same-day option (train or mobility) can get the
+    traveler to their destination, AND ``profile.home.hotel_ok`` is True.
+    Covers the overnight case — traveler cannot reach the destination today.
+
+    Swap point for a future real integration: replace the mock lookup below with
+    a call to bahn.de/hotels or a DB partner hotel API.
+
+    Args:
+        location: Station or city near which to search (typically the destination
+            or the stranded intermediate stop), e.g. "Berlin Hbf".
+        check_in_date: Planned check-in date in "YYYY-MM-DD" format.
+        max_results: Maximum number of hotels to return.
+
+    Returns:
+        A dict with a ``hotels`` list (option_id H#). Each hotel carries:
+        ``mode`` ("hotel"), ``option_id``, ``name``, ``description``,
+        ``distance_to_station_km``, ``price_per_night_eur``, ``check_in_date``,
+        ``nights``, ``remarks``, and ``source`` ("mock_hotels").
+    """
+    raw = mock_data.lookup_location(mock_data.PARTNER_HOTELS, location)[:max_results]
+    hotels = [{**h, "source": "mock_hotels", "check_in_date": check_in_date} for h in raw]
+    if hotels:
+        _stash_options(hotels, origin=location, destination=location, source="mock_hotels")
+    return {
+        "location": location,
+        "check_in_date": check_in_date,
+        "hotels": hotels,
+        "source": "mock_hotels" if hotels else "none",
     }
 
 
