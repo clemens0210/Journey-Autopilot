@@ -3,18 +3,20 @@
 # cost/quality trade-off.
 #
 # READ BY config.py (single source of truth). Each model value is an *alias*
-# resolved in config.py's _MODEL_BUILDERS; "uni_gpt" is the University of Cologne
-# GPT endpoint (OpenAI-compatible via LiteLLM), configured through the UNI_GPT_*
-# environment variables (see .env.example). Add an alias + builder to introduce a
-# second endpoint. If this file or PyYAML is missing, config.py falls back to
-# these same defaults.
+# resolved in config.py's _MODEL_BUILDERS. Available aliases:
+#   uni_gpt        — University of Cologne GPT (OpenAI-compatible via LiteLLM)
+#                    env: UNI_GPT_MODEL, UNI_GPT_BASE_URL, UNI_GPT_API_KEY
+#   bedrock_claude — Claude Sonnet 4.6 on AWS Bedrock via LiteLLM
+#                    env: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (IAM user with AmazonBedrockFullAccess)
+#                         AWS_REGION (default: us-east-1), BEDROCK_MODEL (default: us.anthropic.claude-sonnet-4-6)
+# If this file or PyYAML is missing, config.py falls back to these same defaults.
 
 models:
-  # All roles share the Uni-GPT endpoint today; split per role once more models
-  # are available (e.g. cheap tier for monitoring, stronger tier for planner).
+  # All roles share the Uni-GPT endpoint by default; switch individual roles to
+  # bedrock_claude for higher capacity (e.g. planner: bedrock_claude).
   orchestrator: uni_gpt
-  monitoring:   uni_gpt     # runs frequently/in a loop -> prefer the cheap tier
-  planner:      uni_gpt     # most demanding reasoning -> prefer the stronger tier
+  monitoring:   uni_gpt    # runs frequently/in a loop -> prefer the cheap tier
+  planner:      uni_gpt   # most demanding reasoning -> prefer the stronger tier
   communicator: uni_gpt
 
 thresholds:
