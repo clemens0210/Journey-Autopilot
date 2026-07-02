@@ -725,6 +725,48 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 .option-mode-bike  { background: var(--green-badge-bg); color: var(--green-badge-ink); }
 .option-mode-hotel { background: #2D1F3D; color: #C084FC; }
 
+/* --- Trip card: multi-leg + delete ----------------------------------------- */
+
+/* "+N" marker next to the train name when several trains are involved. */
+.train-more {
+  font-size: 11px; font-weight: 700;
+  color: var(--ink-soft);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 5px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+/* Intermediate (change) station in a multi-leg route — lighter than origin/dest. */
+.route.multi .station.intermediate {
+  font-weight: 600; font-size: 13px; color: var(--ink-soft);
+}
+
+/* Trash button in the trip head. */
+.trip-delete {
+  background: none; border: none; color: var(--ink-soft);
+  padding: 4px; margin: -4px -2px -4px 0;
+  cursor: pointer; font-family: inherit;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  transition: color .12s, background .12s;
+}
+.trip-delete .ic { width: 18px; height: 18px; }
+.trip-delete:hover { color: var(--coral); background: rgba(255,138,147,.12); }
+
+/* --- Search & add a trip --------------------------------------------------- */
+
+.search-form { margin-top: 4px; }
+.search-form .field { margin: 10px 0; }
+#search-results { margin-top: 14px; }
+#search-results .option-cards { margin-top: 0; }
+.search-confirm-summary {
+  font-size: 13px; color: var(--ink-soft);
+  margin: 10px 0 0; line-height: 1.4;
+}
+
 @media (max-width: 470px) {
   body { background: var(--bg); }
   .phone { box-shadow: none; max-width: none; }

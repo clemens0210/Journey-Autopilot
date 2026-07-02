@@ -107,3 +107,20 @@ def resolve_eva(name: str) -> str | None:
     # A valid-but-empty result (no station matched) — cache briefly as well.
     _neg_cache[key] = time.monotonic() + _NEG_TTL
     return None
+
+
+def resolve_eva_or_id(value: str) -> str | None:
+    """Resolve a station name OR an already-numeric EVA to an EVA number.
+
+    The journey search autocomplete returns the EVA (an all-digit id) directly
+    when a station is selected; a manually typed input is a name. All-digit
+    values are passed straight through (zero network calls), everything else
+    goes through ``resolve_eva``. No EVA-format validation: a malformed digit
+    string simply yields no journeys downstream (clean failure).
+    """
+    v = (value or "").strip()
+    if not v:
+        return None
+    if v.isdigit():
+        return v
+    return resolve_eva(v)

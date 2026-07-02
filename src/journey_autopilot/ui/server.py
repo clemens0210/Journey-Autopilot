@@ -42,6 +42,7 @@ from pydantic import BaseModel
 from journey_autopilot.onboarding import accounts
 from journey_autopilot.persistence import store
 from journey_autopilot.integrations import db_ops as db_api
+from journey_autopilot.integrations.stations import resolve_eva_or_id
 from . import chat
 
 if TYPE_CHECKING:
@@ -102,6 +103,12 @@ class ChatRequest(BaseModel):
     trip: dict | None = None
 
 
+class AddTripRequest(BaseModel):
+    journey: dict
+    purpose: str
+    travel_class: int = 2
+
+
 # --- Auth helpers ---------------------------------------------------------------------
 
 
@@ -152,6 +159,46 @@ def me(authorization: str | None = Header(default=None)) -> dict:
 def trips(authorization: str | None = Header(default=None)) -> dict:
     user_id = _user_id(authorization)
     return {"trips": store.get_trips(user_id)}
+
+
+@app.post("/api/trips")
+def add_trip(body: AddTripRequest, authorization: str | None = Header(default=None)) -> dict:
+    """Import a journey chosen in the live search as one of the user's trips.
+
+    Self-added trips have no booking, so order_number / coach / seat / platform
+    are deliberately omitted (the card hides that row when they're absent). The
+    generated ``USR-`` id is unique per row; monitoring re-searches by route, not
+    id (see ``tools.read_tools._journey_for_trip``), so a synthetic id monitors
+    fine.
+    """
+    user_id = _user_id(authorization)
+    j = body.journey or {}
+    trains = j.get("trains") or []
+    trip = {
+        "trip_id": f"USR-{secrets.token_hex(4)}",
+        "origin": j.get("origin"),
+        "destination": j.get("destination"),
+        "train": j.get("train") or (trains[0] if trains else None),
+        "trains": trains,
+        "legs": j.get("legs") or [],
+        "planned_departure": j.get("planned_departure") or j.get("departure"),
+        "planned_arrival": j.get("planned_arrival") or j.get("arrival"),
+        "transfers": j.get("transfers"),
+        "price_eur": j.get("price_eur"),
+        "travel_class": body.travel_class,
+        "purpose": body.purpose,
+        "source": "db-live-search",
+    }
+    store.save_trips(user_id, [trip])
+    return {"trip": trip, "trips": store.get_trips(user_id)}
+
+
+@app.delete("/api/trips/{trip_id}")
+def delete_trip(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """Remove a single imported/added trip (does not touch the rest of the profile)."""
+    user_id = _user_id(authorization)
+    store.delete_trip(user_id, trip_id)
+    return {"deleted": True, "trips": store.get_trips(user_id)}
 
 
 # --- Mobile number: SMS verification (simulated) ------------------------------------------
@@ -436,6 +483,61 @@ def stations(query: str = "") -> dict:
         needle = query.lower()
         hits = [s for s in accounts.FALLBACK_STATIONS if needle in s["name"].lower()]
         return {"stations": hits[:6], "source": "fallback"}
+
+
+# --- Journey search (live DB data via sidecar) --------------------------------
+# NOTE: intentionally live-only — no mock fallback. Unlike the station lookup
+# above (which falls back to a static list) and the agent tools (which fall
+# back to mock_data and tag every result with `source`), there is no realistic
+# mock for an arbitrary origin/destination journey search. When the sidecar is
+# down we return an empty result set with source "unavailable" (HTTP 200) so
+# the UI shows "Search unavailable" instead of crashing. This is a deliberate,
+# documented exception to the AGENTS.md live-then-mock-fallback contract: the
+# search endpoint is UI-only (not an LLM tool), so the Orchestrator's "disclose
+# mock_* sources" rule doesn't apply.
+
+
+@app.get("/api/journeys/search")
+def journeys_search(
+    origin: str = "",
+    destination: str = "",
+    date: str = "",
+    time: str = "08:00",
+) -> dict:
+    """Search live DB journeys between two stations.
+
+    ``origin`` / ``destination`` accept either a station name or an EVA (all-digit
+    id, passed straight through from the autocomplete). ``date`` is ``YYYY-MM-DD``;
+    ``time`` defaults to 08:00 and is combined into the ISO datetime db_api wants.
+
+    Returns ``{"results": [...], "source": "db-live"}`` on success, or
+    ``{"results": [], "source": "unavailable"}`` (HTTP 200) when a station can't
+    be resolved or the sidecar is down — the UI shows "Search unavailable".
+    """
+    origin = (origin or "").strip()
+    destination = (destination or "").strip()
+    date = (date or "").strip()
+    time = (time or "08:00").strip()
+    if not origin or not destination or not date:
+        return {"results": [], "source": "unavailable"}
+
+    from_eva = resolve_eva_or_id(origin)
+    to_eva = resolve_eva_or_id(destination)
+    if from_eva is None or to_eva is None:
+        return {"results": [], "source": "unavailable"}
+
+    try:
+        payload = db_api.journeys(
+            from_eva,
+            to_eva,
+            departure=f"{date}T{time}:00",
+            results=6,
+            tickets=True,
+        )
+        results = db_api.normalize_journeys(payload)
+        return {"results": results, "source": "db-live"}
+    except db_api.DBServiceError:
+        return {"results": [], "source": "unavailable"}
 
 
 # --- Chat (runs the ReAct orchestrator, like scenarios/happy_path.py) --------------------------------

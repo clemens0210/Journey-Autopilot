@@ -76,33 +76,71 @@ const SVG = {
   bell: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 19a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   download: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   qr: `<svg viewBox="0 0 24 24" fill="#111"><path d="M3 3h7v7H3V3Zm2 2v3h3V5H5Zm9-2h7v7h-7V3Zm2 2v3h3V5h-3ZM3 14h7v7H3v-7Zm2 2v3h3v-3H5Zm11-2h2v2h-2v-2Zm3 0h2v2h-2v-2Zm-3 3h2v2h-2v-2Zm0 3h2v2h-2v-2Zm3-3h2v2h-2v-2Zm0 3h2v2h-2v-2Z"/></svg>`,
+  transfer: `<svg class="ic" viewBox="0 0 24 24" fill="none"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg>`,
+  trash: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
+
+// Route grid for a trip card. Single-leg journeys keep the simple origin →
+// destination layout; multi-leg journeys (self-added connections, or any trip
+// with >1 leg) render the full station chain — origin → each change station →
+// final destination — using the existing .route grid markers.
+function routeHTML(t) {
+  const legs = Array.isArray(t.legs) ? t.legs : [];
+  if (legs.length > 1) {
+    // leg[i].destination === leg[i+1].origin, so taking each leg's destination
+    // (after the origin) yields the change chain without duplicates.
+    const stops = [legs[0].origin, ...legs.map((leg) => leg.destination)];
+    const rows = stops.map((stop, i) => {
+      const isLast = i === stops.length - 1;
+      const marker = isLast ? SVG.pin : i === 0 ? SVG.origin : SVG.transfer;
+      const dots = isLast ? "" : `<span class="dots"><i></i><i></i><i></i></span><span></span>`;
+      return `<span class="marker">${marker}</span><span class="station${isLast ? "" : " intermediate"}">${escapeHtml(stop || "")}</span>${dots}`;
+    }).join("");
+    return `<div class="route multi">${rows}</div>`;
+  }
+  return `
+    <div class="route">
+      <span class="marker">${SVG.origin}</span><span class="station">${escapeHtml(t.origin || "")}</span>
+      <span class="dots"><i></i><i></i><i></i></span><span></span>
+      <span class="marker">${SVG.pin}</span><span class="station">${escapeHtml(t.destination || "")}</span>
+    </div>`;
+}
 
 // A trip card in DB Navigator layout: DB logo + train, purpose of travel,
 // origin/destination with dot/pin markers, date/time, and a footer status.
 // When `index` is given the card becomes clickable (opens the trip chat).
-function tripCardHTML(t, { foot, live = false, index = null } = {}) {
+// `deletable` renders a trash button (data-trip-delete-id) in the head; the
+// dashboard wires a delegated handler that stops propagation so the card click
+// (chat) doesn't fire. The seat/coach/platform row is hidden when none of
+// those fields are present (self-added trips have no booking).
+function tripCardHTML(t, { foot, live = false, index = null, deletable = false } = {}) {
   const clickable = index !== null;
+  const legs = Array.isArray(t.legs) ? t.legs : [];
+  const trains = Array.isArray(t.trains) ? t.trains : (t.train ? [t.train] : []);
+  const multi = legs.length > 1;
+  const trainHead = escapeHtml(t.train || "") + (trains.length > 1 ? ` <span class="train-more">+${trains.length - 1}</span>` : "");
+  const hasSeatRow = t.platform || t.coach || t.seat;
+  const deleteBtn = deletable
+    ? `<button class="trip-delete" type="button" data-trip-delete-id="${escapeHtml(t.trip_id || "")}" aria-label="Delete trip" title="Delete trip">${SVG.trash}</button>`
+    : "";
   return `
     <div class="trip-card${clickable ? " clickable" : ""}"${clickable ? ` data-trip-index="${index}"` : ""}>
       <div class="trip-head">
         <span class="db-logo">${SVG.dbLogo}</span>
-        <span class="train">${t.train}</span>
+        <span class="train">${trainHead}</span>
         <span class="trip-head-right">
+          ${deleteBtn}
           <span>${t.travel_class}. Kl.</span>
           <span class="qr">${SVG.qr}</span>
         </span>
       </div>
-      <div class="trip-fare">${t.purpose}</div>
+      <div class="trip-fare">${escapeHtml(t.purpose || "")}</div>
       <hr class="trip-divider">
       <div class="trip-body">
-        <div class="route">
-          <span class="marker">${SVG.origin}</span><span class="station">${t.origin}</span>
-          <span class="dots"><i></i><i></i><i></i></span><span></span>
-          <span class="marker">${SVG.pin}</span><span class="station">${t.destination}</span>
-        </div>
+        ${routeHTML(t)}
         <div class="trip-meta-row">${SVG.calendar} ${fmtDate(t.planned_departure)} · ${fmtTime(t.planned_departure)} – ${fmtTime(t.planned_arrival)}</div>
-        <div class="trip-meta-row">${SVG.seat} ${t.platform} · ${t.coach}, ${t.seat}</div>
+        ${multi ? `<div class="trip-meta-row">${SVG.transfer} ${trains.map(escapeHtml).join(" → ")} · ${legs.length - 1} change${legs.length - 1 === 1 ? "" : "s"}</div>` : ""}
+        ${hasSeatRow ? `<div class="trip-meta-row">${SVG.seat} ${escapeHtml(t.platform || "")}${t.coach ? ` · ${escapeHtml(t.coach)}` : ""}${t.seat ? `, ${escapeHtml(t.seat)}` : ""}</div>` : ""}
       </div>
       ${foot ? `<div class="trip-foot ${live ? "live" : ""}">${live ? SVG.bell : SVG.download} ${foot}</div>` : ""}
     </div>`;
@@ -152,20 +190,18 @@ function setProgress(step) {
   }
 }
 
-function setupHomeStationAutocomplete(home) {
-  const input = $("#home-station");
-  const sugBox = $("#station-suggestions");
-  if (!input || !sugBox) return;
+function setupStationAutocomplete(inputEl, sugBoxEl, initial) {
+  if (!inputEl || !sugBoxEl) return null;
 
-  let selected = home.home_station || null;
+  let selected = initial || null;
   let debounce = null;
 
-  input.addEventListener("input", () => {
+  inputEl.addEventListener("input", () => {
     selected = null;
     clearTimeout(debounce);
     debounce = setTimeout(async () => {
-      const q = input.value.trim();
-      sugBox.innerHTML = "";
+      const q = inputEl.value.trim();
+      sugBoxEl.innerHTML = "";
       if (q.length < 2) return;
       const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
       if (!data.stations.length) return;
@@ -177,16 +213,23 @@ function setupHomeStationAutocomplete(home) {
         b.textContent = data.source === "db-live" ? `🟢 ${s.name}` : s.name;
         b.addEventListener("click", () => {
           selected = s;
-          input.value = s.name;
-          sugBox.innerHTML = "";
+          inputEl.value = s.name;
+          sugBoxEl.innerHTML = "";
         });
         list.appendChild(b);
       });
-      sugBox.replaceChildren(list);
+      sugBoxEl.replaceChildren(list);
     }, 250);
   });
 
-  screen._getHomeStation = () => selected || (input.value.trim() ? { id: null, name: input.value.trim() } : null);
+  return () => selected || (inputEl.value.trim() ? { id: null, name: inputEl.value.trim() } : null);
+}
+
+function setupHomeStationAutocomplete(home) {
+  // Thin wrapper that exposes the selected home station via screen._getHomeStation,
+  // preserving the contract the preferences/home/profile screens rely on.
+  const getStation = setupStationAutocomplete($("#home-station"), $("#station-suggestions"), home.home_station || null);
+  if (getStation) screen._getHomeStation = getStation;
 }
 
 function updateTopbarAccount() {
@@ -201,7 +244,10 @@ function updateTopbarAccount() {
 
 function setActiveTab(tab) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-  const el = tab === "trips" ? $("#tab-trips") : tab === "profile" ? $("#tab-profile") : null;
+  const el = tab === "trips" ? $("#tab-trips")
+    : tab === "profile" ? $("#tab-profile")
+    : tab === "add" ? $("#tab-add")
+    : null;
   if (el) el.classList.add("active");
 }
 
@@ -643,7 +689,7 @@ const renderers = {
     const pref = p.preferences;
     const nextTrip = state.trips[0];
     const cards = state.trips
-      .map((t, i) => tripCardHTML(t, { foot: "Monitored by the autopilot · tap to chat", live: true, index: i }))
+      .map((t, i) => tripCardHTML(t, { foot: "Monitored by the autopilot · tap to chat", live: true, index: i, deletable: true }))
       .join("");
 
     screen.replaceChildren(el(`
@@ -654,7 +700,12 @@ const renderers = {
           : "No upcoming trips — the autopilot is ready."}</p>
       </div>
 
-      <div class="section-title"><h2>Monitored trips</h2></div>
+      <div class="section-title">
+        <h2>Monitored trips</h2>
+        <div class="section-actions">
+          <button id="add-trip" type="button">+ Add trip</button>
+        </div>
+      </div>
       ${cards || '<div class="card"><p class="muted">No trips imported.</p></div>'}
 
       <div class="section-title">
@@ -693,6 +744,13 @@ const renderers = {
       cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
     });
 
+    // Attach the delete handler directly to each trash button (per-element) so
+    // its stopPropagation fires on the button and blocks the card click above.
+    screen.querySelectorAll(".trip-delete").forEach((btn) => {
+      btn.addEventListener("click", onDeleteTripClick);
+    });
+
+    $("#add-trip").addEventListener("click", () => go("searchTrip"));
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
     $("#delete-profile").addEventListener("click", async () => {
@@ -936,6 +994,164 @@ const renderers = {
     }
   },
 
+  // -- Search & add a trip (live DB journey search) -------------------------
+  searchTrip() {
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    screen.replaceChildren(el(`
+      <div class="dash-greeting">
+        <h1>Add a trip</h1>
+        <p class="muted">Search live DB connections and add one to your monitored trips.</p>
+      </div>
+
+      <div class="card">
+        <form id="search-form" class="search-form">
+          <label class="field">From
+            <span class="autocomplete">
+              <input type="text" id="search-origin" placeholder="e.g. München Hbf" autocomplete="off">
+              <span id="search-origin-suggestions"></span>
+            </span>
+          </label>
+          <label class="field">To
+            <span class="autocomplete">
+              <input type="text" id="search-dest" placeholder="e.g. Berlin Hbf" autocomplete="off">
+              <span id="search-dest-suggestions"></span>
+            </span>
+          </label>
+          <label class="field">Date
+            <input type="date" id="search-date" value="${tomorrow}">
+          </label>
+          <label class="field">Class</label>
+          <div class="choices" data-group="search-class">
+            <button type="button" class="choice" data-value="2"><span class="choice-title">2nd class</span></button>
+            <button type="button" class="choice" data-value="1"><span class="choice-title">1st class</span></button>
+          </div>
+          <button class="btn primary block" id="search-go" type="submit">Search connections</button>
+        </form>
+      </div>
+
+      <div id="search-results"></div>
+      <div id="search-confirm"></div>
+    `));
+    // Add trip is its own page (like Profile) — reachable via the bottom-left
+    // tab and the dashboard's "+ Add trip" button. Navigation away is via the
+    // tab bar, so no back button is needed here.
+    $("#navbar").hidden = true;
+    $("#progress").hidden = true;
+    $("#tabbar").hidden = false;
+    setActiveTab("add");
+
+    const originAC = setupStationAutocomplete($("#search-origin"), $("#search-origin-suggestions"), null);
+    const destAC = setupStationAutocomplete($("#search-dest"), $("#search-dest-suggestions"), null);
+
+    // 2nd class selected by default
+    const classBox = screen.querySelector('[data-group="search-class"]');
+    let travelClass = 2;
+    classBox.querySelectorAll(".choice").forEach((btn) => {
+      if (btn.dataset.value === "2") btn.classList.add("selected");
+      btn.addEventListener("click", () => {
+        classBox.querySelectorAll(".choice").forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        travelClass = Number(btn.dataset.value);
+      });
+    });
+
+    let results = [];
+    async function runSearch(ev) {
+      ev.preventDefault();
+      const o = originAC ? originAC() : null;
+      const d = destAC ? destAC() : null;
+      const origin = o?.id || o?.name || "";
+      const destination = d?.id || d?.name || "";
+      const dateVal = $("#search-date").value;
+      if (!origin || !destination || !dateVal) {
+        toast("Please fill in origin, destination and date.");
+        return;
+      }
+      const btn = $("#search-go");
+      btn.disabled = true;
+      btn.textContent = "Searching…";
+      $("#search-confirm").innerHTML = "";
+      const out = $("#search-results");
+      out.innerHTML = '<p class="muted">Searching live DB connections…</p>';
+      try {
+        const params = new URLSearchParams({ origin, destination, date: dateVal });
+        const data = await api(`/api/journeys/search?${params}`);
+        results = data.results || [];
+        if (data.source === "unavailable" || !results.length) {
+          out.innerHTML = data.source === "unavailable"
+            ? "<p class=\"muted\">Search unavailable — the live DB service isn't running.</p>"
+            : '<p class="muted">No connections found for this route.</p>';
+        } else {
+          out.innerHTML = `<div class="option-cards">${results.map((j, i) => `
+            <button type="button" class="option-card" data-result-index="${i}">
+              <div class="option-head"><span class="option-badge">${escapeHtml(j.option_id || `R${i + 1}`)}</span><span class="option-source live">● Live DB</span></div>
+              ${journeyBodyHTML({
+                trains: j.trains, description: j.description,
+                departure: j.planned_departure || j.departure,
+                arrival: j.planned_arrival || j.arrival,
+                transfers: j.transfers, price_eur: j.price_eur, remarks: j.remarks,
+              })}
+            </button>`).join("")}</div>`;
+        }
+      } catch (err) {
+        out.innerHTML = `<p class="muted">Search failed: ${escapeHtml(err.message)}</p>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Search connections";
+      }
+    }
+
+    function pickResult(idx) {
+      const j = results[idx];
+      if (!j) return;
+      const dest = j.destination || "destination";
+      $("#search-confirm").innerHTML = `
+        <div class="card">
+          <h2>Name this trip</h2>
+          <label class="field">Purpose / subject
+            <input type="text" id="search-purpose" value="Trip to ${escapeHtml(dest)}">
+          </label>
+          <div class="search-confirm-summary">
+            ${escapeHtml(j.origin || "")} → ${escapeHtml(j.destination || "")}
+            · ${escapeHtml((j.trains || []).join(" → ") || j.description || "")}
+          </div>
+          <button class="btn primary block" id="search-confirm-btn" type="button">Add trip</button>
+          <button class="btn block" id="search-cancel-btn" type="button" style="margin-top:8px">Back to results</button>
+        </div>`;
+      $("#search-confirm").scrollIntoView({ behavior: "smooth" });
+      $("#search-purpose").focus();
+      $("#search-purpose").select();
+      $("#search-cancel-btn").addEventListener("click", () => { $("#search-confirm").innerHTML = ""; });
+      $("#search-confirm-btn").addEventListener("click", async () => {
+        const purpose = $("#search-purpose").value.trim() || `Trip to ${dest}`;
+        const cbtn = $("#search-confirm-btn");
+        cbtn.disabled = true;
+        cbtn.textContent = "Adding…";
+        try {
+          const data = await api("/api/trips", {
+            method: "POST",
+            body: { journey: j, purpose, travel_class: travelClass },
+          });
+          state.trips = data.trips;
+          toast("✓ Trip added");
+          go("dashboard");
+        } catch (err) {
+          cbtn.disabled = false;
+          cbtn.textContent = "Add trip";
+          toast(`⚠️ ${err.message}`);
+        }
+      });
+    }
+
+    $("#search-form").addEventListener("submit", runSearch);
+    // Delegated click on result cards (one listener survives re-renders).
+    $("#search-results").addEventListener("click", (ev) => {
+      const card = ev.target.closest(".option-card[data-result-index]");
+      if (!card) return;
+      pickResult(Number(card.dataset.resultIndex));
+    });
+  },
+
   // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
   chat() {
     const trip = state.chat.trip;
@@ -1074,6 +1290,26 @@ function renderChatLog() {
   log.scrollTop = log.scrollHeight;
 }
 
+// Shared inner body for a train journey/reroute option. The helper speaks one
+// vocabulary — the arrival field is always `arrival` — so each caller maps its
+// source field at the call site: a reroute option passes `new_arrival`, a live
+// search result passes `planned_arrival || arrival`. Centralises the null-price
+// guard too. Used by renderOptionCards (chat reroutes) and the search screen.
+function journeyBodyHTML(j) {
+  const trains = (j.trains || []).map(escapeHtml).join(" → ") || escapeHtml(j.description || "Connection");
+  const dep = j.departure ? fmtTime(j.departure) : "—";
+  const arr = j.arrival ? fmtTime(j.arrival) : "—";
+  const transfers = j.transfers != null ? `${j.transfers} change${j.transfers === 1 ? "" : "s"}` : "—";
+  const delay = j.added_delay_minutes != null ? `<span class="option-delay">+${j.added_delay_minutes} min</span>` : "";
+  const price = j.price_eur != null ? `<span>${Number(j.price_eur).toFixed(2)} €</span>` : "";
+  const remarks = (j.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+  return `
+    <div class="option-trains">${trains}</div>
+    <div class="option-times">${dep} → ${arr}</div>
+    <div class="option-meta"><span>${transfers}</span>${delay}${price}</div>
+    ${remarks}`;
+}
+
 // Render reroute option cards below the agent's prose. Clicking a card sends
 // "Take option <id>" as the next user turn and disables the batch so the user
 // can't pick twice. The per-option `source` (db_service_live / mock_*) decides
@@ -1133,20 +1369,13 @@ function renderOptionCards(options, optionsSource, message) {
         ${remarks}`;
     } else {
       // train (default)
-      const trains = (o.trains || []).map(escapeHtml).join(" → ") || escapeHtml(o.description || "Connection");
-      const dep = o.departure ? fmtTime(o.departure) : "—";
-      const arr = o.new_arrival ? fmtTime(o.new_arrival) : "—";
-      const transfers = o.transfers != null ? `${o.transfers} change${o.transfers === 1 ? "" : "s"}` : "—";
-      const delay = o.added_delay_minutes != null ? `+${o.added_delay_minutes} min` : "";
-      const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
-      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
-      body = `
-        <div class="option-trains">${trains}</div>
-        <div class="option-times">${dep} → ${arr}</div>
-        <div class="option-meta">
-          <span>${transfers}</span>${delay ? `<span class="option-delay">${delay}</span>` : ""}${price ? `<span>${price}</span>` : ""}
-        </div>
-        ${remarks}`;
+      body = journeyBodyHTML({
+        trains: o.trains, description: o.description,
+        departure: o.departure,
+        arrival: o.new_arrival,            // reroute-specific field
+        transfers: o.transfers, added_delay_minutes: o.added_delay_minutes,
+        price_eur: o.price_eur, remarks: o.remarks,
+      });
     }
 
     return `
@@ -1422,6 +1651,34 @@ function back() {
   go(STEPS[Math.max(0, idx - 1)]);
 }
 
+// Single-trip delete. Attached directly to each .trip-delete button (per-
+// element, in the dashboard renderer) so ev.stopPropagation() fires ON the
+// button — blocking the parent .trip-card click (which opens the chat) from
+// ever firing. (A delegated handler on #screen would run AFTER the card's
+// handler, by which point state.step is already "chat".)
+async function onDeleteTripClick(ev) {
+  const btn = ev.target.closest(".trip-delete");
+  if (!btn) return;
+  const tripId = btn.dataset.tripDeleteId;
+  if (!tripId) return;
+  ev.stopPropagation();
+  if (!confirm("Delete this trip? This cannot be undone.")) return;
+  try {
+    const data = await api(`/api/trips/${encodeURIComponent(tripId)}`, { method: "DELETE" });
+    state.trips = data.trips;
+    // If the deleted trip was the one open in the chat, drop the chat too.
+    if (state.chat && state.chat.trip && state.chat.trip.trip_id === tripId) {
+      state.chat = null;
+      persistChat();
+    }
+    toast("✓ Trip deleted");
+    // Trash buttons only appear on the dashboard (trips page); stay there.
+    go("dashboard");
+  } catch (err) {
+    toast(`⚠️ ${err.message}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Events & startup
 // ---------------------------------------------------------------------------
@@ -1450,6 +1707,9 @@ $("#ms-accept").addEventListener("click", async () => {
 // Tab bar: Trips ↔ Profile navigation
 $("#tab-trips").addEventListener("click", () => go("dashboard"));
 $("#tab-profile").addEventListener("click", () => go("profile"));
+// "Add trip" opens the live DB journey search screen (its own page, like
+// Profile — the tab shows as active while you're on it).
+$("#tab-add").addEventListener("click", () => go("searchTrip"));
 
 async function boot() {
   if (state.token) {

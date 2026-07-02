@@ -104,7 +104,11 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "purpose": "Client meeting Berlin",
             },
             {
-                "trip_id": f"DB-{d2:%Y-%m%d}-BLN-MUC",
+                # trip_id is route-stable (not date-encoded) so a re-login on a
+                # later day upserts the SAME row — the relative dates get
+                # refreshed to "always upcoming" without leaving stale duplicates
+                # behind. The canonical demo trip above keeps its pinned id.
+                "trip_id": "DB-BLN-MUC",
                 "order_number": "QX7K2P",
                 "origin": "Berlin Hbf",
                 "destination": "Munich Hbf",
@@ -119,7 +123,7 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "purpose": "Return trip",
             },
             {
-                "trip_id": f"DB-{d3:%Y-%m%d}-MUC-CGN",
+                "trip_id": "DB-MUC-CGN",
                 "order_number": "MR4T9A",
                 "origin": "Munich Hbf",
                 "destination": "Cologne Hbf",
@@ -134,7 +138,7 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "purpose": "Workshop Cologne",
             },
             {
-                "trip_id": f"DB-{today:%Y-%m-%d}-CGN-MUC",
+                "trip_id": "DB-CGN-MUC",
                 "order_number": "MR4T9A",
                 "origin": "Köln Hbf",
                 "destination": "München Hbf",
@@ -153,7 +157,7 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
     if user_id == "u-erika-muster":
         return [
             {
-                "trip_id": f"DB-{d2:%Y-%m%d}-FRA-HAM",
+                "trip_id": "DB-FRA-HAM",
                 "order_number": "ZK1N8B",
                 "origin": "Frankfurt (Main) Hbf",
                 "destination": "Hamburg Hbf",
