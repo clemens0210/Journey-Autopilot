@@ -699,7 +699,8 @@ const renderers = {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -813,235 +814,8 @@ const renderers = {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
-      updateTopbarAccount();
-      toast("All data deleted. See you soon!");
-      go("welcome");
-    });
-  },
-
-  // -- Connections (reachable via "Manage" on the profile/dashboard) ---------------
-  connections() {
-    const phoneVerified = state.profile?.notifications?.phone_verified;
-    const outlookConnected = state.profile?.connections?.outlook;
-    const events = state.outlookEvents.map((e) => `
-      <div class="event-row">
-        <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
-        <span><span class="event-title">${e.title}</span>
-          <span class="event-loc">${e.location}</span>
-          ${e.hard_constraint ? '<span class="event-hard">Hard deadline</span>' : ""}
-        </span>
-      </div>
-    `).join("");
-
-    screen.replaceChildren(el(`
-      <div class="dash-greeting">
-        <h1>Connections</h1>
-        <p class="muted">Manage your linked accounts and notification channels.</p>
-      </div>
-
-      <div class="section-title"><h2>Phone number</h2></div>
-      <div class="card">
-        ${phoneVerified ? `
-          <div class="success-banner">✓ ${state.profile.notifications.phone} is confirmed</div>
-          <p class="muted" style="margin-top:10px">To change your number, disconnect first and re-verify.</p>
-          <button class="btn danger block" id="phone-disconnect" type="button">Remove number</button>
-        ` : `
-          <p class="muted">With a confirmed number we can reach you with alerts and replanning suggestions via SMS/WhatsApp — even when the app is closed.</p>
-          <label class="field">Phone number
-            <input type="tel" id="phone-input" placeholder="+49 151 12345678" autocomplete="tel" value="${state.profile?.notifications?.phone || ""}">
-          </label>
-          <button class="btn primary block" id="phone-send" type="button">Send code</button>
-          <div id="phone-confirm-area" hidden>
-            <label class="field" style="margin-top:16px">Confirmation code
-              <input type="text" id="phone-code" class="code-input" inputmode="numeric" maxlength="4" placeholder="····">
-            </label>
-            <button class="btn primary block" id="phone-verify" type="button">Confirm</button>
-          </div>
-          <p class="error" id="phone-error"></p>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> No real SMS is sent — the code is shown as a notification.</div>
-        `}
-      </div>
-
-      <div class="section-title"><h2>Outlook calendar</h2></div>
-      <div class="card">
-        <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
-        ${outlookConnected ? `
-          <div class="success-banner">✓ Outlook calendar connected</div>
-          ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
-          <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
-        ` : `
-          <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
-          <div id="outlook-device-flow"></div>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
-        `}
-      </div>
-    `));
-
-    $("#navbar").hidden = true;
-    $("#progress").hidden = true;
-    $("#tabbar").hidden = false;
-    setActiveTab("profile");
-
-    // --- Phone handlers ---
-    if (phoneVerified) {
-      $("#phone-disconnect").addEventListener("click", async () => {
-        const data = await api("/api/verify/phone", { method: "DELETE" });
-        state.profile = data.profile;
-        toast("Phone number removed");
-        renderers.connections();
-      });
-    } else {
-      $("#phone-send").addEventListener("click", async () => {
-        $("#phone-error").textContent = "";
-        try {
-          const data = await api("/api/verify/phone/start", {
-            method: "POST", body: { phone: $("#phone-input").value },
-          });
-          $("#phone-confirm-area").hidden = false;
-          $("#phone-code").focus();
-          toast(`📱 SMS to ${data.phone} (demo): your code is ${data.demo_code}`, 10000);
-        } catch (err) {
-          $("#phone-error").textContent = err.message;
-        }
-      });
-
-      $("#phone-verify").addEventListener("click", async () => {
-        $("#phone-error").textContent = "";
-        try {
-          const data = await api("/api/verify/phone/confirm", {
-            method: "POST", body: { code: $("#phone-code").value },
-          });
-          state.profile = data.profile;
-          toast("✓ Number confirmed");
-          renderers.connections();
-        } catch (err) {
-          $("#phone-error").textContent = err.message;
-        }
-      });
-    }
-
-    // --- Outlook handlers ---
-    if (outlookConnected) {
-      $("#outlook-disconnect").addEventListener("click", async () => {
-        const data = await api("/api/connect/outlook", { method: "DELETE" });
-        state.profile = data.profile;
-        state.outlookEvents = [];
-        renderers.connections();
-      });
-    } else {
-      $("#outlook-connect").addEventListener("click", () => startOutlookConnect());
-    }
-  },
-
-// --- Profile (reachable via the Profile tab in the bottom tab bar) ---------------
-  profile() {
-    const p = state.profile;
-    const pref = p.preferences;
-    const h = p.home;
-    const mob = p.mobility || {};
-
-    screen.replaceChildren(el(`
-      <div class="dash-greeting">
-        <h1>Profile</h1>
-      </div>
-
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Name</span><span class="v">${state.account.display_name}</span></div>
-        <div class="summary-row"><span class="k">Email</span><span class="v">${state.account.email}</span></div>
-        <div class="summary-row"><span class="k">BahnCard</span><span class="v">${state.account.bahncard}</span></div>
-        <div class="summary-row"><span class="k">BahnBonus</span><span class="v">${state.account.bahnbonus_status} · ${state.account.bahnbonus_points.toLocaleString("en-US")} points</span></div>
-      </div>
-
-      <div class="section-title"><h2>Home station</h2></div>
-      <div class="card">
-        <label class="field">Home station
-          <span class="hint">Search uses live DB data once db_service is running</span>
-          <span class="autocomplete">
-            <input type="text" id="home-station" placeholder="e.g. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
-            <span id="station-suggestions"></span>
-          </span>
-        </label>
-
-        <label class="field">Latest arrival home
-          <span class="hint">After this, the autopilot prefers to suggest a hotel</span>
-          <input type="time" id="latest-arrival" value="${h.latest_arrival_home}">
-        </label>
-
-        <div class="switch-row">
-          <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
-          <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <div class="switch-row">
-          <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
-          <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <div class="switch-row">
-          <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
-          <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <div class="switch-row">
-          <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
-          <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
-      </div>
-
-      <div class="section-title"><h2>Travel preferences</h2><button id="edit-prefs" type="button">Edit</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
-        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
-        <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
-        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
-      </div>
-
-      <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
-        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
-        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ connected" : "not connected"}</span></div>
-      </div>
-
-      <div class="card">
-        <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
-        <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
-      </div>
-    `));
-
-    $("#navbar").hidden = true;
-    $("#progress").hidden = true;
-    $("#tabbar").hidden = false;
-    setActiveTab("profile");
-
-    setupHomeStationAutocomplete(h);
-
-    $("#save-home").addEventListener("click", async () => {
-      try {
-        await saveProfile({
-          home: {
-            home_station: screen._getHomeStation(),
-            latest_arrival_home: $("#latest-arrival").value,
-            hotel_ok: $("#hotel-ok").checked,
-            taxi_ok: $("#taxi-ok").checked,
-          },
-          mobility: {
-            car_sharing_ok: $("#car-sharing-ok").checked,
-            bike_sharing_ok: $("#bike-sharing-ok").checked,
-          },
-        });
-        toast("✓ Home settings saved");
-      } catch (err) {
-        toast(`⚠️ ${err.message}`);
-      }
-    });
-
-    $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
-    $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("connections"); });
-    $("#delete-profile").addEventListener("click", async () => {
-      if (!confirm("Really delete all data? This cannot be undone.")) return;
-      await api("/api/profile", { method: "DELETE" });
-      sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -1188,7 +962,8 @@ const renderers = {
     $("#progress").hidden = true;
 
     renderChatLog();
-    $("#chat-back").addEventListener("click", () => { state.chat = null; go("dashboard"); });
+    // Leave the chat object in place — reopening this trip resumes it (see openChat).
+    $("#chat-back").addEventListener("click", () => go("dashboard"));
     $("#chat-form").addEventListener("submit", onChatSubmit);
     // Delegated click handler for reroute option cards — one listener on the
     // log survives re-renders. Clicking sends "Take option <id>" as the next
@@ -1202,7 +977,60 @@ const renderers = {
 // Chat: send messages to the orchestrator and render the conversation
 // ---------------------------------------------------------------------------
 
+// Chat state (sessionId, trip, messages) is mirrored into sessionStorage on
+// every render, so a full page reload within the same browser tab resumes
+// the conversation exactly where it left off — same pattern as the "ja_token"
+// auth token below.
+const CHAT_STORAGE_KEY = "ja_chat";
+
+function persistChat() {
+  if (state.chat) {
+    sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
+      sessionId: state.chat.sessionId,
+      trip: state.chat.trip,
+      messages: state.chat.messages,
+    }));
+  } else {
+    sessionStorage.removeItem(CHAT_STORAGE_KEY);
+  }
+}
+
+// Rehydrates a chat that survived a page reload (called once from boot()).
+// Returns true if a chat was restored, so boot() can land on it directly
+// instead of the dashboard.
+function restoreChatState() {
+  const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
+  if (!raw) return false;
+  let saved;
+  try {
+    saved = JSON.parse(raw);
+  } catch {
+    saved = null;
+  }
+  if (!saved || !saved.trip || !saved.trip.trip_id || !Array.isArray(saved.messages)) {
+    sessionStorage.removeItem(CHAT_STORAGE_KEY);
+    return false;
+  }
+  // Prefer the freshly-fetched trip (from /api/me) over the stored snapshot;
+  // fall back to the snapshot if the trip is no longer in the current list.
+  const freshTrip = state.trips.find((t) => t.trip_id === saved.trip.trip_id);
+  state.chat = {
+    sessionId: saved.sessionId || null,
+    trip: freshTrip || saved.trip,
+    busy: false,
+    messages: saved.messages,
+  };
+  return true;
+}
+
+// Reopening the trip you were already chatting about resumes that
+// conversation instead of starting over; opening a different trip still
+// starts fresh (only one conversation is kept active at a time).
 function openChat(trip) {
+  if (state.chat && state.chat.trip && state.chat.trip.trip_id === trip.trip_id) {
+    go("chat");
+    return;
+  }
   state.chat = {
     sessionId: null,
     trip,
@@ -1213,6 +1041,7 @@ function openChat(trip) {
         + `Ask me anything — or just say "monitor my trip" to run a live check.`,
     }],
   };
+  persistChat();
   go("chat");
 }
 
@@ -1226,6 +1055,7 @@ function renderTrace(trace) {
 }
 
 function renderChatLog() {
+  persistChat();
   const log = $("#chat-log");
   if (!log) return;
   const parts = state.chat.messages.map((m) => {
@@ -1626,8 +1456,13 @@ async function boot() {
       state.trips = data.trips;
       updateTopbarAccount();
       // Active session: users who finished onboarding land in the dashboard,
-      // everyone else continues after the login step.
-      go(state.profile.onboarding_completed ? "dashboard" : "trips");
+      // everyone else continues after the login step. A chat in progress
+      // (this browser tab, same session) takes priority over the dashboard.
+      if (state.profile.onboarding_completed) {
+        go(restoreChatState() ? "chat" : "dashboard");
+      } else {
+        go("trips");
+      }
       return;
     } catch {
       sessionStorage.removeItem("ja_token");
