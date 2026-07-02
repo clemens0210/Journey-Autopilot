@@ -984,14 +984,18 @@ const renderers = {
 const CHAT_STORAGE_KEY = "ja_chat";
 
 function persistChat() {
-  if (state.chat) {
-    sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
-      sessionId: state.chat.sessionId,
-      trip: state.chat.trip,
-      messages: state.chat.messages,
-    }));
-  } else {
-    sessionStorage.removeItem(CHAT_STORAGE_KEY);
+  try {
+    if (state.chat) {
+      sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
+        sessionId: state.chat.sessionId,
+        trip: state.chat.trip,
+        messages: state.chat.messages,
+      }));
+    } else {
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+    }
+  } catch {
+    // sessionStorage can be unavailable or quota-limited; chat should still work.
   }
 }
 
