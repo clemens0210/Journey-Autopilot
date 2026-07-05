@@ -8,15 +8,34 @@ import os
 BASE_DIR = Path(__file__).resolve().parents[2]
 CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(BASE_DIR / "data" / "chromadb")))
 
+# Multilingual model because of German texts
+EMBEDDING_MODEL = "paraphrase-multilingual-mpnet-base-v2"
+
+
+def _build_embedding_fn():
+    """Load the embedding model, preferring the local Hugging Face cache.
+
+    ``local_files_only=True`` skips the hub's online revalidation (which looks
+    like a re-download and stalls the first answer on slow networks). On the
+    first-ever run — model not cached yet — or with an older
+    sentence-transformers that lacks the flag, fall back to a normal load.
+    """
+    try:
+        return embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=EMBEDDING_MODEL, local_files_only=True
+        )
+    except Exception:
+        return embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=EMBEDDING_MODEL
+        )
+
+
 class FahrgastrechteRAG:
 
     def __init__(self):
         self.client = chromadb.PersistentClient(path=str(CHROMA_PATH))
 
-        # Multilingual model because of German texts
-        self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="paraphrase-multilingual-mpnet-base-v2"
-        )
+        self.embedding_fn = _build_embedding_fn()
         
         self.collection = self.client.get_or_create_collection(
             name="fahrgastrechte",
