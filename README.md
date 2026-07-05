@@ -169,6 +169,81 @@ into the presentation layer (`src/journey_autopilot/ui/`) and the onboarding log
 python run_onboarding.py        # -> http://127.0.0.1:8000
 ```
 
+Or fully containerized — see the next section.
+
+### Running with Docker (web app + DB sidecar)
+
+`docker compose up` starts both services wired together: **app** (FastAPI web
+app incl. LLM agent and rights RAG) and **db-service** (Node sidecar for DB
+live data). Prerequisite: Docker Desktop is running (whale icon shows
+"Engine running").
+
+**One-time setup / first start:**
+
+```bash
+cp .env.example .env            # once; fill in UNI_GPT_* so the trip chat works
+docker compose up --build       # -> http://127.0.0.1:8000
+```
+
+The first build downloads ~3–4 GB (Python base image, CPU-only torch, and the
+passenger-rights embedding model, which is baked into the image so the
+container never downloads it at runtime). On the first start the entrypoint
+crawls bahn.de once to build the Chroma rights index — watch for
+`[entrypoint] Passenger-rights index empty — building it ...` in the log.
+Subsequent builds and starts come from the cache and take seconds.
+
+**Everyday start/stop:**
+
+```bash
+docker compose up -d            # start in the background
+docker compose logs -f app      # follow app logs (agent trace, Outlook device code)
+docker compose down             # stop & remove containers — data survives
+```
+
+Then open http://127.0.0.1:8000. `docker compose stop` / `start` also work
+(pause/resume without removing containers), but `up -d` / `down` is the
+simplest pair to remember.
+
+**After changing code or `.env`:**
+
+```bash
+docker compose up -d --build    # rebuild image + recreate containers
+```
+
+The image contains a snapshot of `src/` — local code edits are **not** live
+inside a running container, and `.env` is only read when a container is
+(re)created. Both are picked up by the command above; thanks to layer caching
+a code-only rebuild takes seconds, not the full 3–4 GB.
+
+**Status & health:**
+
+```bash
+docker compose ps               # both services should report "healthy"
+curl http://localhost:3000/health   # sidecar directly: {"ok":true,...}
+```
+
+**Reset all app data (profile, trips, rights index):**
+
+```bash
+docker compose down -v          # removes the app-data volume
+```
+
+SQLite and the Chroma index live in the named volume `app-data` (mounted at
+`/data` in the container), so they survive `down`, rebuilds, and image
+updates. After `down -v`, the next start runs onboarding from scratch and
+re-crawls the rights index.
+
+**Notes:**
+
+- Running containerized and locally (`python run_onboarding.py`) at the same
+  time collides on ports 8000/3000 — stop one of them first. The two setups
+  keep separate data (volume `app-data` vs. `src/journey_autopilot/data/`).
+- The Outlook device-code login prints its URL + code to the app log — have
+  `docker compose logs -f app` open when connecting the calendar.
+- The Python side reaches the sidecar via the compose network
+  (`DB_API_URL=http://db-service:3000` is set in `docker-compose.yml`); the
+  `DB_API_URL` in your `.env` only applies to non-Docker runs.
+
 Demo access: `lucas.wild@example.com` / `demo123` (also shown on the
 login screen). The wizard walks through: DB account login with trip import →
 mobile number verification (SMS code, simulated) → Outlook calendar (simulated
@@ -247,8 +322,9 @@ is deliberately mocked.
   Executor holds the (simulated) write tools; a gated action returns
   `veto_required` and only fires after the user approves in the chat.
 - **Scaffolds** (target architecture, not yet wired): `state.py`, `errors.py`,
-  `persistence/checkpointer.py`, plus `scenarios/`, `baseline/`, `eval/`, and
-  `Dockerfile`/`docker-compose.yml`.
+  `persistence/checkpointer.py`, plus `scenarios/`, `baseline/`, `eval/`.
+- **Docker** (`Dockerfile`, `docker-compose.yml`, `docker_entrypoint.py`) —
+  containerized web app + DB sidecar; see "Onboarding, Profile & Trip Chat".
 - **Model Configuration** (`config.py`) — a single place where the model is set
   per role; talks to the Uni-Cologne-GPT (OpenAI-compatible) via LiteLLM.
 
