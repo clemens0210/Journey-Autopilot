@@ -12,8 +12,7 @@
 
 import Fastify from 'fastify'
 import { createClient } from 'db-vendo-client'
- import { profile } from 'db-vendo-client/p/dbnav/index.js'
-// import { profile } from 'db-vendo-client/p/dbweb/index.js'
+import { profile } from 'db-vendo-client/p/dbnav/index.js'
 
 
 const PORT = Number(process.env.DB_SERVICE_PORT || 3000)

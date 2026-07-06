@@ -183,7 +183,7 @@ p  { font-size: 14px; line-height: 1.5; margin: 8px 0; }
 label.field { display: block; margin: 12px 0; font-size: 13px; font-weight: 700; }
 label.field span.hint { display: block; font-weight: 400; color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
 
-input[type="text"], input[type="email"], input[type="password"], input[type="tel"], input[type="time"] {
+input[type="text"], input[type="email"], input[type="password"], input[type="tel"], input[type="date"], input[type="time"] {
   width: 100%;
   margin-top: 8px;
   padding: 13px;
@@ -194,7 +194,13 @@ input[type="text"], input[type="email"], input[type="password"], input[type="tel
   color: var(--ink);
 }
 input::placeholder { color: var(--ink-faint); }
-input[type="time"] { color-scheme: dark; }
+input[type="date"], input[type="time"] { color-scheme: dark; }
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: .75;
+  cursor: pointer;
+}
 input:focus { outline: none; border-color: var(--db-red); }
 code { background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
@@ -760,6 +766,12 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 
 .search-form { margin-top: 4px; }
 .search-form .field { margin: 10px 0; }
+.search-datetime {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.search-form [data-group="search-class"] { margin-bottom: 18px; }
 #search-results { margin-top: 14px; }
 #search-results .option-cards { margin-top: 0; }
 .search-confirm-summary {

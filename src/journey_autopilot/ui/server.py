@@ -511,20 +511,29 @@ def journeys_search(
     ``time`` defaults to 08:00 and is combined into the ISO datetime db_api wants.
 
     Returns ``{"results": [...], "source": "db-live"}`` on success, or
-    ``{"results": [], "source": "unavailable"}`` (HTTP 200) when a station can't
-    be resolved or the sidecar is down — the UI shows "Search unavailable".
+    ``{"results": [], "source": "unavailable", "message": ...}`` (HTTP 200)
+    when a station can't be resolved, the sidecar is down, or DB temporarily
+    rejects the upstream request.
     """
     origin = (origin or "").strip()
     destination = (destination or "").strip()
     date = (date or "").strip()
     time = (time or "08:00").strip()
     if not origin or not destination or not date:
-        return {"results": [], "source": "unavailable"}
+        return {
+            "results": [],
+            "source": "unavailable",
+            "message": "Please fill in origin, destination and date.",
+        }
 
     from_eva = resolve_eva_or_id(origin)
     to_eva = resolve_eva_or_id(destination)
     if from_eva is None or to_eva is None:
-        return {"results": [], "source": "unavailable"}
+        return {
+            "results": [],
+            "source": "unavailable",
+            "message": "Station lookup failed. Pick a station from the suggestions or try a major Hbf.",
+        }
 
     try:
         payload = db_api.journeys(

@@ -1025,7 +1025,8 @@ const renderers = {
 
   // -- Search & add a trip (live DB journey search) -------------------------
   searchTrip() {
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const today = new Date();
+    const todayValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
     screen.replaceChildren(el(`
       <div class="dash-greeting">
         <h1>Add a trip</h1>
@@ -1046,9 +1047,14 @@ const renderers = {
               <span id="search-dest-suggestions"></span>
             </span>
           </label>
-          <label class="field">Date
-            <input type="date" id="search-date" value="${tomorrow}">
-          </label>
+          <div class="search-datetime">
+            <label class="field">Date
+              <input type="date" id="search-date" value="${todayValue}">
+            </label>
+            <label class="field">Departure time
+              <input type="time" id="search-time" value="08:00" step="300">
+            </label>
+          </div>
           <label class="field">Class</label>
           <div class="choices" data-group="search-class">
             <button type="button" class="choice" data-value="2"><span class="choice-title">2nd class</span></button>
@@ -1092,8 +1098,9 @@ const renderers = {
       const origin = o?.id || o?.name || "";
       const destination = d?.id || d?.name || "";
       const dateVal = $("#search-date").value;
-      if (!origin || !destination || !dateVal) {
-        toast("Please fill in origin, destination and date.");
+      const timeVal = $("#search-time").value || "08:00";
+      if (!origin || !destination || !dateVal || !timeVal) {
+        toast("Please fill in origin, destination, date and time.");
         return;
       }
       const btn = $("#search-go");
@@ -1103,12 +1110,12 @@ const renderers = {
       const out = $("#search-results");
       out.innerHTML = '<p class="muted">Searching live DB connections…</p>';
       try {
-        const params = new URLSearchParams({ origin, destination, date: dateVal });
+        const params = new URLSearchParams({ origin, destination, date: dateVal, time: timeVal });
         const data = await api(`/api/journeys/search?${params}`);
         results = data.results || [];
         if (data.source === "unavailable" || !results.length) {
           out.innerHTML = data.source === "unavailable"
-            ? "<p class=\"muted\">Search unavailable — the live DB service isn't running.</p>"
+            ? `<p class="muted">${escapeHtml(data.message || "Search unavailable — live DB search is temporarily unavailable.")}</p>`
             : '<p class="muted">No connections found for this route.</p>';
         } else {
           out.innerHTML = `<div class="option-cards">${results.map((j, i) => `
@@ -1184,12 +1191,16 @@ const renderers = {
   // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
   chat() {
     const trip = state.chat.trip;
+    const chatRoute = `${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}`;
+    const chatTrain = escapeHtml(trip.train || "Connection");
+    const chatDate = escapeHtml(fmtDate(trip.planned_departure));
+    const chatTime = escapeHtml(fmtTime(trip.planned_departure));
     screen.replaceChildren(el(`
       <div class="chat-head">
         <button class="chat-back" id="chat-back" type="button" aria-label="Back">‹</button>
         <div class="chat-trip">
-          <span class="chat-route">${trip.origin} → ${trip.destination}</span>
-          <span class="chat-sub">${trip.train} · ${fmtDate(trip.planned_departure)} · ${fmtTime(trip.planned_departure)}</span>
+          <span class="chat-route">${chatRoute}</span>
+          <span class="chat-sub">${chatTrain} · ${chatDate} · ${chatTime}</span>
         </div>
         <span class="chat-live">● live</span>
       </div>
