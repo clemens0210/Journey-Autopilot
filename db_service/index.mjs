@@ -12,14 +12,16 @@
 
 import Fastify from 'fastify'
 import { createClient } from 'db-vendo-client'
-import { profile } from 'db-vendo-client/p/dbnav/index.js'
+ import { profile } from 'db-vendo-client/p/dbnav/index.js'
+// import { profile } from 'db-vendo-client/p/dbweb/index.js'
+
 
 const PORT = Number(process.env.DB_SERVICE_PORT || 3000)
 const HOST = process.env.DB_SERVICE_HOST || '127.0.0.1'
 // DB asks unofficial clients to identify themselves with a contact/app string.
 const USER_AGENT = process.env.DB_USER_AGENT || 'journey-autopilot (self-hosted db-vendo-client)'
 
-const client = createClient(profile, USER_AGENT)
+const client = createClient({ ...profile, randomizeUserAgent: true }, USER_AGENT)
 const app = Fastify({ logger: true })
 
 // Query strings arrive as strings; db-vendo-client expects real Dates, numbers

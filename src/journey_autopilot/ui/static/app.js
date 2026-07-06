@@ -163,12 +163,31 @@ const LABELS = {
 const seatLabel = (pref) =>
   `${LABELS[pref.seat_location]}, ${LABELS[pref.seat_area]}${pref.quiet_zone ? ", quiet zone" : ""}`;
 
-const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", {
-  weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
-});
-const fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-US", {
+const fmtDate = (iso) => new Date(iso).toLocaleDateString("de-DE", {
+  day: "2-digit", month: "2-digit", year: "numeric",
+}).replace(/\./g, "/");
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString("de-DE", {
   hour: "2-digit", minute: "2-digit",
 });
+
+const tripStartTime = (trip) => {
+  const time = new Date(trip?.planned_departure || "").getTime();
+  return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER;
+};
+const tripEndTime = (trip) => {
+  const time = new Date(trip?.planned_arrival || trip?.planned_departure || "").getTime();
+  return Number.isFinite(time) ? time : null;
+};
+const isPastTrip = (trip, now = new Date()) => {
+  const end = tripEndTime(trip);
+  return end !== null && end < now.getTime();
+};
+const isUpcomingTrip = (trip, now = new Date()) => {
+  const start = tripStartTime(trip);
+  return start !== Number.MAX_SAFE_INTEGER && start >= now.getTime();
+};
+const sortTripsByDate = (trips) =>
+  [...(trips || [])].sort((a, b) => tripStartTime(a) - tripStartTime(b));
 
 function setNav({ back = true, next = "Next", skip = null, nextEnabled = true } = {}) {
   $("#tabbar").hidden = true; // tab bar only in the dashboard (see renderers.dashboard)
@@ -687,9 +706,19 @@ const renderers = {
   dashboard() {
     const p = state.profile;
     const pref = p.preferences;
-    const nextTrip = state.trips[0];
-    const cards = state.trips
-      .map((t, i) => tripCardHTML(t, { foot: "Monitored by the autopilot · tap to chat", live: true, index: i, deletable: true }))
+    const now = new Date();
+    const sortedTrips = sortTripsByDate(state.trips);
+    const nextTrip = sortedTrips.find((t) => isUpcomingTrip(t, now));
+    const cards = sortedTrips
+      .map((t, i) => {
+        const past = isPastTrip(t, now);
+        return tripCardHTML(t, {
+          foot: past ? "Past trip" : "Monitored by the autopilot · tap to chat",
+          live: !past,
+          index: i,
+          deletable: true,
+        });
+      })
       .join("");
 
     screen.replaceChildren(el(`
@@ -697,7 +726,7 @@ const renderers = {
         <h1>Hi ${state.account.first_name} 👋</h1>
         <p class="muted">${nextTrip
           ? `Your next trip starts ${fmtDate(nextTrip.planned_departure)} at ${fmtTime(nextTrip.planned_departure)} — the autopilot is watching.`
-          : "No upcoming trips — the autopilot is ready."}</p>
+          : "No upcoming trips — past trips are kept for your records."}</p>
       </div>
 
       <div class="section-title">
@@ -741,7 +770,7 @@ const renderers = {
 
     // Clicking a monitored trip opens the chat that runs the orchestrator demo.
     screen.querySelectorAll(".trip-card.clickable").forEach((cardEl) => {
-      cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
+      cardEl.addEventListener("click", () => openChat(sortedTrips[Number(cardEl.dataset.tripIndex)]));
     });
 
     // Attach the delete handler directly to each trash button (per-element) so
