@@ -62,6 +62,10 @@ DEFAULT_PROFILE: dict = {
         "hotel_ok": True,                 # hotel instead of overnight travel acceptable
         "taxi_ok": True,                  # taxi for the last mile acceptable
     },
+    "mobility": {
+        "car_sharing_ok": True,           # Flinkster / car sharing acceptable as reroute alternative
+        "bike_sharing_ok": True,          # Call-a-Bike / bike sharing acceptable as reroute alternative
+    },
     "notifications": {
         "phone": None,
         "phone_verified": False,

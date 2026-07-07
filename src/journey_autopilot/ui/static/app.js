@@ -117,14 +117,6 @@ function toast(msg, ms = 4200) {
   toastTimer = setTimeout(() => { node.hidden = true; }, ms);
 }
 
-// Display labels for the internally stored profile values
-const LABELS = {
-  fenster: "Window", gang: "Aisle", egal: "No preference",
-  grossraum: "Open seating", abteil: "Compartment",
-};
-const seatLabel = (pref) =>
-  `${LABELS[pref.seat_location]}, ${LABELS[pref.seat_area]}${pref.quiet_zone ? ", quiet zone" : ""}`;
-
 // Policy / veto gate — display labels and the onboarding-autonomy mapping.
 const POLICY_LEVEL_LABEL = {
   conservative: "Conservative — asks before everything",
@@ -140,6 +132,14 @@ function policyOverrideCount(p) {
   const wt = (p.policy && p.policy.write_tools) || {};
   return Object.values(wt).filter((v) => v && v !== "default").length;
 }
+
+// Display labels for the internally stored profile values
+const LABELS = {
+  fenster: "Window", gang: "Aisle", egal: "No preference",
+  grossraum: "Open seating", abteil: "Compartment",
+};
+const seatLabel = (pref) =>
+  `${LABELS[pref.seat_location]}, ${LABELS[pref.seat_area]}${pref.quiet_zone ? ", quiet zone" : ""}`;
 
 const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", {
   weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
@@ -413,6 +413,7 @@ const renderers = {
   preferences() {
     const p = state.profile.preferences;
     const h = state.profile.home;
+    const mob = state.profile.mobility || {};
     screen.replaceChildren(el(`
       <div class="card">
         <h2>Your travel preferences</h2>
@@ -483,6 +484,14 @@ const renderers = {
             <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
             <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
           </div>
+          <div class="switch-row">
+            <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+            <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+          </div>
+          <div class="switch-row">
+            <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+            <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+          </div>
         </div>
       ` : ""}
     `));
@@ -517,6 +526,7 @@ const renderers = {
   // -- 6: Home & constraints --------------------------------------------------------------
   home() {
     const h = state.profile.home;
+    const mob = state.profile.mobility || {};
     screen.replaceChildren(el(`
       <div class="card">
         <h2>Home &amp; hard limits</h2>
@@ -542,6 +552,14 @@ const renderers = {
         <div class="switch-row">
           <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
           <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+          <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+          <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
         </div>
       </div>
     `));
@@ -635,7 +653,7 @@ const renderers = {
     setNav({ back: true, next: "Finish onboarding 🚀" });
   },
 
-  // -- Dashboard -------------------------------------------------------------------------------
+  // -- Dashboard -------------------------------------------------------------------------
   dashboard() {
     const p = state.profile;
     const pref = p.preferences;
@@ -704,7 +722,8 @@ const renderers = {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -716,6 +735,7 @@ const renderers = {
     const p = state.profile;
     const pref = p.preferences;
     const h = p.home;
+    const mob = p.mobility || {};
 
     screen.replaceChildren(el(`
       <div class="dash-greeting">
@@ -751,6 +771,14 @@ const renderers = {
         <div class="switch-row">
           <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
           <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+          <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+          <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
         </div>
         <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
       </div>
@@ -798,6 +826,10 @@ const renderers = {
             hotel_ok: $("#hotel-ok").checked,
             taxi_ok: $("#taxi-ok").checked,
           },
+          mobility: {
+            car_sharing_ok: $("#car-sharing-ok").checked,
+            bike_sharing_ok: $("#bike-sharing-ok").checked,
+          },
         });
         toast("✓ Home settings saved");
       } catch (err) {
@@ -812,7 +844,8 @@ const renderers = {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -1057,8 +1090,13 @@ const renderers = {
     $("#progress").hidden = true;
 
     renderChatLog();
-    $("#chat-back").addEventListener("click", () => { state.chat = null; go("dashboard"); });
+    // Leave the chat object in place — reopening this trip resumes it (see openChat).
+    $("#chat-back").addEventListener("click", () => go("dashboard"));
     $("#chat-form").addEventListener("submit", onChatSubmit);
+    // Delegated click handler for reroute option cards — one listener on the
+    // log survives re-renders. Clicking sends "Take option <id>" as the next
+    // user turn and marks the batch as chosen so the cards grey out.
+    $("#chat-log").addEventListener("click", onOptionCardClick);
     $("#chat-text").focus();
   },
 };
@@ -1067,7 +1105,64 @@ const renderers = {
 // Chat: send messages to the orchestrator and render the conversation
 // ---------------------------------------------------------------------------
 
+// Chat state (sessionId, trip, messages) is mirrored into sessionStorage on
+// every render, so a full page reload within the same browser tab resumes
+// the conversation exactly where it left off — same pattern as the "ja_token"
+// auth token below.
+const CHAT_STORAGE_KEY = "ja_chat";
+
+function persistChat() {
+  try {
+    if (state.chat) {
+      sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
+        sessionId: state.chat.sessionId,
+        trip: state.chat.trip,
+        messages: state.chat.messages,
+      }));
+    } else {
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+    }
+  } catch {
+    // sessionStorage can be unavailable or quota-limited; chat should still work.
+  }
+}
+
+// Rehydrates a chat that survived a page reload (called once from boot()).
+// Returns true if a chat was restored, so boot() can land on it directly
+// instead of the dashboard.
+function restoreChatState() {
+  const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
+  if (!raw) return false;
+  let saved;
+  try {
+    saved = JSON.parse(raw);
+  } catch {
+    saved = null;
+  }
+  if (!saved || !saved.trip || !saved.trip.trip_id || !Array.isArray(saved.messages)) {
+    sessionStorage.removeItem(CHAT_STORAGE_KEY);
+    return false;
+  }
+  // Prefer the freshly-fetched trip (from /api/me) over the stored snapshot;
+  // fall back to the snapshot if the trip is no longer in the current list.
+  const freshTrip = state.trips.find((t) => t.trip_id === saved.trip.trip_id);
+  state.chat = {
+    sessionId: saved.sessionId || null,
+    trip: freshTrip || saved.trip,
+    busy: false,
+    messages: saved.messages,
+  };
+  return true;
+}
+
+// Reopening the trip you were already chatting about resumes that
+// conversation instead of starting over; opening a different trip still
+// starts fresh (only one conversation is kept active at a time).
 function openChat(trip) {
+  if (state.chat && state.chat.trip && state.chat.trip.trip_id === trip.trip_id) {
+    go("chat");
+    return;
+  }
   state.chat = {
     sessionId: null,
     trip,
@@ -1080,6 +1175,7 @@ function openChat(trip) {
         + `automation settings allow without asking first.`,
     }],
   };
+  persistChat();
   go("chat");
 }
 
@@ -1093,17 +1189,122 @@ function renderTrace(trace) {
 }
 
 function renderChatLog() {
+  persistChat();
   const log = $("#chat-log");
   if (!log) return;
   const parts = state.chat.messages.map((m) => {
     if (m.role === "user") return `<div class="bubble user">${escapeHtml(m.text)}</div>`;
     if (m.role === "error") return `<div class="bubble error">⚠️ ${escapeHtml(m.text)}</div>`;
     const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
-    return `<div class="bubble assistant">${escapeHtml(m.text)}${trace}</div>`;
+    const cards = m.options && m.options.length ? renderOptionCards(m.options, m.optionsSource, m) : "";
+    return `<div class="bubble assistant">${escapeHtml(m.text)}${cards}${trace}</div>`;
   });
   if (state.chat.busy) parts.push(`<div class="bubble assistant typing"><i></i><i></i><i></i></div>`);
   log.innerHTML = parts.join("");
   log.scrollTop = log.scrollHeight;
+}
+
+// Render reroute option cards below the agent's prose. Clicking a card sends
+// "Take option <id>" as the next user turn and disables the batch so the user
+// can't pick twice. The per-option `source` (db_service_live / mock_*) decides
+// the live/demo badge; optionsSource is the fallback for the whole batch.
+// Cards branch on `o.mode` (train / car_sharing / bike_sharing / hotel).
+const _MODE_META = {
+  car_sharing:  { icon: "🚗", label: "Flinkster",    cls: "car"   },
+  bike_sharing: { icon: "🚲", label: "Call-a-Bike",  cls: "bike"  },
+  hotel:        { icon: "🏨", label: "Hotel",         cls: "hotel" },
+};
+
+function renderOptionCards(options, optionsSource, message) {
+  const chosen = message.chosenOption || null;
+  const items = options.map((o) => {
+    const id = escapeHtml(o.option_id || "?");
+    const mode = o.mode || "train";
+    const src = o.source || optionsSource || "";
+    const liveBadge = src.startsWith("db_service_live")
+      ? '<span class="option-source live">● Live DB</span>'
+      : src.startsWith("mock_")
+        ? '<span class="option-source mock">Demo fallback</span>'
+        : "";
+    const meta = _MODE_META[mode];
+    const modeBadge = meta
+      ? `<span class="option-mode-badge option-mode-${meta.cls}">${meta.icon} ${meta.label}</span>`
+      : "";
+    const picked = chosen === (o.option_id || "");
+    const stateCls = picked ? " selected" : chosen ? " disabled" : "";
+
+    let body;
+    if (mode === "hotel") {
+      const name = escapeHtml(o.name || o.description || "Hotel");
+      const dist = o.distance_to_station_km != null ? `${o.distance_to_station_km} km from station` : "";
+      const price = o.price_per_night_eur != null ? `${Number(o.price_per_night_eur).toFixed(2)} €/night` : "";
+      const nights = o.nights != null ? `${o.nights} night${o.nights === 1 ? "" : "s"}` : "";
+      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+      body = `
+        <div class="option-trains">${name}</div>
+        <div class="option-meta">
+          ${dist ? `<span>${dist}</span>` : ""}${price ? `<span class="option-price">${price}</span>` : ""}${nights ? `<span>${nights}</span>` : ""}
+        </div>
+        ${remarks}`;
+    } else if (mode === "car_sharing" || mode === "bike_sharing") {
+      const desc = escapeHtml(o.description || "");
+      const pickup = o.pickup ? `<div class="option-times">${escapeHtml(o.pickup)}</div>` : "";
+      const dist = o.distance_km != null ? `${o.distance_km} km` : "";
+      const dur = o.est_duration_minutes != null ? `~${o.est_duration_minutes} min` : "";
+      const arr = o.new_arrival ? `→ ${fmtTime(o.new_arrival)}` : "";
+      const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
+      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+      body = `
+        <div class="option-trains">${desc}</div>
+        ${pickup}
+        <div class="option-meta">
+          ${dist ? `<span>${dist}</span>` : ""}${dur ? `<span>${dur}</span>` : ""}${arr ? `<span>${arr}</span>` : ""}${price ? `<span class="option-price">${price}</span>` : ""}
+        </div>
+        ${remarks}`;
+    } else {
+      // train (default)
+      const trains = (o.trains || []).map(escapeHtml).join(" → ") || escapeHtml(o.description || "Connection");
+      const dep = o.departure ? fmtTime(o.departure) : "—";
+      const arr = o.new_arrival ? fmtTime(o.new_arrival) : "—";
+      const transfers = o.transfers != null ? `${o.transfers} change${o.transfers === 1 ? "" : "s"}` : "—";
+      const delay = o.added_delay_minutes != null ? `+${o.added_delay_minutes} min` : "";
+      const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
+      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+      body = `
+        <div class="option-trains">${trains}</div>
+        <div class="option-times">${dep} → ${arr}</div>
+        <div class="option-meta">
+          <span>${transfers}</span>${delay ? `<span class="option-delay">${delay}</span>` : ""}${price ? `<span>${price}</span>` : ""}
+        </div>
+        ${remarks}`;
+    }
+
+    return `
+      <button type="button" class="option-card${stateCls}" data-option-id="${id}"${chosen ? " disabled" : ""}>
+        <div class="option-head"><span class="option-badge">${id}</span>${modeBadge}${liveBadge}</div>
+        ${body}
+      </button>`;
+  }).join("");
+  return `<div class="option-cards" data-chosen="${chosen || ""}">${items}</div>`;
+}
+
+function onOptionCardClick(ev) {
+  const card = ev.target.closest(".option-card");
+  if (!card || card.disabled) return;
+  if (state.chat.busy) return;
+  const optionId = card.dataset.optionId;
+  if (!optionId) return;
+  // Mark the originating assistant message so its batch greys out on re-render.
+  for (let i = state.chat.messages.length - 1; i >= 0; i--) {
+    const m = state.chat.messages[i];
+    if (m.options && m.options.some((o) => (o.option_id || "?") === optionId)) {
+      m.chosenOption = optionId;
+      break;
+    }
+  }
+  const input = $("#chat-text");
+  if (input) input.value = `Take option ${optionId}`;
+  $("#chat-form").requestSubmit();
 }
 
 async function onChatSubmit(ev) {
@@ -1128,7 +1329,13 @@ async function onChatSubmit(ev) {
     if (data.error) {
       chat.messages.push({ role: "error", text: data.error });
     } else {
-      chat.messages.push({ role: "assistant", text: data.reply, trace: data.trace });
+      chat.messages.push({
+        role: "assistant",
+        text: data.reply,
+        trace: data.trace,
+        options: data.options || null,
+        optionsSource: data.options_source || null,
+      });
     }
   } catch (err) {
     chat.messages.push({ role: "error", text: err.message });
@@ -1263,6 +1470,10 @@ async function persistCurrentStep() {
           hotel_ok: $("#hotel-ok").checked,
           taxi_ok: $("#taxi-ok").checked,
         };
+        patch.mobility = {
+          car_sharing_ok: $("#car-sharing-ok").checked,
+          bike_sharing_ok: $("#bike-sharing-ok").checked,
+        };
       }
       await saveProfile(patch);
       break;
@@ -1274,6 +1485,10 @@ async function persistCurrentStep() {
           latest_arrival_home: $("#latest-arrival").value,
           hotel_ok: $("#hotel-ok").checked,
           taxi_ok: $("#taxi-ok").checked,
+        },
+        mobility: {
+          car_sharing_ok: $("#car-sharing-ok").checked,
+          bike_sharing_ok: $("#bike-sharing-ok").checked,
         },
       });
       break;
@@ -1379,8 +1594,13 @@ async function boot() {
       state.trips = data.trips;
       updateTopbarAccount();
       // Active session: users who finished onboarding land in the dashboard,
-      // everyone else continues after the login step.
-      go(state.profile.onboarding_completed ? "dashboard" : "trips");
+      // everyone else continues after the login step. A chat in progress
+      // (this browser tab, same session) takes priority over the dashboard.
+      if (state.profile.onboarding_completed) {
+        go(restoreChatState() ? "chat" : "dashboard");
+      } else {
+        go("trips");
+      }
       return;
     } catch {
       sessionStorage.removeItem("ja_token");

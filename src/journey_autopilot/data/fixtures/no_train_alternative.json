@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "scenario": "happy_path",
+    "scenario": "no_train_alternative",
     "persona": "Lucas Wild",
-    "description": "Munich -> Berlin with a severe signal-box disruption near Nuremberg; one confirmed on-site meeting (14:00, with participants) as the hard deadline. NO reroute reaches it in time, so the autopilot rebooks the earliest realistic connection (R1, free) and the user can have the confirmed meeting rescheduled and its participants emailed — exercising the policy/veto layer across booking, calendar reschedule, and third-party email.",
-    "note": "Route/connection maps are stored as lists of records with explicit origin/destination; mock_data.py rebuilds the (origin, destination) tuple-keyed dicts on load."
+    "description": "Munich -> Berlin with a full overhead-wire failure near Erfurt; all train reroutes miss the 14:00 hard deadline, triggering DB ecosystem alternatives (Flinkster, Call-a-Bike, partner hotels).",
+    "note": "Activate with JA_FIXTURES=no_train_alternative. All train options arrive after 14:00 + 30 min buffer so the Planner's widening step fires."
   },
   "demo_trip": {
     "trip_id": "DB-2026-0619-MUC-BLN",
@@ -18,27 +18,27 @@
     "DB-2026-0619-MUC-BLN": {
       "trip_id": "DB-2026-0619-MUC-BLN",
       "train": "ICE 1006",
-      "current_delay_minutes": 95,
+      "current_delay_minutes": 185,
       "trend": "increasing",
-      "current_position": "held before Nuremberg",
+      "current_position": "between Munich and Augsburg",
       "incidents": [
         {
-          "type": "Signal box malfunction",
-          "location": "Nuremberg area",
-          "impact": "Main line blocked; ICE 1006 severely delayed, onward connections lost"
+          "type": "Overhead wire failure",
+          "location": "Nuremberg–Erfurt high-speed section",
+          "impact": "Full track blockage; no trains running — repair time unknown"
         }
       ],
-      "connection_risk": "Will not reach Berlin before mid-afternoon — the 14:00 on-site meeting is no longer reachable",
+      "connection_risk": "All direct Berlin connections cancelled. Long detour via Würzburg adds 3+ hours.",
       "data_timestamp": "2026-06-19T09:42:00"
     }
   },
   "network_disruptions": {
     "bavaria": [
       {
-        "line": "ICE line Nuremberg-Erfurt",
-        "type": "Signal box malfunction",
-        "severity": "high",
-        "expected_resolution": "2026-06-19T11:30:00"
+        "line": "ICE Nuremberg–Erfurt–Berlin",
+        "type": "Overhead wire failure — full track blockage",
+        "severity": "critical",
+        "expected_resolution": "2026-06-19T18:00:00"
       }
     ],
     "berlin": []
@@ -50,21 +50,19 @@
       "options": [
         {
           "option_id": "R1",
-          "description": "Detour via Leipzig (ICE 1612), then ICE towards Berlin",
-          "new_arrival": "2026-06-19T14:42:00",
-          "transfers": 1,
-          "added_delay_minutes": 158,
-          "added_cost_eur": 0.0,
-          "comfort": "Earliest realistic arrival; free rebooking (delay). Misses the 14:00 meeting."
+          "description": "Detour via Würzburg and Hannover — ICE 596 + ICE 894",
+          "new_arrival": "2026-06-19T15:28:00",
+          "transfers": 2,
+          "added_delay_minutes": 204,
+          "comfort": "No seat reservation; very long detour"
         },
         {
           "option_id": "R2",
-          "description": "Via Frankfurt and Kassel-Wilhelmshöhe to Berlin",
-          "new_arrival": "2026-06-19T15:25:00",
+          "description": "Detour via Stuttgart and Hannover — ICE 694 + ICE 1084",
+          "new_arrival": "2026-06-19T16:13:00",
           "transfers": 2,
-          "added_delay_minutes": 201,
-          "added_cost_eur": 59.0,
-          "comfort": "More transfers; +59 EUR fare difference. Misses the 14:00 meeting."
+          "added_delay_minutes": 249,
+          "comfort": "Extremely long journey; not recommended"
         }
       ]
     }
@@ -72,17 +70,10 @@
   "user_calendar": {
     "2026-06-19": [
       {
-        "id": "evt-berlin-client-2026-06-19",
         "title": "Client meeting Berlin (on-site)",
         "location": "Berlin Mitte",
         "start": "2026-06-19T14:00:00",
-        "end": "2026-06-19T17:00:00",
-        "status": "confirmed",
-        "hard_constraint": true,
-        "participants": [
-          "Sara Klein (client) <s.klein@kunde.example>",
-          "Tom Berger (colleague) <t.berger@firma.example>"
-        ]
+        "hard_constraint": true
       }
     ]
   },
@@ -100,14 +91,13 @@
         "mean_delay_minutes": 18.4,
         "median_delay_minutes": 12.0,
         "p90_delay_minutes": 47.0,
-        "max_delay_minutes": 88.0,
+        "max_delay_minutes": 185.0,
         "on_time_rate_pct": 38,
         "delayed_over_15_rate_pct": 41,
         "cancellations": 2,
         "common_causes": [
           "Construction works between Nuremberg and Erfurt",
-          "Signal box malfunction in the Nuremberg area",
-          "High network utilisation in long-distance traffic"
+          "Overhead wire failures on the high-speed section"
         ]
       }
     }
@@ -140,6 +130,18 @@
           "price_eur": 89.50,
           "remarks": ["Unlimited km included", "Return at Berlin Tegel Flinkster station"],
           "source": "mock_flinkster"
+        },
+        {
+          "option_id": "C2",
+          "mode": "car_sharing",
+          "description": "Flinkster — VW Golf at Munich Hbf",
+          "pickup": "Munich Hbf, Parkhaus P4 (Flinkster station)",
+          "distance_km": 595,
+          "est_duration_minutes": 345,
+          "new_arrival": "2026-06-19T15:45:00",
+          "price_eur": 79.00,
+          "remarks": ["Unlimited km included", "Return at Berlin Hbf Flinkster station"],
+          "source": "mock_flinkster"
         }
       ]
     }
@@ -157,7 +159,7 @@
           "est_duration_minutes": 35,
           "new_arrival": null,
           "price_eur": 3.90,
-          "remarks": ["Ride to U-Bahn/S-Bahn connection", "Max 30 min included per ride"],
+          "remarks": ["Ride to a local bus/U-Bahn connection", "Max 30 min included per ride"],
           "source": "mock_callabike"
         }
       ]

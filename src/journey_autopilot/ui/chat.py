@@ -149,6 +149,17 @@ async def chat_turn(
     trace: list[dict] = []
     reply = ""
 
+    # Reset the in-process reroute slot so options from a previous turn are
+    # never shown. The Planner's find_reroute_options tool repopulates it when
+    # it runs; read after the loop. (Base AgentTool runs the sub-agent in its
+    # own runner, so the tool payload doesn't surface in the event stream —
+    # see tools/read_tools.py.)
+    try:
+        from ..tools import read_tools
+        read_tools.clear_reroute_options()
+    except Exception:
+        read_tools = None  # type: ignore[assignment]
+
     async for event in runner.run_async(
         user_id=USER_ID, session_id=session_id, new_message=new_message
     ):
@@ -159,8 +170,19 @@ async def chat_turn(
             continue
         trace.extend(_describe(event))
 
+    # Pick up the structured option list the Planner's tool stashed, if any.
+    options: list[dict] | None = None
+    options_source: str | None = None
+    if read_tools is not None:
+        stashed = read_tools.last_reroute_options()
+        if stashed and stashed.get("options"):
+            options = stashed["options"]
+            options_source = stashed.get("source")
+
     return {
         "session_id": session_id,
         "reply": reply or "(no response)",
         "trace": trace,
+        "options": options,
+        "options_source": options_source,
     }

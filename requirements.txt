@@ -4,8 +4,9 @@
 # and update here if needed.
 #
 # [extensions] pulls in LiteLLM — required for the Uni-Cologne-GPT backend
-# (OpenAI-compatible endpoint).
+# boto3 is required for the AWS Bedrock backend.
 google-adk[extensions]>=2.0,<3.0
+boto3>=1.34,<2.0
 
 # WhatsApp Connector
 twilio>=9.0,<10.0
