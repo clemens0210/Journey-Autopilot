@@ -16,7 +16,6 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from . import risk_model
 
 from .. import mock_data
 from ..errors import with_resilience, with_resilience_async
@@ -532,7 +531,7 @@ def get_connection_delay_reference(origin: str, destination: str, train: str = "
         and ``source="db_history_archive"``. Contains "error" if the station is
         not in the archive.
     """
-    ref = risk_model.historical_reference(destination, train=train)
+    ref = None
     if ref is None:
         return {
             "origin": origin,
