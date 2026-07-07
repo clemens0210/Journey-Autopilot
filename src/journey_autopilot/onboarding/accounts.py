@@ -133,6 +133,21 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "price_eur": 99.90,
                 "purpose": "Workshop Cologne",
             },
+            {
+                "trip_id": f"DB-{today:%Y-%m-%d}-CGN-MUC",
+                "order_number": "MR4T9A",
+                "origin": "Köln Hbf",
+                "destination": "München Hbf",
+                "train": "ICE 517",
+                "planned_departure": _iso(today, "11:54"),
+                "planned_arrival": _iso(today, "16:29"),
+                "platform": "Platform 6",
+                "coach": "Coach 12",
+                "seat": "Seat 45, window",
+                "travel_class": 2,
+                "price_eur": 89.90,
+                "purpose": "Return from Cologne",
+            },
         ]
 
     if user_id == "u-erika-muster":
