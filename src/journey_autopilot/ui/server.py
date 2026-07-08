@@ -44,6 +44,7 @@ from journey_autopilot import mock_data, risk
 from journey_autopilot.onboarding import accounts
 from journey_autopilot.persistence import store
 from journey_autopilot.integrations import db_ops as db_api
+from journey_autopilot.integrations import stations as db_api_stations
 from . import chat
 
 if TYPE_CHECKING:
@@ -242,13 +243,59 @@ def book_trip(body: BookTripRequest, authorization: str | None = Header(default=
     return {"trip": trip, "trips": store.get_trips(user_id)}
 
 
+def _live_leg_delays(trip: dict) -> dict[str, int]:
+    """Best-effort live arrival delay per train from the db_service sidecar.
+
+    Trips booked via the journey search (``BK-…`` ids) are not in the simulated
+    ``LIVE_TRIP_STATUS``, so their live delay has to come from real DB data.
+    Re-runs the connection search, matches the trip's train, and returns
+    ``{train_name: delay_minutes}``. Returns ``{}`` on any sidecar miss so the
+    caller falls back to the simulated status (or 0 = on time).
+    """
+    origin, destination = trip.get("origin"), trip.get("destination")
+    if not origin or not destination:
+        return {}
+    try:
+        from_eva = db_api_stations.resolve_eva(origin)
+        to_eva = db_api_stations.resolve_eva(destination)
+        if from_eva is None or to_eva is None:
+            return {}
+        payload = db_api.journeys(
+            from_eva, to_eva, departure=trip.get("planned_departure"), results=5
+        )
+        options = db_api.normalize_journeys(payload)
+        train = str(trip.get("train") or "")
+        option = next(
+            (o for o in options if train and train in o.get("trains", [])),
+            options[0] if options else None,
+        )
+        if not option:
+            return {}
+        delays: dict[str, int] = {}
+        for leg in option.get("legs") or []:
+            name = leg.get("train")
+            if not name:
+                continue
+            delay = leg.get("arrival_delay_minutes")
+            if delay is None:
+                delay = leg.get("departure_delay_minutes")
+            delays[name] = round(delay or 0)
+        return delays
+    except db_api.DBServiceError:
+        return {}
+    except Exception:
+        return {}
+
+
 @app.get("/api/trips/{trip_id}/details")
 def trip_details(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
     """Journey details for one booked trip: legs, live delay, and risk forecast.
 
-    The itinerary and live status are simulated (ADR 0005). The expected delay
-    comes from ``journey_autopilot.risk`` — currently a deterministic mock;
-    the real predictor will replace it behind the same interface.
+    The itinerary is simulated (ADR 0005), but the live delay is real: for trips
+    booked via the journey search it is fetched from the db_service sidecar
+    (``_live_leg_delays``); the demo trips fall back to the simulated
+    ``LIVE_TRIP_STATUS``. The expected delay comes from ``journey_autopilot.risk``,
+    scored from real historical DB punctuality data (see ``risk/delay_reference.py``).
     """
     user_id = _user_id(authorization)
     trip = next((t for t in store.get_trips(user_id) if t["trip_id"] == trip_id), None)
@@ -257,17 +304,21 @@ def trip_details(trip_id: str, authorization: str | None = Header(default=None))
 
     legs = accounts.trip_journey(trip)
     live = mock_data.LIVE_TRIP_STATUS.get(trip_id)
+    live_delays = _live_leg_delays(trip)
     for leg in legs:
-        delayed = bool(live) and live.get("train") == leg["train"]
-        leg["current_delay_minutes"] = live["current_delay_minutes"] if delayed else 0
+        if live and live.get("train") == leg["train"]:
+            leg["current_delay_minutes"] = live["current_delay_minutes"]
+        else:
+            leg["current_delay_minutes"] = live_delays.get(leg["train"], 0)
     for leg, forecast in zip(legs, risk.forecast_trip(trip, legs)):
         leg["forecast"] = forecast
+    connection_warnings = risk.connection_risks(legs)
 
     return {
         "trip_id": trip_id,
         "legs": legs,
         "incidents": (live or {}).get("incidents", []),
-        "connection_risk": (live or {}).get("connection_risk"),
+        "connection_risk": " ".join(connection_warnings) or (live or {}).get("connection_risk"),
     }
 
 

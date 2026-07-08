@@ -1227,7 +1227,7 @@ function stopHTML(stop, delayMinutes, { arrival = false } = {}) {
 }
 
 // The full itinerary: stops and train legs, each leg with its current ("real")
-// delay next to the expected delay from the risk forecast (mock for now).
+// delay next to the expected delay from the risk forecast (historical DB data).
 function journeyHTML(data) {
   const incidents = (data.incidents || []).map((inc) => `
     <div class="jd-notice">⚠️ <b>${escapeHtml(inc.type)}</b> (${escapeHtml(inc.location)}): ${escapeHtml(inc.impact)}</div>
@@ -1270,7 +1270,7 @@ function journeyHTML(data) {
     ${incidents}
     ${data.connection_risk ? `<div class="jd-notice">⚠️ ${escapeHtml(data.connection_risk)}</div>` : ""}
     <div class="jd-timeline">${parts}</div>
-    <p class="muted" style="margin-top:14px">Expected delay is the autopilot's risk forecast for this trip — currently a demo prediction, not live data.</p>`;
+    <p class="muted" style="margin-top:14px">Expected delay is the autopilot's risk forecast, based on historical DB punctuality data for this route — not a live prediction.</p>`;
 }
 
 // ---------------------------------------------------------------------------
