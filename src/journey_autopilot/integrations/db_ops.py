@@ -216,6 +216,40 @@ def normalize_journeys(payload: Any) -> list[dict]:
     ]
 
 
+def match_booked_journey(trip: dict, options: list[dict]) -> dict | None:
+    """Find a booked trip's exact itinerary among normalized search results.
+
+    A booked trip is identified by its full train sequence (from
+    ``trip["legs"]``; single-train trips by ``trip["train"]``), with the
+    planned departure as a tie-breaker when the same sequence runs several
+    times a day. Returns ``None`` when the booked connection is not among the
+    options — callers must degrade gracefully instead of describing a
+    *different* journey (e.g. a later connection via another hub) as the
+    user's trip.
+    """
+    booked_legs = trip.get("legs") or []
+    expected = [leg.get("train") for leg in booked_legs if leg.get("train")]
+    if not expected and trip.get("train"):
+        expected = [trip["train"]]
+    if not expected:
+        return None
+
+    def _leg_trains(option: dict) -> list:
+        return [leg.get("train") for leg in option.get("legs") or [] if leg.get("train")]
+
+    matches = [option for option in options if _leg_trains(option) == expected]
+    if not matches:
+        return None
+    # Same train sequence can run multiple times a day — prefer the departure
+    # the user booked (minute precision; booked times are naive local ISO).
+    dep_key = (trip.get("planned_departure") or "")[:16]
+    if dep_key:
+        for option in matches:
+            if (option.get("planned_departure") or "")[:16] == dep_key:
+                return option
+    return matches[0]
+
+
 def health() -> dict:
     """Truthy dict if the sidecar is running. Raises ``DBServiceError`` otherwise."""
     return _get("/health")

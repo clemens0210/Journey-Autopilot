@@ -86,6 +86,12 @@ def _find_trip_context(trip_id: str) -> dict | None:
 
 
 def _journey_for_trip(trip: dict) -> dict | None:
+    """Live search result for exactly the booked itinerary, or ``None``.
+
+    Strict on purpose: matching only by origin/destination (or first train)
+    would return a *different* connection — e.g. a later journey via another
+    hub — and its delays/transfers would then be presented as the user's trip.
+    """
     origin = trip.get("origin")
     destination = trip.get("destination")
     if not origin or not destination:
@@ -103,12 +109,7 @@ def _journey_for_trip(trip: dict) -> dict | None:
         results=5,
         tickets=True,
     )
-    options = db_api.normalize_journeys(payload)
-    train = str(trip.get("train") or "")
-    for option in options:
-        if train and train in option.get("trains", []):
-            return option
-    return options[0] if options else None
+    return db_api.match_booked_journey(trip, db_api.normalize_journeys(payload))
 
 
 def _trip_position(option: dict) -> str | None:
@@ -230,6 +231,52 @@ def _board_warnings(board: Any) -> list[dict]:
 # --- Monitoring tools ---------------------------------------------------------
 
 
+def _overall_level(forecasts: list[dict]) -> str:
+    """Worst per-leg forecast level as the trip's risk band (LOW/MEDIUM/HIGH).
+
+    Ranked explicitly — max() on the raw strings would sort alphabetically
+    ("low" > "high"), inverting the result.
+    """
+    rank = {"low": 0, "medium": 1, "high": 2}
+    if not forecasts:
+        return "LOW"
+    worst = max(
+        (f.get("level", "low") for f in forecasts),
+        key=lambda lvl: rank.get(lvl, 0),
+    )
+    return worst.upper()
+
+
+def _booked_risk_legs(trip: dict) -> list[dict]:
+    """The booked trip's own legs in the risk module's shape (no live delay).
+
+    Used when live data for the exact booked connection is unavailable, so the
+    forecast still describes the user's actual itinerary instead of nothing.
+    """
+    booked = trip.get("legs") or []
+    if not booked:
+        if not (trip.get("origin") and trip.get("destination")):
+            return []
+        booked = [
+            {
+                "train": trip.get("train"),
+                "origin": trip.get("origin"),
+                "destination": trip.get("destination"),
+                "planned_departure": trip.get("planned_departure"),
+                "planned_arrival": trip.get("planned_arrival"),
+            }
+        ]
+    return [
+        {
+            "train": leg.get("train"),
+            "origin": {"name": leg.get("origin"), "planned": leg.get("planned_departure")},
+            "destination": {"name": leg.get("destination"), "planned": leg.get("planned_arrival")},
+            "current_delay_minutes": 0,
+        }
+        for leg in booked
+    ]
+
+
 def get_live_trip_status(trip_id: str) -> dict:
     """Returns the current live status of a train journey with risk forecasts.
 
@@ -238,8 +285,11 @@ def get_live_trip_status(trip_id: str) -> dict:
 
     Returns:
         A dict with current delay, trend, position, known incidents,
-        connection risk, risk forecasts, and ``source``. Contains "error" only if
-        neither live data nor the demo fallback knows the trip.
+        connection risk, risk forecasts, and ``source``. When ``source`` is
+        ``db_history_forecast`` no live data was available for the exact booked
+        connection — the numbers are the historical forecast for the booked
+        legs and ``current_delay_minutes`` is null (see ``note``). Contains
+        "error" only if the trip is entirely unknown.
     """
     trip = _find_trip_context(trip_id)
     if trip is not None:
@@ -276,18 +326,7 @@ def get_live_trip_status(trip_id: str) -> dict:
                 for leg, forecast in zip(risk_legs, forecasts):
                     leg["forecast"] = forecast
                 connection_warnings = risk.connection_risks(risk_legs)
-
-                # Overall risk band = the worst leg's forecast level. Rank
-                # explicitly — max() on the raw strings would sort alphabetically
-                # ("low" > "high"), inverting the result.
-                _rank = {"low": 0, "medium": 1, "high": 2}
-                risk_level = "LOW"
-                if forecasts:
-                    worst = max(
-                        (f.get("level", "low") for f in forecasts),
-                        key=lambda lvl: _rank.get(lvl, 0),
-                    )
-                    risk_level = worst.upper()
+                risk_level = _overall_level(forecasts)
 
                 incidents = [
                     {"type": text, "location": trip.get("destination"), "impact": "DB live remark"}
@@ -336,6 +375,40 @@ def get_live_trip_status(trip_id: str) -> dict:
     status = mock_data.LIVE_TRIP_STATUS.get(trip_id)
     if status is not None:
         return {**status, "source": "mock_live_status"}
+
+    # Trip is known but the exact booked connection had no live match (and no
+    # simulated status exists): answer from the booked legs' historical
+    # forecast instead of erroring — but clearly flagged, never as live data.
+    if trip is not None:
+        risk_legs = _booked_risk_legs(trip)
+        if risk_legs:
+            forecasts = risk.forecast_trip(trip, risk_legs)
+            for leg, forecast in zip(risk_legs, forecasts):
+                leg["forecast"] = forecast
+            connection_warnings = risk.connection_risks(risk_legs)
+            return {
+                "trip_id": trip_id,
+                "train": trip.get("train"),
+                "current_delay_minutes": None,
+                "trend": "unknown",
+                "current_position": None,
+                "incidents": [],
+                "connection_risk": " ".join(connection_warnings)
+                or "No live data — no connection risk visible from the historical forecast.",
+                "risk_level": _overall_level(forecasts),
+                "forecasts": forecasts,
+                "legs": risk_legs,
+                "planned_departure": trip.get("planned_departure"),
+                "planned_arrival": trip.get("planned_arrival"),
+                "note": (
+                    "Live status for the exact booked connection is currently "
+                    "unavailable; this assessment is the historical forecast for "
+                    "the booked legs only."
+                ),
+                "data_timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "db_history_forecast",
+            }
+
     return {"trip_id": trip_id, "source": "none", "error": f"No trip data found for trip_id '{trip_id}'."}
 
 

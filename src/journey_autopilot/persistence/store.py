@@ -183,6 +183,17 @@ def save_trips(user_id: str, trips: list[dict]) -> None:
             )
 
 
+def delete_trips(user_id: str, trip_ids: list[str]) -> None:
+    """Remove specific trips for a user (e.g. stale demo imports at re-login)."""
+    if not trip_ids:
+        return
+    with _connect() as conn:
+        conn.executemany(
+            "DELETE FROM trips WHERE user_id = ? AND trip_id = ?",
+            [(user_id, trip_id) for trip_id in trip_ids],
+        )
+
+
 def get_trips(user_id: str) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(

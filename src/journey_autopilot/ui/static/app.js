@@ -70,7 +70,7 @@ function escapeHtml(s) {
 
 // Inline SVGs in DB Navigator style — brand mark and icons for the trip cards.
 const SVG = {
-  dbLogo: `<svg viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>`,
+  dbLogo: `<img src="/static/db-logo.png" alt="DB Logo" class="db-logo-img">`,
   origin: `<svg class="ic" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>`,
   pin: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.4" fill="currentColor"/></svg>`,
   calendar: `<svg class="ic" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="16" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
@@ -239,7 +239,7 @@ const renderers = {
   welcome() {
     screen.replaceChildren(el(`
       <div class="card hero">
-        <svg class="hero-logo" viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>
+        <img class="hero-logo" src="/static/db-logo.png" alt="DB Logo">
         <h1>Your Journey Autopilot</h1>
         <p class="muted">Travels with you. Thinks ahead. Replans before you have to.</p>
         <ul class="feature-list">

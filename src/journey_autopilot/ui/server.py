@@ -161,8 +161,24 @@ def db_login(body: LoginRequest) -> dict:
         )
 
     store.upsert_user(account)
-    trips = accounts.booked_trips(account["user_id"])
-    store.save_trips(account["user_id"], trips)
+    imported = accounts.booked_trips(account["user_id"])
+    store.save_trips(account["user_id"], imported)
+    # Re-importing owns the DB-account bookings ("DB-…" ids): drop imports from
+    # earlier logins that are no longer in the account — their demo ids are
+    # date-relative, so each day's login would otherwise pile up stale copies.
+    # Locally booked monitors ("BK-…" ids) are never touched.
+    fresh_ids = {t["trip_id"] for t in imported}
+    stale = [
+        t["trip_id"]
+        for t in store.get_trips(account["user_id"])
+        if t["trip_id"].startswith("DB-") and t["trip_id"] not in fresh_ids
+    ]
+    store.delete_trips(account["user_id"], stale)
+    # Return the full stored list — imported demo trips AND locally booked
+    # connections. Returning only the fresh import made booked trips vanish
+    # from the UI after every re-login (until the next booking refreshed the
+    # list from the store).
+    trips = store.get_trips(account["user_id"])
     profile = store.update_profile(account["user_id"], {"connections": {"db_account": True}})
 
     token = secrets.token_urlsafe(24)
@@ -273,9 +289,11 @@ def _live_leg_delays(trip: dict) -> dict[str, int]:
 
     Trips booked via the journey search (``BK-…`` ids) are not in the simulated
     ``LIVE_TRIP_STATUS``, so their live delay has to come from real DB data.
-    Re-runs the connection search, matches the trip's train, and returns
-    ``{train_name: delay_minutes}``. Returns ``{}`` on any sidecar miss so the
-    caller falls back to the simulated status (or 0 = on time).
+    Re-runs the connection search, matches the trip's exact itinerary (full
+    train sequence + planned departure, see ``db_ops.match_booked_journey``),
+    and returns ``{train_name: delay_minutes}``. Returns ``{}`` on any sidecar
+    miss or when the exact booked connection is not found — never the delays
+    of a different journey.
     """
     origin, destination = trip.get("origin"), trip.get("destination")
     if not origin or not destination:
@@ -288,12 +306,7 @@ def _live_leg_delays(trip: dict) -> dict[str, int]:
         payload = db_api.journeys(
             from_eva, to_eva, departure=trip.get("planned_departure"), results=5
         )
-        options = db_api.normalize_journeys(payload)
-        train = str(trip.get("train") or "")
-        option = next(
-            (o for o in options if train and train in o.get("trains", [])),
-            options[0] if options else None,
-        )
+        option = db_api.match_booked_journey(trip, db_api.normalize_journeys(payload))
         if not option:
             return {}
         delays: dict[str, int] = {}
