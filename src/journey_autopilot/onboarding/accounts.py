@@ -172,6 +172,9 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
     if user_id == "u-lucas-wild":
         # The Berlin meeting sits on the demo date and is the hard constraint the
         # planner checks the Munich → Berlin reroute against (see mock_data).
+        # Contact fields mirror the real Graph mapper schema
+        # (integrations/outlook/mapper.py) so the notice-email flow works in
+        # demo mode too; the client meeting matches fixtures/happy_path.json.
         return [
             {
                 "title": "Client meeting Berlin (on-site)",
@@ -179,6 +182,10 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
                 "start": _iso(DEMO_DATE, "14:00"),
                 "end": _iso(DEMO_DATE, "17:00"),
                 "hard_constraint": True,
+                "organizer_name": "Anna Client",
+                "organizer_email": "anna.client@example.com",
+                "attendee_emails": ["lucas.wild@example.com"],
+                "self_organized": False,
             },
             {
                 "title": "Team sync (Teams call)",
@@ -186,6 +193,10 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
                 "start": _iso(DEMO_DATE, "10:30"),
                 "end": _iso(DEMO_DATE, "11:00"),
                 "hard_constraint": False,
+                "organizer_name": "Lucas Wild",
+                "organizer_email": "lucas.wild@example.com",
+                "attendee_emails": ["team@example.com"],
+                "self_organized": True,
             },
             {
                 "title": "Workshop Agentic Systems",
@@ -193,6 +204,10 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
                 "start": _iso(d3, "13:00"),
                 "end": _iso(d3, "18:00"),
                 "hard_constraint": True,
+                "organizer_name": "Workshop Office",
+                "organizer_email": "office@agentic-workshop.example.com",
+                "attendee_emails": ["lucas.wild@example.com"],
+                "self_organized": False,
             },
         ]
 
@@ -205,6 +220,10 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
                 "start": _iso(d2, "14:30"),
                 "end": _iso(d2, "16:30"),
                 "hard_constraint": True,
+                "organizer_name": "Vorstandsbüro",
+                "organizer_email": "vorstand@example.com",
+                "attendee_emails": ["erika.muster@example.com"],
+                "self_organized": False,
             },
         ]
 

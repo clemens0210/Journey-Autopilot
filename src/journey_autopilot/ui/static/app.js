@@ -369,7 +369,7 @@ const renderers = {
         <h2>Connect Outlook calendar <span class="badge optional">Optional</span></h2>
         <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
         ${connected ? `
-          <div class="success-banner">✓ Outlook calendar connected</div>
+          <div class="success-banner">✓ Connected${state.profile?.connections?.outlook_email ? ` as ${state.profile.connections.outlook_email}` : " — Outlook calendar"}</div>
           ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
           <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
         ` : `
@@ -606,7 +606,7 @@ const renderers = {
         <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.display_name}</span></div>
         <div class="summary-row"><span class="k">Imported trips</span><span class="v">${state.trips.length}</span></div>
         <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "— skipped"}</span></div>
-        <div class="summary-row"><span class="k">Outlook calendar</span><span class="v">${p.connections.outlook ? "✓ connected" : "— skipped"}</span></div>
+        <div class="summary-row"><span class="k">Outlook calendar</span><span class="v">${p.connections.outlook ? (p.connections.outlook_email ? "✓ " + p.connections.outlook_email : "✓ connected") : "— skipped"}</span></div>
         <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
         <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
         <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
@@ -638,6 +638,10 @@ const renderers = {
 
       <div class="section-title"><h2>Monitored trips</h2></div>
       ${cards || '<div class="card"><p class="muted">No trips imported.</p></div>'}
+      <div class="card clickable" id="general-chat-card" style="cursor:pointer; display:flex; flex-direction:column; gap:4px">
+        <span style="font-weight:600">💬 Ask the autopilot about any trip</span>
+        <span class="muted">No booking needed — describe a route to check delay risk, reroutes, and calendar deadlines.</span>
+      </div>
 
       <div class="section-title">
         <h2>Your profile</h2>
@@ -656,7 +660,7 @@ const renderers = {
       <div class="card" style="padding: 12px 16px">
         <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
         <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
-        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ connected" : "not connected"}</span></div>
+        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? (p.connections.outlook_email ? "✓ " + p.connections.outlook_email : "✓ connected") : "not connected"}</span></div>
       </div>
 
       <div class="card">
@@ -674,6 +678,7 @@ const renderers = {
     screen.querySelectorAll(".trip-card.clickable").forEach((cardEl) => {
       cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
     });
+    $("#general-chat-card")?.addEventListener("click", () => openChat(null));
 
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
@@ -744,7 +749,7 @@ const renderers = {
       <div class="card" style="padding: 12px 16px">
         <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
         <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
-        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ connected" : "not connected"}</span></div>
+        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? (p.connections.outlook_email ? "✓ " + p.connections.outlook_email : "✓ connected") : "not connected"}</span></div>
       </div>
 
       <div class="card">
@@ -836,7 +841,7 @@ const renderers = {
       <div class="card">
         <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
         ${outlookConnected ? `
-          <div class="success-banner">✓ Outlook calendar connected</div>
+          <div class="success-banner">✓ Connected${state.profile?.connections?.outlook_email ? ` as ${state.profile.connections.outlook_email}` : " — Outlook calendar"}</div>
           ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
           <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
         ` : `
@@ -869,7 +874,9 @@ const renderers = {
           });
           $("#phone-confirm-area").hidden = false;
           $("#phone-code").focus();
-          toast(`📱 SMS to ${data.phone} (demo): your code is ${data.demo_code}`, 10000);
+          toast(data.delivery?.sent
+            ? `📲 Code sent to ${data.phone} on WhatsApp — code: ${data.demo_code}`
+            : `📱 Demo (Twilio off) — your code is ${data.demo_code}`, 10000);
         } catch (err) {
           $("#phone-error").textContent = err.message;
         }
@@ -959,7 +966,7 @@ const renderers = {
       <div class="card" style="padding: 12px 16px">
         <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
         <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
-        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? "✓ connected" : "not connected"}</span></div>
+        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? (p.connections.outlook_email ? "✓ " + p.connections.outlook_email : "✓ connected") : "not connected"}</span></div>
       </div>
 
       <div class="card">
@@ -1051,7 +1058,7 @@ const renderers = {
       <div class="card">
         <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
         ${outlookConnected ? `
-          <div class="success-banner">✓ Outlook calendar connected</div>
+          <div class="success-banner">✓ Connected${state.profile?.connections?.outlook_email ? ` as ${state.profile.connections.outlook_email}` : " — Outlook calendar"}</div>
           ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
           <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
         ` : `
@@ -1084,7 +1091,9 @@ const renderers = {
           });
           $("#phone-confirm-area").hidden = false;
           $("#phone-code").focus();
-          toast(`📱 SMS to ${data.phone} (demo): your code is ${data.demo_code}`, 10000);
+          toast(data.delivery?.sent
+            ? `📲 Code sent to ${data.phone} on WhatsApp — code: ${data.demo_code}`
+            : `📱 Demo (Twilio off) — your code is ${data.demo_code}`, 10000);
         } catch (err) {
           $("#phone-error").textContent = err.message;
         }
@@ -1121,18 +1130,24 @@ const renderers = {
   // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
   chat() {
     const trip = state.chat.trip;
-    screen.replaceChildren(el(`
-      <div class="chat-head">
-        <button class="chat-back" id="chat-back" type="button" aria-label="Back">‹</button>
-        <div class="chat-trip">
+    const headInner = trip
+      ? `<div class="chat-trip">
           <span class="chat-route">${trip.origin} → ${trip.destination}</span>
           <span class="chat-sub">${trip.train} · ${fmtDate(trip.planned_departure)} · ${fmtTime(trip.planned_departure)}</span>
         </div>
-        <span class="chat-live">● live</span>
+        <span class="chat-live">● live</span>`
+      : `<div class="chat-trip">
+          <span class="chat-route">Ask the autopilot</span>
+          <span class="chat-sub">Any trip — no booking needed</span>
+        </div>`;
+    screen.replaceChildren(el(`
+      <div class="chat-head">
+        <button class="chat-back" id="chat-back" type="button" aria-label="Back">‹</button>
+        ${headInner}
       </div>
       <div class="chat-log" id="chat-log"></div>
       <form class="chat-input" id="chat-form">
-        <input type="text" id="chat-text" placeholder="Ask the autopilot about this trip…" autocomplete="off">
+        <input type="text" id="chat-text" placeholder="${trip ? "Ask the autopilot about this trip…" : "Describe a trip or ask about disruptions…"}" autocomplete="off">
         <button class="chat-send" id="chat-send" type="submit" aria-label="Send">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M4 12 20 4l-4 16-4-7-8-1Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
         </button>
@@ -1154,16 +1169,18 @@ const renderers = {
 // Chat: send messages to the orchestrator and render the conversation
 // ---------------------------------------------------------------------------
 
-function openChat(trip) {
+function openChat(trip = null) {
+  const greeting = trip
+    ? `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip. `
+      + `Ask me anything — or just say "monitor my trip" to run a live check.`
+    : `Hi ${state.account.first_name}! I'm your monitoring assistant. Describe any trip — e.g. `
+      + `"risk for an ICE from Cologne Hbf to Hamburg Hbf on 2026-06-30 at 09:00" — and I'll check the `
+      + `delay risk, reroute options, and your calendar deadlines. No booking needed.`;
   state.chat = {
     sessionId: null,
     trip,
     busy: false,
-    messages: [{
-      role: "assistant",
-      text: `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip. `
-        + `Ask me anything — or just say "monitor my trip" to run a live check.`,
-    }],
+    messages: [{ role: "assistant", text: greeting }],
   };
   go("chat");
 }
@@ -1214,6 +1231,21 @@ async function onChatSubmit(ev) {
       chat.messages.push({ role: "error", text: data.error });
     } else {
       chat.messages.push({ role: "assistant", text: data.reply, trace: data.trace });
+      // A proactive WhatsApp notice is sent on every monitoring turn; the band
+      // (when detected) only shapes the message. Surface the send result.
+      if (data.alert) {
+        const phone = state.profile?.notifications?.phone;
+        const tag = data.risk_band === "HIGH" ? "⚠️ HIGH risk — " : "";
+        if (data.alert.sent) {
+          toast(`📲 ${tag}WhatsApp notice sent to ${phone}`, 6000);
+        } else if (data.alert.demo) {
+          toast(`📲 ${tag}WhatsApp notice prepared for ${phone} (demo: Twilio not configured)`, 7000);
+        } else if (data.alert.reason === "no_phone") {
+          toast(`⚠️ No phone number saved — add one to get WhatsApp notices`, 7000);
+        } else if (data.alert.error) {
+          toast(`⚠️ Could not send WhatsApp notice: ${data.alert.error}`, 7000);
+        }
+      }
     }
   } catch (err) {
     chat.messages.push({ role: "error", text: err.message });

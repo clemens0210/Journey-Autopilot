@@ -271,6 +271,84 @@ def send_for_approval(
     return message_id
 
 
+def is_configured() -> bool:
+    """True if the Twilio WhatsApp sender has all required credentials.
+
+    Used by the HIGH-risk disruption alert so the demo stays runnable without
+    Twilio: when this is False the caller logs the would-be message instead of
+    sending it.
+    """
+    return bool(
+        os.getenv("TWILIO_ACCOUNT_SID")
+        and os.getenv("TWILIO_AUTH_TOKEN")
+        and os.getenv("TWILIO_WHATSAPP_FROM")
+    )
+
+
+def _send_whatsapp(to_number: str, body: str, *, action: str) -> dict:
+    """Send a one-way WhatsApp text to a raw number, degrading gracefully.
+
+    Shared by the proactive senders (disruption alert, verification code) — it
+    does NOT go through the approval queue. With no phone number or no Twilio
+    credentials it logs the intended message and returns a flag instead of
+    raising, so the web-app demo works out of the box.
+
+    Returns a small status dict, e.g. ``{"sent": True}``,
+    ``{"sent": False, "demo": True}`` (creds missing) or
+    ``{"sent": False, "reason": "no_phone"}``.
+    """
+    if not to_number:
+        return {"sent": False, "reason": "no_phone"}
+
+    if not is_configured():
+        logger.info(
+            "[demo] Twilio not configured — would send %s to %s: %s",
+            action,
+            to_number,
+            body.replace("\n", " ⏎ "),
+        )
+        return {"sent": False, "demo": True}
+
+    try:
+        _client().messages.create(
+            from_=_from_number(),
+            to=f"whatsapp:{to_number}",
+            body=body,
+        )
+    except Exception as exc:
+        # Degrade on ANY send failure (Twilio API errors, DNS/connection
+        # problems) — these proactive sends must never 500 the calling
+        # endpoint (e.g. the onboarding phone-verification step).
+        logger.error("Twilio error sending %s to %s: %s", action, to_number, exc)
+        return {"sent": False, "error": str(exc)}
+
+    logger.info("action=%s to=%s", action, to_number)
+    return {"sent": True}
+
+
+def send_disruption_alert(to_number: str, body: str) -> dict:
+    """Send a one-way HIGH-risk disruption alert straight to the traveler.
+
+    Unlike ``send_for_approval``, this does NOT go through the approval queue —
+    it is a proactive heads-up to the traveler's own number when monitoring
+    flags HIGH risk.
+    """
+    return _send_whatsapp(to_number, body, action="disruption_alert_sent")
+
+
+def send_verification_code(to_number: str, code: str) -> dict:
+    """Send the phone-verification code to the given number via WhatsApp.
+
+    Sent in addition to showing the code on screen during onboarding, so the
+    user receives it on the actual number being verified.
+    """
+    body = (
+        "*Journey Autopilot* verification code: "
+        f"*{code}*\n\nEnter it in the app to confirm your number."
+    )
+    return _send_whatsapp(to_number, body, action="verification_code_sent")
+
+
 def dispatch_message(draft: str, recipient: Recipient) -> None:
     """Sends a message directly to a recipient."""
     try:

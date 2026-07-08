@@ -73,7 +73,11 @@
         "title": "Client meeting Berlin (on-site)",
         "location": "Berlin Mitte",
         "start": "2026-06-19T14:00:00",
-        "hard_constraint": true
+        "hard_constraint": true,
+        "organizer_name": "Anna Client",
+        "organizer_email": "anna.client@example.com",
+        "attendee_emails": ["lucas.wild@example.com"],
+        "self_organized": false
       }
     ]
   },

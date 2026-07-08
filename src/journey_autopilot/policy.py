@@ -5,10 +5,12 @@ Config-driven (``config/policy.yaml``): each ``write`` tool resolves to ``auto``
 ``policy_mode`` into account. A single global level shifts all defaults — the
 knob swept to produce the autonomy/control trade-off numbers.
 
-STATUS: scaffold for milestone M4. The read/write split already exists at the
-agent level (Monitoring/Planner hold no write tools); enforcement of per-tool
-``auto``/``ask`` against ``config/policy.yaml`` lands with the Executor and the
-write tools. Until then this is a documented placeholder.
+STATUS: partially live. The read/write split exists at the agent level
+(Monitoring/Planner hold no write tools), and the first write action consumes
+this module: ``tools/write_tools.py`` resolves ``send_email_to_participants``
+here and implements its "ask" as the propose → user-approval → send split.
+Config-driven per-tool rules against ``config/policy.yaml`` still land with
+the Executor (build spec M4).
 
 See docs/journey-autopilot-build-spec.md §8 and docs/adr/0004-veto-gate.md.
 """

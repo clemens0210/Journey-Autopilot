@@ -17,6 +17,7 @@ from google.adk.agents import LlmAgent
 from ..config import PLANNER_MODEL
 from ..tools.read_tools import (
     find_reroute_options,
+    get_calendar_conflicts,
     get_passenger_rights,
     get_user_calendar,
     get_user_profile,
@@ -38,9 +39,16 @@ Procedure — all five steps are MANDATORY:
    date is in the Orchestrator's message (e.g. "on 2026-06-19").
    Use EXACTLY that date. NEVER invent another date and do NOT
    fall back to any date other than the one given by the Orchestrator.
-4. Check each option against calendar events with `hard_constraint: True`.
-   An option is only viable if the new arrival is BEFORE the start of a
-   hard-constraint appointment (plan 30 minutes travel from station).
+4. Check each option deterministically with `get_calendar_conflicts`: pass the
+   travel date, the option's departure as `planned_departure`, and its new
+   arrival as `expected_arrival` (when the option data includes a delay
+   estimate, also pass the worse arrival as `latest_arrival` so at-risk
+   appointments are flagged). The tool classifies every appointment
+   against the option's window (a 30-minute station-to-appointment travel
+   buffer is already included — do NOT recompute times yourself). An option
+   is only viable if its `conflicts` list contains NO appointment with
+   `hard_constraint: true`. Clashes with soft appointments do not gate
+   viability but must be mentioned.
 5. Call `get_passenger_rights` with:
    - `delay_minutes`: the additional delay of the selected option (from the reroute options)
    - `ticket_type`: "einzelticket" (if unknown)
@@ -55,7 +63,12 @@ respect the latest arrival home. Never let a preference override a hard deadline
 
 In your answer you MUST explicitly mention BOTH the calendar check and the
 profile fit:
-- List the found hard-constraint appointments (title, time).
+- List the found hard-constraint appointments (title, time). Include each
+  clashing appointment's contact (`organizer_name` / `organizer_email` from
+  the event) when present — the orchestrator needs it to offer a notice
+  email to that contact. If the event has `self_organized: true`, the
+  organizer is the traveler themself — then also list `attendee_emails` as
+  the counterpart contacts.
 - State for each option whether it meets the hard deadline or not.
 - Justify the recommendation with calendar compatibility AND the profile.
 
@@ -90,6 +103,7 @@ def build_planner_agent() -> LlmAgent:
             get_user_profile,
             find_reroute_options,
             get_user_calendar,
+            get_calendar_conflicts,
             get_passenger_rights,
         ],
     )

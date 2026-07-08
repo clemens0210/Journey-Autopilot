@@ -13,7 +13,9 @@ keep the same presentation-safe fallback pattern.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+import re
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import risk_model
@@ -31,6 +33,21 @@ def _calendar_configured() -> bool:
     return bool(os.getenv("MS_ENTRA_CLIENT_ID"))
 
 
+def _profile_connections() -> dict:
+    """Read ``profile.connections`` from the onboarding store ({} on any failure).
+
+    Single accessor for the store's connections blob — shared by the
+    Outlook-connected check and the self-organized contact resolution so the
+    lookup pattern lives in one place.
+    """
+    try:
+        from journey_autopilot.persistence import store
+
+        return (store.any_profile() or {}).get("connections", {}) or {}
+    except Exception:
+        return {}
+
+
 def _outlook_connected() -> bool:
     """Return True if the user connected Outlook during onboarding.
 
@@ -39,13 +56,36 @@ def _outlook_connected() -> bool:
     the user skipped Outlook — the token cache is only populated after a
     successful web-based device-code login.
     """
-    try:
-        from journey_autopilot.persistence import store
+    return bool(_profile_connections().get("outlook"))
 
-        profile = store.any_profile()
-        return bool(profile and profile.get("connections", {}).get("outlook"))
-    except Exception:
-        return False
+
+# Internal alias Microsoft consumer accounts report as the organizer address
+# of self-created events (e.g. outlook_45A79CDF4502E0CF@outlook.com). Graph's
+# sendMail accepts it, but it is NOT a routable inbox — mail silently goes
+# nowhere. Never use it as a recipient.
+PSEUDO_OUTLOOK_ALIAS_RE = re.compile(r"^outlook_[0-9A-F]{8,}@outlook\.com$", re.IGNORECASE)
+
+
+def _resolve_self_organized_contacts(events: list[dict]) -> None:
+    """Replace the organizer contact of self-organized events in place.
+
+    For events the connected user created themself, Graph reports the
+    non-routable ``outlook_<hex>@outlook.com`` alias (see
+    ``PSEUDO_OUTLOOK_ALIAS_RE``) as organizer address. The organizer IS the
+    connected account, so substitute the real email/name stored during
+    onboarding (``profile.connections.outlook_email``). Events organized by
+    others are left untouched.
+    """
+    connections = _profile_connections()
+    email = connections.get("outlook_email")
+    if not email:
+        return
+    for event in events:
+        if event.get("self_organized"):
+            event["organizer_email"] = email
+            event["organizer_name"] = connections.get("outlook_name") or event.get(
+                "organizer_name"
+            )
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -391,10 +431,21 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     if not (_calendar_configured() and _outlook_connected()):
         return {"date": date, "events": mock_events, "source": "mock"}
 
+    # Short-lived cache: the Planner reads the calendar once for the overview
+    # and once more per reroute option (get_calendar_conflicts) — all within
+    # one planning run and all for the same date. Serving those from a 60s
+    # cache turns N+1 Graph round-trips into one; failed fetches are never
+    # cached so a Graph hiccup can recover on the next call.
+    cache_key = (date, user_email)
+    cached = _CALENDAR_CACHE.get(cache_key)
+    if cached is not None and time.monotonic() - cached[0] < _CALENDAR_CACHE_TTL_S:
+        return {**cached[1], "events": list(cached[1]["events"])}
+
     async def _primary() -> dict:
         from ..integrations.outlook import get_calendar_events
 
         events = await get_calendar_events(date, user_email)
+        _resolve_self_organized_contacts(events)
         return {"date": date, "events": events, "source": "outlook"}
 
     def _fallback() -> dict:
@@ -404,6 +455,142 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     result = outcome.value
     if outcome.failure is not None:  # Graph access failed -> surface why
         result["error"] = outcome.failure["fallback_taken"]
+    else:
+        _CALENDAR_CACHE[cache_key] = (time.monotonic(), result)
+    return result
+
+
+# Minutes planned for getting from the arrival station to an appointment —
+# the same assumption the Planner uses when gating reroute options.
+CALENDAR_TRAVEL_BUFFER_MINUTES = 30
+
+# Live-calendar cache: (date, user_email) -> (monotonic timestamp, result).
+# 60 seconds spans one planning run (overview + per-option conflict checks)
+# without holding stale data across chat turns.
+_CALENDAR_CACHE: dict[tuple[str, str | None], tuple[float, dict]] = {}
+_CALENDAR_CACHE_TTL_S = 60
+
+_TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}$")
+
+
+def _parse_trip_time(date: str, value: str | None) -> datetime | None:
+    """Parse "HH:MM" (combined with ``date``) or an ISO datetime to naive local time.
+
+    Calendar events and DB times are all Europe/Berlin wall time in this app
+    (the Graph client requests that timezone, the mapper strips the offset), so
+    any offset is dropped rather than converted.
+    """
+    if not value:
+        return None
+    value = value.strip()
+    if _TIME_ONLY_RE.match(value):
+        value = f"{date}T{value}:00"
+    dt = _parse_datetime(value)
+    return dt.replace(tzinfo=None) if dt is not None else None
+
+
+async def get_calendar_conflicts(
+    date: str,
+    planned_departure: str = "",
+    expected_arrival: str = "",
+    latest_arrival: str = "",
+    user_email: str | None = None,
+) -> dict:
+    """Checks the user's calendar for appointments that clash with a trip.
+
+    Deterministically compares each appointment on the travel date against a
+    trip window — use it to gate a planned trip or a single reroute option on
+    the appointments the traveler would miss because of the arrival time or
+    its delay. Reads the same calendar source as ``get_user_calendar``
+    (Outlook when connected, mock otherwise).
+
+    Classification per appointment (a travel buffer of 30 minutes from the
+    station to the appointment is applied):
+      - ``during_trip``: starts after the departure but before the expected
+        arrival + buffer — missed even without additional delay.
+      - ``at_risk_if_delayed``: reachable at the expected arrival, but missed
+        at the unfavorable (latest) arrival.
+      - Appointments before the departure or reachable even in the unfavorable
+        case are counted as clear and not listed.
+
+    Args:
+        date: Travel date in "YYYY-MM-DD" format, e.g. "2026-06-19".
+        planned_departure: Planned departure — ISO datetime or "HH:MM".
+        expected_arrival: Typical expected arrival (planned arrival + expected
+            delay) — ISO datetime or "HH:MM".
+        latest_arrival: Unfavorable-case arrival (e.g. planned arrival + p90
+            delay) — ISO datetime or "HH:MM". Optional; defaults to
+            ``expected_arrival``.
+        user_email: Optional email of another user whose calendar to query.
+
+    Returns:
+        A dict with ``conflicts`` (each clashing appointment incl. its
+        ``clash`` kind and ``hard_constraint`` flag), ``hard_conflicts``
+        (count of clashing non-negotiable appointments), ``events_checked``,
+        ``clear_events``, ``buffer_minutes``, and the calendar ``source``.
+        Contains "error" if no usable arrival estimate was provided.
+    """
+    calendar = await get_user_calendar(date, user_email)
+    events = calendar.get("events", [])
+
+    departure = _parse_trip_time(date, planned_departure)
+    expected = _parse_trip_time(date, expected_arrival)
+    latest = _parse_trip_time(date, latest_arrival)
+    if expected is None and latest is None:
+        return {
+            "date": date,
+            "events_checked": len(events),
+            "error": (
+                "No usable arrival estimate — pass expected_arrival (and ideally "
+                "latest_arrival) as ISO datetime or HH:MM."
+            ),
+            "source": calendar.get("source"),
+        }
+    expected = expected or latest
+    latest = max(latest, expected) if latest else expected  # invariant: latest >= expected
+
+    buffer = timedelta(minutes=CALENDAR_TRAVEL_BUFFER_MINUTES)
+    conflicts: list[dict] = []
+    unparsed = 0
+    for event in events:
+        start = _parse_trip_time(date, event.get("start"))
+        if start is None:
+            unparsed += 1
+            continue
+        if departure is not None and start < departure:
+            continue  # before the trip — unaffected
+        if start < expected + buffer:
+            clash = "during_trip"
+        elif start < latest + buffer:
+            clash = "at_risk_if_delayed"
+        else:
+            continue  # reachable even in the unfavorable case
+        conflicts.append({**event, "clash": clash})
+
+    result = {
+        "date": date,
+        "trip_window": {
+            "planned_departure": planned_departure or None,
+            "expected_arrival": expected_arrival or None,
+            "latest_arrival": latest_arrival or None,
+        },
+        "buffer_minutes": CALENDAR_TRAVEL_BUFFER_MINUTES,
+        "events_checked": len(events),
+        "conflicts": conflicts,
+        "hard_conflicts": sum(1 for c in conflicts if c.get("hard_constraint")),
+        "clear_events": len(events) - len(conflicts) - unparsed,
+        "source": calendar.get("source"),
+    }
+    if unparsed:
+        result["unparsed_events"] = unparsed
+    if departure is None and events:
+        result["warning"] = (
+            "planned_departure was not provided — appointments before the "
+            "trip could not be excluded and may be misclassified as "
+            "during_trip. Pass the departure time for a reliable result."
+        )
+    if calendar.get("error"):
+        result["calendar_error"] = calendar["error"]
     return result
 
 

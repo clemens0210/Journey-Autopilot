@@ -57,6 +57,14 @@ if not _outlog.handlers:
     _outlog.setLevel(logging.INFO)
 _outlog.propagate = False
 
+# Surface this package's INFO logs in the terminal — e.g. the HIGH-risk
+# disruption alert emitted by integrations/whatsapp.py and ui/chat.py. uvicorn
+# only configures its own loggers, so without this our INFO lines are swallowed.
+# (Mirrors integrations/whatsapp_webhook.py, which runs under uvicorn too.)
+logging.getLogger("journey_autopilot").setLevel(logging.INFO)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO)
+
 app = FastAPI(title="Journey Autopilot — Web App", version="0.1.0")
 
 _STATIC = Path(__file__).resolve().parent / "static"
@@ -166,9 +174,13 @@ def phone_start(body: PhoneStartRequest, authorization: str | None = Header(defa
 
     code = f"{random.randint(0, 9999):04d}"
     _PENDING_PHONE[user_id] = (phone, code)
-    # Simulated sending: in the real system the code would go out via an SMS
-    # gateway. In demo mode we return it directly so the flow stays demoable.
-    return {"sent": True, "phone": phone, "demo_code": code}
+    # Deliver the code to the actual number via Twilio WhatsApp (degrades to a
+    # demo no-op if Twilio isn't configured), AND still return it so the on-screen
+    # demo display keeps working.
+    from journey_autopilot.integrations import whatsapp
+
+    delivery = whatsapp.send_verification_code(phone, code)
+    return {"sent": True, "phone": phone, "demo_code": code, "delivery": delivery}
 
 
 @app.post("/api/verify/phone/confirm")
@@ -203,11 +215,14 @@ def phone_remove(authorization: str | None = Header(default=None)) -> dict:
 
 
 def _outlook_preview_dates() -> list[str]:
-    """Dates to fetch for the post-connect preview — pinned to the demo scenario.
-    """
+    """Date range for the post-connect preview.
 
-    d3 = date.today() + timedelta(days=12)
-    return [date.today().isoformat(), d3.isoformat()]
+    Spans the next two weeks of the user's REAL connected calendar (the
+    range start/end are what ``_fetch_outlook_preview`` queries), so the
+    preview reflects the actual signed-in account rather than pinned demo days.
+    """
+    today = date.today()
+    return [today.isoformat(), (today + timedelta(days=14)).isoformat()]
 
 
 @app.post("/api/connect/outlook/start")
@@ -246,13 +261,43 @@ def outlook_start(authorization: str | None = Header(default=None)) -> dict:
             "expires_at": expires_on.isoformat() if hasattr(expires_on, "isoformat") else str(expires_on),
         }
 
-    from journey_autopilot.integrations.outlook.auth import SCOPES
+    from journey_autopilot.integrations.outlook.auth import (
+        MAIL_SCOPES,
+        SCOPES,
+        save_authentication_record,
+    )
+
+    # AADSTS codes that mean the Mail.Send scope could not be consented (app
+    # registration lacks the permission / admin consent withheld). Calendar
+    # connect must not break on those — fall back to the calendar-only scopes.
+    _CONSENT_ERROR_CODES = ("AADSTS65001", "AADSTS70011", "AADSTS650053")
 
     def _run_device_flow() -> None:
         try:
             cred = create_device_credential(prompt_callback)
+            # authenticate() runs the device flow AND returns the
+            # AuthenticationRecord — the account metadata a fresh credential
+            # needs to find the cached token later. Persisting it is what lets
+            # the agent tools (acquire_credential) read the calendar silently
+            # instead of falling back to mock with AuthenticationRequiredError.
+            # MAIL_SCOPES (calendar + Mail.Send) so one consent covers both
+            # reading the calendar and sending the approved notice email.
+            try:
+                record = cred.authenticate(scopes=MAIL_SCOPES)
+            except Exception as exc:
+                if not any(code in str(exc) for code in _CONSENT_ERROR_CODES):
+                    raise
+                _outlog.warning(
+                    "Mail.Send consent unavailable (%s) — retrying with "
+                    "calendar-only scopes; the notice-email send will stay "
+                    "disabled until the app registration adds Mail.Send.",
+                    exc,
+                )
+                record = cred.authenticate(scopes=SCOPES)
+            save_authentication_record(record)
+            # Same instance, record in memory -> silent; token for the preview.
             auth_state["result"] = cred.get_token(*SCOPES)
-            _outlog.info("device flow completed — token acquired")
+            _outlog.info("device flow completed — token acquired, auth record saved")
         except Exception as exc:
             _outlog.error("device flow failed: %s", exc, exc_info=True)
             auth_state["error"] = str(exc)
@@ -310,14 +355,46 @@ async def outlook_status(authorization: str | None = Header(default=None)) -> di
         # interactive flow that hangs the request.
         access_token = auth_state["result"]
         _OUTLOOK_AUTH.pop(user_id, None)
-        profile = store.update_profile(user_id, {"connections": {"outlook": True}})
-        from journey_autopilot.integrations.outlook import StaticTokenCredential
-
-        events = await _fetch_outlook_preview(
-            user_id, credential=StaticTokenCredential(access_token)
+        from journey_autopilot.integrations.outlook import (
+            StaticTokenCredential,
+            get_signed_in_user,
         )
-        _outlog.info("outlook connected — %d preview events", len(events) if events else 0)
-        return {"status": "complete", "profile": profile, "events": events}
+
+        credential = StaticTokenCredential(access_token)
+
+        # Identify the ACTUAL signed-in Microsoft account (not the demo email)
+        # and persist it, so the UI and later calendar reads use the real one.
+        identity = {"email": None, "name": None}
+        try:
+            identity = await get_signed_in_user(credential=credential)
+        except Exception as exc:
+            _outlog.warning(
+                "could not read signed-in user (%s: %s)", type(exc).__name__, exc
+            )
+
+        profile = store.update_profile(
+            user_id,
+            {
+                "connections": {
+                    "outlook": True,
+                    "outlook_email": identity.get("email"),
+                    "outlook_name": identity.get("name"),
+                }
+            },
+        )
+
+        events = await _fetch_outlook_preview(user_id, credential=credential)
+        _outlog.info(
+            "outlook connected as %s — %d preview events",
+            identity.get("email") or "<unknown>",
+            len(events) if events else 0,
+        )
+        return {
+            "status": "complete",
+            "profile": profile,
+            "events": events,
+            "account": identity,
+        }
 
     _outlog.warning("device flow ended without a token — status=expired")
     _OUTLOOK_AUTH.pop(user_id, None)
@@ -367,7 +444,10 @@ def disconnect_outlook(authorization: str | None = Header(default=None)) -> dict
     """Disconnect Outlook: flip the profile flag and best-effort clear the token cache."""
     user_id = _user_id(authorization)
     _OUTLOOK_AUTH.pop(user_id, None)
-    profile = store.update_profile(user_id, {"connections": {"outlook": False}})
+    profile = store.update_profile(
+        user_id,
+        {"connections": {"outlook": False, "outlook_email": None, "outlook_name": None}},
+    )
 
     cleared = False
     try:
@@ -455,9 +535,15 @@ async def chat_endpoint(
     ADK + a configured Uni-GPT backend (.env) are required here; errors are
     returned as ``error`` (HTTP 200) so the chat UI can show them inline.
     """
-    _user_id(authorization)  # chat is behind the login like the rest of the API
+    user_id = _user_id(authorization)  # chat is behind the login like the rest of the API
+    # The traveler's saved number — used for the proactive HIGH-risk WhatsApp
+    # alert. May be None if the phone step was skipped during onboarding.
+    profile = store.get_profile(user_id) or {}
+    notify_phone = (profile.get("notifications") or {}).get("phone")
     try:
-        return await chat.chat_turn(body.session_id, body.message, body.trip)
+        return await chat.chat_turn(
+            body.session_id, body.message, body.trip, notify_phone=notify_phone
+        )
     except Exception as exc:  # surfaced inline in the chat instead of a 500
         return {
             "session_id": body.session_id,

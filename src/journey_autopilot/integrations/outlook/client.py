@@ -7,14 +7,17 @@ endpoint for date-range calendar queries that expands recurring events.
 from __future__ import annotations
 
 from azure.core.credentials import AccessToken, TokenCredential
-from msgraph import GraphServiceClient
+from msgraph import GraphRequestAdapter, GraphServiceClient
 from msgraph.generated.users.item.calendar_view.calendar_view_request_builder import (
     CalendarViewRequestBuilder,
 )
 from kiota_abstractions.base_request_configuration import RequestConfiguration
 from kiota_abstractions.headers_collection import HeadersCollection
+from kiota_authentication_azure.azure_identity_authentication_provider import (
+    AzureIdentityAuthenticationProvider,
+)
 
-from .auth import SCOPES, acquire_credential
+from .auth import MAIL_SCOPES, SCOPES, acquire_credential
 
 
 class StaticTokenCredential:
@@ -42,9 +45,27 @@ class StaticTokenCredential:
         return self._access_token
 
 
-def _build_client(credential: TokenCredential) -> GraphServiceClient:
-    """Build a GraphServiceClient backed by any TokenCredential."""
-    return GraphServiceClient(credential, scopes=SCOPES)
+def _build_client(
+    credential: TokenCredential, scopes: list[str] | None = None
+) -> GraphServiceClient:
+    """Build a GraphServiceClient backed by any TokenCredential.
+
+    CAE (Continuous Access Evaluation) is disabled explicitly: kiota's auth
+    provider defaults to ``is_cae_enabled=True``, which makes azure-identity
+    look for tokens in a SEPARATE CAE token cache file — but the onboarding
+    device-code flow populates only the non-CAE cache. With the default,
+    every SDK call fails silent auth (``AuthenticationRequiredError``) even
+    though a valid cached token exists.
+
+    Args:
+        scopes: Scopes the client requests tokens for. Defaults to the
+            calendar-read ``SCOPES``; the send-mail path passes
+            ``MAIL_SCOPES``.
+    """
+    auth_provider = AzureIdentityAuthenticationProvider(
+        credential, scopes=scopes or SCOPES, is_cae_enabled=False
+    )
+    return GraphServiceClient(request_adapter=GraphRequestAdapter(auth_provider))
 
 
 async def _fetch_calendar_view(
@@ -76,6 +97,32 @@ async def _fetch_calendar_view(
         )
 
     return result.value if result and result.value else []
+
+
+async def get_signed_in_user(credential: TokenCredential | None = None) -> dict:
+    """Fetch the signed-in user's identity (email + name) via Graph ``/me``.
+
+    Lets the app show and use the ACTUAL connected Microsoft account rather than
+    a hardcoded demo email. Requires the ``User.Read`` scope (see auth.SCOPES).
+
+    Args:
+        credential: Optional ``TokenCredential`` to reuse — typically the
+            :class:`StaticTokenCredential` wrapping the token from the web
+            device-code flow, so this doesn't trigger a second interactive flow.
+
+    Returns:
+        ``{"email": str | None, "name": str | None}``. For personal accounts
+        ``mail`` may be empty, so ``userPrincipalName`` is used as a fallback.
+    """
+    credential = credential or acquire_credential()
+    client = _build_client(credential)
+
+    user = await client.me.get()
+    if user is None:
+        return {"email": None, "name": None}
+
+    email = getattr(user, "mail", None) or getattr(user, "user_principal_name", None)
+    return {"email": email, "name": getattr(user, "display_name", None)}
 
 
 async def get_events(
@@ -145,3 +192,51 @@ async def get_events_range(
     return await _fetch_calendar_view(
         client, f"{start_date}T00:00:00", f"{end_date}T23:59:59", user_email
     )
+
+
+async def send_mail(
+    to_address: str,
+    subject: str,
+    body: str,
+    credential: TokenCredential | None = None,
+) -> None:
+    """Send a plain-text email from the connected account via Graph ``/me/sendMail``.
+
+    Requires the ``Mail.Send`` delegated scope. Logins made before that scope
+    was added have not consented to it — the silent token request then raises
+    ``AuthenticationRequiredError`` (calendar reads are unaffected; they use
+    the narrower ``SCOPES``). The fix is a one-time Outlook reconnect, which
+    requests ``MAIL_SCOPES``.
+
+    Args:
+        to_address: Recipient email address.
+        subject: Mail subject line.
+        body: Plain-text mail body.
+        credential: Optional ``TokenCredential`` to reuse; defaults to the
+            silent cached-login credential.
+
+    Raises:
+        Exception: Graph/auth errors propagate — the calling write tool turns
+            them into a user-facing result.
+    """
+    from msgraph.generated.models.body_type import BodyType
+    from msgraph.generated.models.email_address import EmailAddress
+    from msgraph.generated.models.item_body import ItemBody
+    from msgraph.generated.models.message import Message
+    from msgraph.generated.models.recipient import Recipient
+    from msgraph.generated.users.item.send_mail.send_mail_post_request_body import (
+        SendMailPostRequestBody,
+    )
+
+    credential = credential or acquire_credential()
+    client = _build_client(credential, scopes=MAIL_SCOPES)
+
+    request_body = SendMailPostRequestBody(
+        message=Message(
+            subject=subject,
+            body=ItemBody(content_type=BodyType.Text, content=body),
+            to_recipients=[Recipient(email_address=EmailAddress(address=to_address))],
+        ),
+        save_to_sent_items=True,
+    )
+    await client.me.send_mail.post(request_body)
