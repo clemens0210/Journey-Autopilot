@@ -133,6 +133,7 @@ class ChatRequest(BaseModel):
 
 class BookTripRequest(BaseModel):
     journey: dict
+    purpose: str | None = None
 
 
 # --- Auth helpers ---------------------------------------------------------------------
@@ -206,7 +207,7 @@ def trips(authorization: str | None = Header(default=None)) -> dict:
 # --- Booking (simple journey search via db_service, adds to monitored trips) ---
 
 
-def _journey_to_trip(journey: dict) -> dict:
+def _journey_to_trip(journey: dict, purpose: str | None = None) -> dict:
     """Convert a normalized db_ops journey option into the booked-trip shape.
 
     Times are truncated to naive local ISO (DB times are German local) so the
@@ -237,7 +238,7 @@ def _journey_to_trip(journey: dict) -> dict:
         "seat": "Seat 42, window",
         "travel_class": 2,
         "price_eur": journey.get("price_eur"),
-        "purpose": "Booked connection",
+        "purpose": purpose or "Booked connection",
         # Real itinerary from the live search — the trip-detail screen renders
         # these instead of the simulated legs.
         "legs": [
@@ -280,9 +281,17 @@ def search_journeys(
 def book_trip(body: BookTripRequest, authorization: str | None = Header(default=None)) -> dict:
     """Add a searched journey to the monitored trips (simulated booking)."""
     user_id = _user_id(authorization)
-    trip = _journey_to_trip(body.journey)
+    trip = _journey_to_trip(body.journey, body.purpose)
     store.save_trips(user_id, [trip])
     return {"trip": trip, "trips": store.get_trips(user_id)}
+
+
+@app.delete("/api/trips/{trip_id}")
+def delete_trip(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """Remove a single imported/added trip (does not touch the rest of the profile)."""
+    user_id = _user_id(authorization)
+    store.delete_trip(user_id, trip_id)
+    return {"deleted": True, "trips": store.get_trips(user_id)}
 
 
 def _live_leg_delays(trip: dict) -> dict[str, int]:

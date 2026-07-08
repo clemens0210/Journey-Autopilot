@@ -12,6 +12,7 @@ keep the same presentation-safe fallback pattern.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -22,6 +23,8 @@ from ..errors import with_resilience, with_resilience_async
 from ..integrations.rights_rag.rights_service import calculate_compensation
 from ..integrations import db_ops as db_api
 from ..integrations import stations
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -62,6 +65,11 @@ def _minutes_between(start: str | None, end: str | None) -> int | None:
     end_dt = _parse_datetime(end)
     if start_dt is None or end_dt is None:
         return None
+    # Stored trips use naive German-local times while the live sidecar returns
+    # offset-aware ones; on a mix, compare wall clocks (both are German local).
+    if (start_dt.tzinfo is None) != (end_dt.tzinfo is None):
+        start_dt = start_dt.replace(tzinfo=None)
+        end_dt = end_dt.replace(tzinfo=None)
     return round((end_dt - start_dt).total_seconds() / 60)
 
 
@@ -517,9 +525,11 @@ def find_reroute_options(
                 "source": "db_service_live",
             }
     except db_api.DBServiceError:
-        pass
+        pass  # sidecar down/blocked — expected, fall back to mock quietly
     except Exception:
-        pass
+        # A bug in the live path (not a sidecar outage) — fall back too, but
+        # leave a trace: this once hid a TypeError as "sidecar unavailable".
+        logger.warning("find_reroute_options live path failed", exc_info=True)
 
     options = mock_data.lookup_route(mock_data.REROUTE_OPTIONS, origin, destination)
     if options:

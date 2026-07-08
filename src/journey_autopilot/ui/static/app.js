@@ -187,6 +187,10 @@ const fmtDate = (iso) => new Date(iso).toLocaleDateString("de-DE", {
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString("de-DE", {
   hour: "2-digit", minute: "2-digit",
 });
+const fmtDuration = (minutes) =>
+  minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : `${minutes}min`;
+const minutesBetween = (isoA, isoB) => Math.round((new Date(isoB) - new Date(isoA)) / 60000);
+const shiftedTime = (iso, delayMinutes) => new Date(new Date(iso).getTime() + delayMinutes * 60000);
 
 const tripStartTime = (trip) => {
   const time = new Date(trip?.planned_departure || "").getTime();
@@ -802,7 +806,7 @@ const renderers = {
       btn.addEventListener("click", onDeleteTripClick);
     });
 
-    $("#add-trip").addEventListener("click", () => go("searchTrip"));
+    $("#add-trip").addEventListener("click", () => go("book"));
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
     $("#edit-policy").addEventListener("click", () => go("policy"));
@@ -1391,15 +1395,42 @@ function renderBookResults() {
       </div>`;
   }).join("");
 
-  box.innerHTML = `<h2 style="margin: 18px 4px 10px">Connections</h2>${cards}`;
+  box.innerHTML = `<h2 style="margin: 18px 4px 10px">Connections</h2>${cards}<div id="book-confirm"></div>`;
   box.querySelectorAll(".journey-option").forEach((cardEl) => {
-    cardEl.addEventListener("click", () => bookJourney(b.results[Number(cardEl.dataset.journeyIndex)]));
+    cardEl.addEventListener("click", () => showBookConfirm(b.results[Number(cardEl.dataset.journeyIndex)]));
   });
 }
 
-async function bookJourney(journey) {
+function showBookConfirm(journey) {
+  const dest = journey.destination || "destination";
+  const confirmBox = $("#book-confirm");
+  if (!confirmBox) return;
+  confirmBox.innerHTML = `
+    <div class="card">
+      <h2>Name this trip</h2>
+      <label class="field">Purpose / subject
+        <input type="text" id="book-purpose" value="Trip to ${escapeHtml(dest)}">
+      </label>
+      <div class="search-confirm-summary">
+        ${escapeHtml(journey.origin || "")} → ${escapeHtml(journey.destination || "")}
+        · ${escapeHtml(journey.description || "")}
+      </div>
+      <button class="btn primary block" id="book-confirm-btn" type="button">Add trip</button>
+      <button class="btn block" id="book-cancel-btn" type="button" style="margin-top:8px">Back to results</button>
+    </div>`;
+  confirmBox.scrollIntoView({ behavior: "smooth" });
+  $("#book-purpose").focus();
+  $("#book-purpose").select();
+  $("#book-cancel-btn").addEventListener("click", () => { confirmBox.innerHTML = ""; });
+  $("#book-confirm-btn").addEventListener("click", () => {
+    const purpose = $("#book-purpose").value.trim() || `Trip to ${dest}`;
+    bookJourney(journey, purpose);
+  });
+}
+
+async function bookJourney(journey, purpose) {
   try {
-    const data = await api("/api/trips", { method: "POST", body: { journey } });
+    const data = await api("/api/trips", { method: "POST", body: { journey, purpose } });
     state.trips = data.trips;
     toast(`✓ ${data.trip.train} ${data.trip.origin} → ${data.trip.destination} added to your trips`);
     go("dashboard");
@@ -2011,9 +2042,6 @@ $("#ms-accept").addEventListener("click", async () => {
 $("#tab-book").addEventListener("click", () => go("book"));
 $("#tab-trips").addEventListener("click", () => go("dashboard"));
 $("#tab-profile").addEventListener("click", () => go("profile"));
-// "Add trip" opens the live DB journey search screen (its own page, like
-// Profile — the tab shows as active while you're on it).
-$("#tab-add").addEventListener("click", () => go("searchTrip"));
 
 async function boot() {
   if (state.token) {
