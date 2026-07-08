@@ -62,6 +62,31 @@ _outlog.propagate = False
 
 app = FastAPI(title="Journey Autopilot — Web App", version="0.1.0")
 
+
+@app.on_event("startup")
+def _warm_rights_rag() -> None:
+    """Pre-load the passenger-rights embedding model in the background.
+
+    The first ``get_passenger_rights`` tool call otherwise blocks the first
+    chat answer while the ~1 GB sentence-transformers model loads. Warming it
+    here — while the user is still in onboarding/dashboard — hides that
+    latency; on failure the chat simply falls back to lazy loading.
+    """
+
+    def _load() -> None:
+        try:
+            from journey_autopilot.integrations.rights_rag.rag_store import (
+                FahrgastrechteRAG,
+            )
+            from journey_autopilot.tools import read_tools
+
+            read_tools.get_passenger_rights._rag = FahrgastrechteRAG()
+        except Exception:
+            pass
+
+    threading.Thread(target=_load, name="rights-rag-warmup", daemon=True).start()
+
+
 _STATIC = Path(__file__).resolve().parent / "static"
 
 # In-memory sessions: token -> user_id. Deliberately without persistence for

@@ -1,6 +1,6 @@
 # ADR 0004 — Veto-per-action gate + configurable autonomy
 
-Status: Accepted (policy enforcement: scaffold, lands in M4)
+Status: Accepted (policy enforcement: implemented)
 
 ## Context
 The traveler must keep veto over every consequential action (build spec §3.2).
@@ -20,8 +20,17 @@ and the team wants a single knob to trade autonomy against control.
 ## Consequences
 - Sweeping `global_autonomy_level` produces the autonomy/control trade-off
   numbers (eval, M6).
-- Today the read/write split is enforced at the agent level (Monitoring/Planner
-  hold no write tools); per-tool `auto`/`ask` enforcement against
-  `config/policy.yaml` is wired when the Executor + write tools land (M4).
-- Open defaults stubbed in config: cost threshold for booking (50 EUR),
-  compensation claim auto vs. notify-after (build spec §12).
+- The read/write split is enforced at the agent level (Monitoring/Planner hold
+  no write tools); per-tool `auto`/`ask` is now enforced by `policy.resolve()`
+  and the write tools (`tools/write_tools.py`) the Executor holds. A gated tool
+  returns `status="veto_required"` instead of acting; the action only fires once
+  the user approves and the tool is re-called with `user_approved=True`.
+- Configurability: `config/policy.yaml` holds the defaults; each user's choices
+  override them, captured in the profile (`policy` block) via onboarding and the
+  "Automation & veto" settings screen, and applied on every agent run.
+  Precedence: user-message channel (always auto) > per-tool user override >
+  config default shifted by the effective global level.
+- Onboarding autonomy → policy mode mapping: notify_only→conservative,
+  approve_each→balanced, auto_within_limits→aggressive.
+- Open defaults in config: cost threshold for booking (50 EUR), compensation
+  claim auto vs. notify-after (build spec §12).

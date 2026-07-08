@@ -119,6 +119,22 @@ function toast(msg, ms = 4200) {
   toastTimer = setTimeout(() => { node.hidden = true; }, ms);
 }
 
+// Policy / veto gate — display labels and the onboarding-autonomy mapping.
+const POLICY_LEVEL_LABEL = {
+  conservative: "Conservative — asks before everything",
+  balanced: "Balanced",
+  aggressive: "Automatic within limits",
+};
+const AUTONOMY_TO_LEVEL = {
+  notify_only: "conservative",
+  approve_each: "balanced",
+  auto_within_limits: "aggressive",
+};
+function policyOverrideCount(p) {
+  const wt = (p.policy && p.policy.write_tools) || {};
+  return Object.values(wt).filter((v) => v && v !== "default").length;
+}
+
 // Display labels for the internally stored profile values
 const LABELS = {
   fenster: "Window", gang: "Aisle", egal: "No preference",
@@ -678,6 +694,12 @@ const renderers = {
         <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
       </div>
 
+      <div class="section-title"><h2>Automation &amp; veto</h2><button id="edit-policy" type="button">Manage</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Autonomy level</span><span class="v">${POLICY_LEVEL_LABEL[(p.policy && p.policy.global_autonomy_level) || "balanced"]}</span></div>
+        <div class="summary-row"><span class="k">Pinned action rules</span><span class="v">${policyOverrideCount(p)}</span></div>
+      </div>
+
       <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
       <div class="card" style="padding: 12px 16px">
         <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
@@ -703,6 +725,7 @@ const renderers = {
 
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
+    $("#edit-policy").addEventListener("click", () => go("policy"));
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
@@ -776,6 +799,12 @@ const renderers = {
         <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
       </div>
 
+      <div class="section-title"><h2>Automation &amp; veto</h2><button id="edit-policy" type="button">Manage</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Autonomy level</span><span class="v">${POLICY_LEVEL_LABEL[(p.policy && p.policy.global_autonomy_level) || "balanced"]}</span></div>
+        <div class="summary-row"><span class="k">Pinned action rules</span><span class="v">${policyOverrideCount(p)}</span></div>
+      </div>
+
       <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
       <div class="card" style="padding: 12px 16px">
         <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
@@ -818,6 +847,7 @@ const renderers = {
 
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("connections"); });
+    $("#edit-policy").addEventListener("click", () => go("policy"));
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
@@ -1014,6 +1044,104 @@ const renderers = {
     });
   },
 
+  // -- Automation & veto (policy layer) — per-write-tool auto/ask + global level ----
+  policy() {
+    const pol = state.profile.policy || { global_autonomy_level: "balanced", book_cost_threshold_eur: 50, write_tools: {} };
+    const wt = pol.write_tools || {};
+    const level = pol.global_autonomy_level || "balanced";
+    const thr = pol.book_cost_threshold_eur ?? 50;
+
+    const opt = (value, label, current) =>
+      `<option value="${value}" ${(current || "default") === value ? "selected" : ""}>${label}</option>`;
+    const toolSelect = (key, withThreshold = false) => `
+      <select data-tool="${key}" class="policy-select">
+        ${opt("default", "Default (by level)", wt[key])}
+        ${opt("auto", "Always auto", wt[key])}
+        ${opt("ask", "Always ask", wt[key])}
+        ${withThreshold ? opt("ask_over_threshold", "Ask if over limit", wt[key]) : ""}
+      </select>`;
+    const toolRow = (label, sub, control) => `
+      <div class="switch-row">
+        <span>${label}<span class="sub">${sub}</span></span>
+        ${control}
+      </div>`;
+
+    screen.replaceChildren(el(`
+      <div class="dash-greeting">
+        <h1>Automation &amp; veto</h1>
+        <p class="muted">Decide which actions the autopilot may take on its own and which need your okay. These settings are saved and applied on every run.</p>
+      </div>
+
+      <div class="card">
+        <h2>How independent should the autopilot be?</h2>
+        <div class="choices cols-1" data-group="alevel">
+          <button type="button" class="choice" data-value="conservative">
+            <span class="choice-title">🛡️ Conservative</span>
+            <span class="choice-sub">Ask before every action — maximum control.</span>
+          </button>
+          <button type="button" class="choice" data-value="balanced">
+            <span class="choice-title">⚖️ Balanced</span>
+            <span class="choice-sub">Beneficial &amp; free actions run automatically, the rest asks.</span>
+          </button>
+          <button type="button" class="choice" data-value="aggressive">
+            <span class="choice-title">🤖 Automatic within limits</span>
+            <span class="choice-sub">Most actions run automatically; hotels &amp; emails to others still ask.</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Per-action overrides</h2>
+        <p class="muted" style="margin-top:0">"Default (by level)" follows the choice above. Pin a specific action to always run or always ask.</p>
+        ${toolRow("📲 Notify me", "You are the recipient — always automatic", '<span class="v muted">Always auto</span>')}
+        ${toolRow("💶 File compensation claim", "Purely beneficial, money back for you", toolSelect("file_compensation_claim"))}
+        ${toolRow("🗓️ Move a tentative appointment", "Reversible calendar change", toolSelect("reschedule_outlook_event_tentative"))}
+        ${toolRow("📅 Move a confirmed appointment", "Not freely reversible", toolSelect("reschedule_outlook_event_confirmed"))}
+        ${toolRow("🔀 Rebook an alternative train", "Cost depends on the option", toolSelect("book_alternative_connection", true))}
+        ${toolRow("🏨 Book a hotel", "Cost + overnight — high commitment", toolSelect("book_hotel"))}
+        ${toolRow("✉️ Email participants", "Affects third parties (clients, colleagues)", toolSelect("send_email_to_participants"))}
+
+        <label class="field" style="margin-top:12px">Rebooking cost limit (EUR)
+          <span class="hint">Used by "Ask if over limit" — under it rebooks automatically, over it asks</span>
+          <input type="number" id="book-threshold" min="0" step="5" value="${thr}">
+        </label>
+
+        <button class="btn primary block" id="save-policy" type="button" style="margin-top:14px">Save automation settings</button>
+      </div>
+    `));
+
+    $("#navbar").hidden = true;
+    $("#progress").hidden = true;
+    $("#tabbar").hidden = false;
+    setActiveTab("profile");
+
+    const box = screen.querySelector('[data-group="alevel"]');
+    box.querySelectorAll(".choice").forEach((btn) => {
+      if (btn.dataset.value === level) btn.classList.add("selected");
+      btn.addEventListener("click", () => {
+        box.querySelectorAll(".choice").forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+      });
+    });
+
+    $("#save-policy").addEventListener("click", async () => {
+      const write_tools = {};
+      screen.querySelectorAll("select[data-tool]").forEach((s) => { write_tools[s.dataset.tool] = s.value; });
+      try {
+        await saveProfile({
+          policy: {
+            global_autonomy_level: box.querySelector(".choice.selected")?.dataset.value || level,
+            book_cost_threshold_eur: Number($("#book-threshold").value) || 0,
+            write_tools,
+          },
+        });
+        toast("✓ Automation settings saved");
+      } catch (err) {
+        toast(`⚠️ ${err.message}`);
+      }
+    });
+  },
+
   // -- Trip detail: full itinerary with live delay + risk forecast (mock) ----------
   tripdetail() {
     const { trip, data, error } = state.tripDetail;
@@ -1049,6 +1177,7 @@ const renderers = {
     $("#jd-back").addEventListener("click", () => { state.tripDetail = null; go("dashboard"); });
     $("#jd-chat").addEventListener("click", () => openChat(trip));
   },
+
 
   // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
   chat() {
@@ -1342,7 +1471,9 @@ function openChat(trip) {
     messages: [{
       role: "assistant",
       text: `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip. `
-        + `Ask me anything — or just say "monitor my trip" to run a live check.`,
+        + `Say "monitor my trip" for a live check. If your appointment is no longer reachable you can ask me to act — `
+        + `e.g. "rebook me, move the clashing meeting and let the participants know" — and I'll only do what your `
+        + `automation settings allow without asking first.`,
     }],
   };
   persistChat();
@@ -1665,12 +1796,16 @@ async function persistCurrentStep() {
     case "notifications": {
       const channels = [...screen.querySelectorAll("[data-channel]")]
         .filter((c) => c.checked).map((c) => c.dataset.channel);
+      const autonomy = screen.querySelector('[data-group="autonomy"] .choice.selected')?.dataset.value;
       await saveProfile({
         notifications: {
           channels,
           quiet_hours: { from: $("#quiet-from").value, to: $("#quiet-to").value },
         },
-        autonomy: screen.querySelector('[data-group="autonomy"] .choice.selected')?.dataset.value,
+        autonomy,
+        // Seed the policy/veto global level from the onboarding choice; the
+        // "Automation & veto" screen can refine it per action later.
+        ...(autonomy ? { policy: { global_autonomy_level: AUTONOMY_TO_LEVEL[autonomy] } } : {}),
       });
       break;
     }
