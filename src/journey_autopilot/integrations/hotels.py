@@ -6,9 +6,8 @@ the stranded/destination station is geocoded through the db_service sidecar
 then the keyless Overpass API returns real hotels within walking/taxi distance,
 sorted by distance to the station.
 
-OSM carries no room prices, so ``price_per_night_eur`` is ``None`` — the
-Planner presents these as "price on request" and the booking veto gate treats
-the cost as unknown. Everything else (name, distance, stars, contact) is real.
+OSM carries no room prices, so hotel options are shown without price
+information. Everything else (name, distance, stars, contact) is real.
 
 - ``OVERPASS_API_URL`` (default ``https://overpass-api.de/api/interpreter``)
 - ``HOTEL_SEARCH_RADIUS_M`` (default 1500) — search radius around the station.
@@ -103,7 +102,7 @@ def find_hotels_near_station(location: str, max_results: int = 4) -> list[dict]:
     hotels = []
     for i, (dist, tags) in enumerate(candidates[:max_results], start=1):
         stars = tags.get("stars")
-        remarks = ["Price on request — no live rate available"]
+        remarks = []
         if tags.get("website") or tags.get("contact:website"):
             remarks.append(tags.get("website") or tags["contact:website"])
         if tags.get("phone") or tags.get("contact:phone"):

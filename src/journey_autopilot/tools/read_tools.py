@@ -617,10 +617,9 @@ def find_partner_hotels(
     Covers the overnight case — traveler cannot reach the destination today.
 
     Live-first: real hotels near the station via OpenStreetMap
-    (``integrations.hotels``), sorted by distance. Live results carry no room
-    price (``price_per_night_eur`` is null — present them as "price on
-    request"). Falls back to the mock partner-hotel list when the live lookup
-    fails or finds nothing.
+    (``integrations.hotels``), sorted by distance. Hotel prices are not shown
+    because the live source cannot check rates. Falls back to the mock
+    partner-hotel list when the live lookup fails or finds nothing.
 
     Args:
         location: Station or city near which to search (typically the destination

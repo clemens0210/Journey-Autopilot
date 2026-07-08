@@ -672,6 +672,7 @@ def journeys_search(
     destination: str = "",
     date: str = "",
     time: str = "08:00",
+    authorization: str | None = Header(default=None),
 ) -> dict:
     """Search live DB journeys between two stations.
 
@@ -684,6 +685,8 @@ def journeys_search(
     when a station can't be resolved, the sidecar is down, or DB temporarily
     rejects the upstream request.
     """
+    _user_id(authorization)
+
     origin = (origin or "").strip()
     destination = (destination or "").strip()
     date = (date or "").strip()

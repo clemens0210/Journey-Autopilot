@@ -1757,13 +1757,12 @@ function renderOptionCards(options, optionsSource, message) {
     if (mode === "hotel") {
       const name = escapeHtml(o.name || o.description || "Hotel");
       const dist = o.distance_to_station_km != null ? `${o.distance_to_station_km} km from station` : "";
-      const price = o.price_per_night_eur != null ? `${Number(o.price_per_night_eur).toFixed(2)} €/night` : "";
       const nights = o.nights != null ? `${o.nights} night${o.nights === 1 ? "" : "s"}` : "";
       const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
       body = `
         <div class="option-trains">${name}</div>
         <div class="option-meta">
-          ${dist ? `<span>${dist}</span>` : ""}${price ? `<span class="option-price">${price}</span>` : ""}${nights ? `<span>${nights}</span>` : ""}
+          ${dist ? `<span>${dist}</span>` : ""}${nights ? `<span>${nights}</span>` : ""}
         </div>
         ${remarks}`;
     } else if (mode === "car_sharing" || mode === "bike_sharing") {
