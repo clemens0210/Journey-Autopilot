@@ -169,6 +169,81 @@ into the presentation layer (`src/journey_autopilot/ui/`) and the onboarding log
 python run_onboarding.py        # -> http://127.0.0.1:8000
 ```
 
+Or fully containerized — see the next section.
+
+### Running with Docker (web app + DB sidecar)
+
+`docker compose up` starts both services wired together: **app** (FastAPI web
+app incl. LLM agent and rights RAG) and **db-service** (Node sidecar for DB
+live data). Prerequisite: Docker Desktop is running (whale icon shows
+"Engine running").
+
+**One-time setup / first start:**
+
+```bash
+cp .env.example .env            # once; fill in UNI_GPT_* so the trip chat works
+docker compose up --build       # -> http://127.0.0.1:8000
+```
+
+The first build downloads ~3–4 GB (Python base image, CPU-only torch, and the
+passenger-rights embedding model, which is baked into the image so the
+container never downloads it at runtime). On the first start the entrypoint
+crawls bahn.de once to build the Chroma rights index — watch for
+`[entrypoint] Passenger-rights index empty — building it ...` in the log.
+Subsequent builds and starts come from the cache and take seconds.
+
+**Everyday start/stop:**
+
+```bash
+docker compose up -d            # start in the background
+docker compose logs -f app      # follow app logs (agent trace, Outlook device code)
+docker compose down             # stop & remove containers — data survives
+```
+
+Then open http://127.0.0.1:8000. `docker compose stop` / `start` also work
+(pause/resume without removing containers), but `up -d` / `down` is the
+simplest pair to remember.
+
+**After changing code or `.env`:**
+
+```bash
+docker compose up -d --build    # rebuild image + recreate containers
+```
+
+The image contains a snapshot of `src/` — local code edits are **not** live
+inside a running container, and `.env` is only read when a container is
+(re)created. Both are picked up by the command above; thanks to layer caching
+a code-only rebuild takes seconds, not the full 3–4 GB.
+
+**Status & health:**
+
+```bash
+docker compose ps               # both services should report "healthy"
+curl http://localhost:3000/health   # sidecar directly: {"ok":true,...}
+```
+
+**Reset all app data (profile, trips, rights index):**
+
+```bash
+docker compose down -v          # removes the app-data volume
+```
+
+SQLite and the Chroma index live in the named volume `app-data` (mounted at
+`/data` in the container), so they survive `down`, rebuilds, and image
+updates. After `down -v`, the next start runs onboarding from scratch and
+re-crawls the rights index.
+
+**Notes:**
+
+- Running containerized and locally (`python run_onboarding.py`) at the same
+  time collides on ports 8000/3000 — stop one of them first. The two setups
+  keep separate data (volume `app-data` vs. `src/journey_autopilot/data/`).
+- The Outlook device-code login prints its URL + code to the app log — have
+  `docker compose logs -f app` open when connecting the calendar.
+- The Python side reaches the sidecar via the compose network
+  (`DB_API_URL=http://db-service:3000` is set in `docker-compose.yml`); the
+  `DB_API_URL` in your `.env` only applies to non-Docker runs.
+
 Demo access: `lucas.wild@example.com` / `demo123` (also shown on the
 login screen). The wizard walks through: DB account login with trip import →
 mobile number verification (SMS code, simulated) → Outlook calendar (simulated
@@ -222,8 +297,9 @@ is deliberately mocked.
 
 - **Orchestrator** (`orchestrator.py`, `root_agent`) — `LlmAgent` that wraps the
   workers as `AgentTool` and decides in a ReAct loop who to call when. Calls
-  Monitoring first, then (if risk present) Planner. `agent.py` is a thin shim
-  exposing `root_agent` for ADK discovery.
+  Monitoring first, then (if risk present) Planner, and — once the user approves
+  an option — the Executor (write path, behind the veto gate). `agent.py` is a
+  thin shim exposing `root_agent` for ADK discovery.
 - **Monitoring Agent** (`agents/monitoring.py`) — read-only risk detection. Both
   pre-trip (delay risk + ETA from punctuality history) and en-route (live status
   + disruptions). Risk is a deterministic model tool, not an LLM judgment.
@@ -239,10 +315,16 @@ is deliberately mocked.
   `whatsapp_webhook.py`), passenger-rights RAG (`rights_rag/`). All mocked behind
   interfaces.
 - **Persistence** (`persistence/store.py`) — SQLite profile/constraints/trips.
-- **Scaffolds** (target architecture, not yet wired): `state.py`, `policy.py`,
-  `errors.py`, `agents/executor.py`, `tools/write_tools.py`,
-  `persistence/checkpointer.py`, plus `config/*.yaml`, `scenarios/`, `baseline/`,
-  `eval/`, and `Dockerfile`/`docker-compose.yml`.
+- **Policy layer / veto gate** (`policy.py`, `tools/write_tools.py`,
+  `agents/executor.py`) — `policy.resolve()` maps each write tool to `auto`/`ask`
+  from `config/policy.yaml`, shifted by a global autonomy level and overridden by
+  the user's profile (`policy` block, set in the "Automation & veto" UI). The
+  Executor holds the (simulated) write tools; a gated action returns
+  `veto_required` and only fires after the user approves in the chat.
+- **Scaffolds** (target architecture, not yet wired): `state.py`, `errors.py`,
+  `persistence/checkpointer.py`, plus `scenarios/`, `baseline/`, `eval/`.
+- **Docker** (`Dockerfile`, `docker-compose.yml`, `docker_entrypoint.py`) —
+  containerized web app + DB sidecar; see "Onboarding, Profile & Trip Chat".
 - **Model Configuration** (`config.py`) — a single place where the model is set
   per role; talks to the Uni-Cologne-GPT (OpenAI-compatible) via LiteLLM.
 
@@ -259,10 +341,11 @@ src/journey_autopilot/
   __init__.py                  # package marker (adk discovery)
   agent.py                     # shim: re-exports root_agent for adk
   orchestrator.py              # Orchestrator (root_agent, ReAct)
-  state.py  policy.py  errors.py   # context record + policy + error policy (scaffold)
+  state.py  errors.py        # context record + error policy (scaffold)
+  policy.py                  # veto gate: resolves write tools auto/ask (active)
   config.py  mock_data.py
-  agents/      monitoring.py  planner.py  communicator.py  executor.py(stub)
-  tools/       read_tools.py  write_tools.py(stub)  risk_model.py
+  agents/      monitoring.py  planner.py  communicator.py  executor.py
+  tools/       read_tools.py  write_tools.py  risk_model.py
   integrations/  db_ops.py  stations.py  outlook/  whatsapp.py  whatsapp_webhook.py
                  whatsapp_models.py  rights_rag/
   persistence/   store.py  checkpointer.py(stub)
@@ -282,7 +365,7 @@ The system grows modularly along the agent roles (see
 - **Planner Agent** ✅ — generates reroute options under constraints (RAG)
 - **Communicator Agent** ✅ — WhatsApp messages with approval workflow (Twilio)
 - **Negotiator Agent** — multi-stakeholder coordination
-- **Veto Gate** — human-in-the-loop, user retains veto
+- **Veto Gate** ✅ — human-in-the-loop, user retains veto (policy layer + Executor)
 - **Booking Agent** — book tickets, hotels, and mobility options (reversible)
 - **Memory & Learning** — persist preferences (SQLite)
 

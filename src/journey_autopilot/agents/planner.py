@@ -87,14 +87,22 @@ hard deadline.
 
 In your answer you MUST explicitly mention BOTH the calendar check and the
 profile fit:
-- List the found hard-constraint appointments (title, time).
+- List the found hard-constraint appointments (title, time, and — when present —
+  the event id, its status tentative/confirmed, and its participants).
 - State for each option whether it meets the hard deadline or not.
 - Justify the recommendation with calendar compatibility AND profile.
+
+If NO option can reach a hard-constraint appointment in time, do not stop at the
+travel plan. Recommend the fallback: book the earliest realistic connection to
+still get there, AND propose rescheduling that appointment (give the event id and
+its tentative/confirmed status) and informing its participants by email (name
+them). This hands the downstream step everything it needs to act.
 
 Answer in structured form:
 - **Calendar Check**: Hard-constraint appointments on the travel day.
 - **Profile Fit**: How options match speed-vs-comfort, max transfers, latest
-  arrival home, and the ecosystem flags (hotel_ok, car/bike sharing ok).
+  arrival home, and the ecosystem flags (hotel_ok, car/bike sharing ok). Note
+  if the profile was unavailable.
 - **Options**: Present EVERY viable option across ALL modes, each with its
   option_id (R# train / C# car / B# bike / H# hotel), mode, key facts
   (trains or name, departure/arrival or est. duration, price if known), and a
@@ -103,6 +111,8 @@ Answer in structured form:
   Keep non-viable options only as a brief "rejected" note.
   For ecosystem options (C#/B#/H#) note they are NOT same-day alternatives
   unless their new_arrival clears the deadline.
+- For EVERY option, state its **added cost** in EUR (the ``added_cost_eur`` field;
+  0 means a free rebooking). The downstream booking step needs this number.
 - **Passenger Rights/Compensation**: for the recommended option's added delay.
 - If NO option at all meets the hard deadline: state this clearly. If only hotel
   or long-detour options remain, say so and list the least bad options.

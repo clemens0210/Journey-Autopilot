@@ -1,31 +1,62 @@
-# Journey Autopilot — one-command setup (build spec §2/§10).
+# Journey Autopilot — one-command setup:
 #
-# STATUS: scaffold for milestone M0. `docker compose up` is the intended single
-# entry point; the services below are wired but not yet exercised end-to-end.
+#   cp .env.example .env    # fill in UNI_GPT_* so the trip chat works
+#   docker compose up --build
+#   -> http://127.0.0.1:8000
+#
+# app        — web app (onboarding, dashboard, trip chat / ReAct orchestrator).
+# db-service — DB live-data sidecar (db-vendo-client, Node). The Python tools
+#              fall back to mock data when it is unreachable.
 
 services:
   app:
     build: .
     ports:
       - "8000:8000"
+    # UNI_GPT_* (LLM agent), MS_ENTRA_* (Outlook), TWILIO_* (WhatsApp).
+    # The app starts without the file, but the trip chat needs UNI_GPT_*.
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
-      # Point the Python side at the Node sidecar service name.
+      # Reach the sidecar by its compose service name, not 127.0.0.1.
       DB_API_URL: http://db-service:3000
+      # Must bind all interfaces inside the container — takes precedence over
+      # any ONBOARDING_HOST a local .env might set for host runs.
+      ONBOARDING_HOST: 0.0.0.0
     volumes:
-      # Persist SQLite + Chroma across runs.
-      - ./src/journey_autopilot/data:/app/src/journey_autopilot/data
+      # SQLite profile store + Chroma rights index. The image points
+      # JA_DB_PATH/CHROMA_PATH here; a named volume (not a bind mount) keeps
+      # container runtime data out of the host source tree.
+      - app-data:/data
     depends_on:
-      - db-service
+      db-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # First start crawls bahn.de and builds the rights index before uvicorn
+      # comes up — give it room before counting failures.
+      start_period: 120s
 
-  # DB live-data sidecar (db-vendo-client). Optional: the tools fall back to
-  # mock data when it is unreachable. See db_service/README.md.
   db-service:
     build: ./db_service
     environment:
-      # Bind inside the container so the app service can reach it by name.
+      # Bind all interfaces so the app service can reach it by name.
       DB_SERVICE_HOST: 0.0.0.0
+    # Published only for manual poking (curl localhost:3000/health);
+    # the app talks to it over the compose network either way.
     ports:
       - "3000:3000"
-# TODO(M0): add a healthcheck on db-service /health and an app smoke command.
+    healthcheck:
+      # node:*-slim has no curl/wget; Node >= 18 ships global fetch.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  app-data:

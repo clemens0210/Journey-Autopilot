@@ -82,6 +82,17 @@ After completion, you land on the **dashboard** (DB Navigator main view with
 a mocked tab bar *Book / Explore / Trips / Profile*): monitored trips,
 profile summary, connections, and the GDPR deletion option.
 
+### Automation & veto (the policy layer)
+
+From the dashboard or profile, **Automation & veto** (`renderers.policy`) lets
+the user set the global autonomy level (conservative / balanced / automatic
+within limits) and pin per-action overrides (auto / ask, plus a cost limit for
+rebookings). The choices are stored in the profile's `policy` block via
+`PUT /api/profile` and read by `journey_autopilot.policy.resolve()`, which the
+Executor's write tools call before every side-effecting action — so a gated
+action pauses for the user's veto in the chat. The onboarding autonomy choice
+seeds the global level. See `docs/adr/0004-veto-gate.md`.
+
 ### Trip chat (the live agent demo)
 
 **Tapping a monitored trip** on the dashboard opens a chat in DB Navigator

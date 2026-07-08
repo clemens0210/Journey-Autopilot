@@ -77,6 +77,16 @@ DEFAULT_PROFILE: dict = {
         "outlook": False,
     },
     "autonomy": "approve_each",           # notify_only | approve_each | auto_within_limits
+    # Policy / veto gate — read by journey_autopilot.policy.resolve(). The
+    # onboarding "autonomy" choice seeds global_autonomy_level; the advanced
+    # settings screen can pin per-write-tool overrides (auto | ask, plus
+    # "ask_over_threshold" for booking). Empty write_tools => fall back to the
+    # config/policy.yaml defaults shifted by the global level.
+    "policy": {
+        "global_autonomy_level": "balanced",   # conservative | balanced | aggressive
+        "book_cost_threshold_eur": 50,
+        "write_tools": {},                      # e.g. {"book_hotel": "ask"}
+    },
     "onboarding_completed": False,
 }
 
@@ -171,6 +181,17 @@ def save_trips(user_id: str, trips: list[dict]) -> None:
                 "ON CONFLICT(trip_id, user_id) DO UPDATE SET trip = excluded.trip",
                 (trip["trip_id"], user_id, json.dumps(trip), _now()),
             )
+
+
+def delete_trips(user_id: str, trip_ids: list[str]) -> None:
+    """Remove specific trips for a user (e.g. stale demo imports at re-login)."""
+    if not trip_ids:
+        return
+    with _connect() as conn:
+        conn.executemany(
+            "DELETE FROM trips WHERE user_id = ? AND trip_id = ?",
+            [(user_id, trip_id) for trip_id in trip_ids],
+        )
 
 
 def get_trips(user_id: str) -> list[dict]:
