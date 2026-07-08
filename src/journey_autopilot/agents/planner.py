@@ -113,6 +113,9 @@ Answer in structured form:
   unless their new_arrival clears the deadline.
 - For EVERY option, state its **added cost** in EUR (the ``added_cost_eur`` field;
   0 means a free rebooking). The downstream booking step needs this number.
+  Live hotel results (source ``osm_hotels_live``) carry no room price
+  (``price_per_night_eur`` is null): present them as "price on request" and
+  treat the cost as unknown — booking one will always require user approval.
 - **Passenger Rights/Compensation**: for the recommended option's added delay.
 - If NO option at all meets the hard deadline: state this clearly. If only hotel
   or long-detour options remain, say so and list the least bad options.

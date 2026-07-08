@@ -22,6 +22,7 @@ from .. import mock_data, risk
 from ..errors import with_resilience, with_resilience_async
 from ..integrations.rights_rag.rights_service import calculate_compensation
 from ..integrations import db_ops as db_api
+from ..integrations import hotels as hotels_api
 from ..integrations import stations
 
 logger = logging.getLogger(__name__)
@@ -609,14 +610,17 @@ def find_partner_hotels(
     check_in_date: str,
     max_results: int = 4,
 ) -> dict:
-    """Finds DB partner hotel options near a stranded station for an overnight stay.
+    """Finds hotel options near a stranded station for an overnight stay.
 
     Call this ONLY when no same-day option (train or mobility) can get the
     traveler to their destination, AND ``profile.home.hotel_ok`` is True.
     Covers the overnight case — traveler cannot reach the destination today.
 
-    Swap point for a future real integration: replace the mock lookup below with
-    a call to bahn.de/hotels or a DB partner hotel API.
+    Live-first: real hotels near the station via OpenStreetMap
+    (``integrations.hotels``), sorted by distance. Live results carry no room
+    price (``price_per_night_eur`` is null — present them as "price on
+    request"). Falls back to the mock partner-hotel list when the live lookup
+    fails or finds nothing.
 
     Args:
         location: Station or city near which to search (typically the destination
@@ -628,17 +632,27 @@ def find_partner_hotels(
         A dict with a ``hotels`` list (option_id H#). Each hotel carries:
         ``mode`` ("hotel"), ``option_id``, ``name``, ``description``,
         ``distance_to_station_km``, ``price_per_night_eur``, ``check_in_date``,
-        ``nights``, ``remarks``, and ``source`` ("mock_hotels").
+        ``nights``, ``remarks``, and ``source`` ("osm_hotels_live" or
+        "mock_hotels").
     """
-    raw = mock_data.lookup_location(mock_data.PARTNER_HOTELS, location)[:max_results]
-    hotels = [{**h, "source": "mock_hotels", "check_in_date": check_in_date} for h in raw]
+    outcome = with_resilience(
+        lambda: hotels_api.find_hotels_near_station(location, max_results=max_results),
+        lambda: [
+            {**h, "source": "mock_hotels"}
+            for h in mock_data.lookup_location(mock_data.PARTNER_HOTELS, location)[:max_results]
+        ],
+        tool="find_partner_hotels",
+        accept=lambda hs: bool(hs),
+    )
+    hotels = [{**h, "check_in_date": check_in_date} for h in outcome.value]
+    source = hotels[0]["source"] if hotels else "none"
     if hotels:
-        _stash_options(hotels, origin=location, destination=location, source="mock_hotels")
+        _stash_options(hotels, origin=location, destination=location, source=source)
     return {
         "location": location,
         "check_in_date": check_in_date,
         "hotels": hotels,
-        "source": "mock_hotels" if hotels else "none",
+        "source": source,
     }
 
 
