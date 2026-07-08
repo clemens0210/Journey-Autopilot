@@ -22,6 +22,8 @@ const state = {
   editReturn: null, // "dashboard" / "profile" = return target after editing
   phone: { sent: false, verifiedThisSession: false },
   chat: null, // { sessionId, trip, messages: [...], busy } when a trip chat is open
+  tripDetail: null, // { trip, data, error } when the trip-detail screen is open
+  book: null, // { from, to, departure, results, error } for the Book tab
 };
 
 const STEPS = [
@@ -68,7 +70,7 @@ function escapeHtml(s) {
 
 // Inline SVGs in DB Navigator style — brand mark and icons for the trip cards.
 const SVG = {
-  dbLogo: `<svg viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>`,
+  dbLogo: `<img src="/static/db-logo.png" alt="DB Logo" class="db-logo-img">`,
   origin: `<svg class="ic" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>`,
   pin: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.4" fill="currentColor"/></svg>`,
   calendar: `<svg class="ic" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="16" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
@@ -147,6 +149,10 @@ const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", {
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-US", {
   hour: "2-digit", minute: "2-digit",
 });
+const fmtDuration = (minutes) =>
+  minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : `${minutes}min`;
+const minutesBetween = (isoA, isoB) => Math.round((new Date(isoB) - new Date(isoA)) / 60000);
+const shiftedTime = (iso, delayMinutes) => new Date(new Date(iso).getTime() + delayMinutes * 60000);
 
 function setNav({ back = true, next = "Next", skip = null, nextEnabled = true } = {}) {
   $("#tabbar").hidden = true; // tab bar only in the dashboard (see renderers.dashboard)
@@ -217,7 +223,9 @@ function updateTopbarAccount() {
 
 function setActiveTab(tab) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-  const el = tab === "trips" ? $("#tab-trips") : tab === "profile" ? $("#tab-profile") : null;
+  const el = tab === "trips" ? $("#tab-trips")
+    : tab === "profile" ? $("#tab-profile")
+    : tab === "book" ? $("#tab-book") : null;
   if (el) el.classList.add("active");
 }
 
@@ -231,7 +239,7 @@ const renderers = {
   welcome() {
     screen.replaceChildren(el(`
       <div class="card hero">
-        <svg class="hero-logo" viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>
+        <img class="hero-logo" src="/static/db-logo.png" alt="DB Logo">
         <h1>Your Journey Autopilot</h1>
         <p class="muted">Travels with you. Thinks ahead. Replans before you have to.</p>
         <ul class="feature-list">
@@ -659,7 +667,7 @@ const renderers = {
     const pref = p.preferences;
     const nextTrip = state.trips[0];
     const cards = state.trips
-      .map((t, i) => tripCardHTML(t, { foot: "Monitored by the autopilot · tap to chat", live: true, index: i }))
+      .map((t, i) => tripCardHTML(t, { foot: "Monitored by the autopilot · tap for details", live: true, index: i }))
       .join("");
 
     screen.replaceChildren(el(`
@@ -710,9 +718,9 @@ const renderers = {
     $("#tabbar").hidden = false; // mock tab bar of the DB Navigator
     setActiveTab("trips");
 
-    // Clicking a monitored trip opens the chat that runs the orchestrator demo.
+    // Clicking a monitored trip opens the journey detail screen (delay + forecast).
     screen.querySelectorAll(".trip-card.clickable").forEach((cardEl) => {
-      cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
+      cardEl.addEventListener("click", () => openTripDetail(state.trips[Number(cardEl.dataset.tripIndex)]));
     });
 
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
@@ -966,6 +974,76 @@ const renderers = {
     }
   },
 
+  // -- Book: live journey search via db_service, adds the pick to "Trips" ----------
+  book() {
+    if (!state.book) {
+      state.book = { from: null, to: null, departure: nowLocalISO(), results: null, error: null };
+    }
+    const b = state.book;
+
+    screen.replaceChildren(el(`
+      <div class="dash-greeting">
+        <h1>Book a trip</h1>
+        <p class="muted">Search live connections and add one to your monitored trips — handy for testing the autopilot on a real, current journey.</p>
+      </div>
+      <div class="card">
+        <label class="field">From
+          <span class="autocomplete">
+            <input type="text" id="book-from" placeholder="e.g. München Hbf" autocomplete="off" value="${b.from?.name || ""}">
+            <span id="book-from-sug"></span>
+          </span>
+        </label>
+        <label class="field">To
+          <span class="autocomplete">
+            <input type="text" id="book-to" placeholder="e.g. Berlin Hbf" autocomplete="off" value="${b.to?.name || ""}">
+            <span id="book-to-sug"></span>
+          </span>
+        </label>
+        <label class="field">Departure
+          <input type="datetime-local" id="book-depart" value="${b.departure}">
+        </label>
+        <p class="error" id="book-error"></p>
+        <button class="btn primary block" id="book-search" type="button">Search connections</button>
+        <div class="demo-hint">🎓 Live data — requires the <code>db_service</code> sidecar to be running.</div>
+      </div>
+      <div id="book-results"></div>
+    `));
+    $("#navbar").hidden = true;
+    $("#progress").hidden = true;
+    $("#tabbar").hidden = false;
+    setActiveTab("book");
+
+    const getFrom = attachStationAutocomplete($("#book-from"), $("#book-from-sug"), (s) => { b.from = s; });
+    const getTo = attachStationAutocomplete($("#book-to"), $("#book-to-sug"), (s) => { b.to = s; });
+    renderBookResults();
+
+    $("#book-depart").addEventListener("change", () => { b.departure = $("#book-depart").value; });
+    $("#book-search").addEventListener("click", async () => {
+      const errEl = $("#book-error");
+      errEl.textContent = "";
+      try {
+        const from = getFrom() || b.from || await resolveStation($("#book-from").value);
+        const to = getTo() || b.to || await resolveStation($("#book-to").value);
+        if (!from || !to) throw new Error("Please pick both stations from the suggestions.");
+        b.from = from;
+        b.to = to;
+        b.results = null;
+        b.error = null;
+        $("#book-results").innerHTML = `<div class="device-waiting"><span class="spinner"></span>Searching connections…</div>`;
+        const departure = new Date($("#book-depart").value || Date.now()).toISOString();
+        const data = await api(
+          `/api/journeys?from_id=${encodeURIComponent(from.id)}&to_id=${encodeURIComponent(to.id)}&departure=${encodeURIComponent(departure)}`
+        );
+        b.results = data.journeys;
+        renderBookResults();
+      } catch (err) {
+        b.results = null;
+        b.error = err.message;
+        renderBookResults();
+      }
+    });
+  },
+
   // -- Automation & veto (policy layer) — per-write-tool auto/ask + global level ----
   policy() {
     const pol = state.profile.policy || { global_autonomy_level: "balanced", book_cost_threshold_eur: 50, write_tools: {} };
@@ -1064,6 +1142,43 @@ const renderers = {
     });
   },
 
+  // -- Trip detail: full itinerary with live delay + risk forecast (mock) ----------
+  tripdetail() {
+    const { trip, data, error } = state.tripDetail;
+    const duration = minutesBetween(trip.planned_departure, trip.planned_arrival);
+
+    let body;
+    if (error) {
+      body = `<div class="jd-error">⚠️ ${escapeHtml(error)}</div>`;
+    } else if (!data) {
+      body = `<div class="device-waiting"><span class="spinner"></span>Loading live journey data…</div>`;
+    } else {
+      body = journeyHTML(data);
+    }
+
+    screen.replaceChildren(el(`
+      <div class="chat-head">
+        <button class="chat-back" id="jd-back" type="button" aria-label="Back">‹</button>
+        <div class="chat-trip">
+          <span class="chat-route">${trip.origin} → ${trip.destination}</span>
+          <span class="chat-sub">${fmtDate(trip.planned_departure)} · Duration: ${fmtDuration(duration)}</span>
+        </div>
+        <span class="chat-live">● live</span>
+      </div>
+      <div class="jd-body">${body}</div>
+      <div class="jd-actions">
+        <button class="btn primary block" id="jd-chat" type="button">Ask the autopilot about this trip</button>
+      </div>
+    `));
+    $("#navbar").hidden = true;
+    $("#tabbar").hidden = true;
+    $("#progress").hidden = true;
+
+    $("#jd-back").addEventListener("click", () => { state.tripDetail = null; go("dashboard"); });
+    $("#jd-chat").addEventListener("click", () => openChat(trip));
+  },
+
+
   // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
   chat() {
     const trip = state.chat.trip;
@@ -1091,7 +1206,7 @@ const renderers = {
 
     renderChatLog();
     // Leave the chat object in place — reopening this trip resumes it (see openChat).
-    $("#chat-back").addEventListener("click", () => go("dashboard"));
+    $("#chat-back").addEventListener("click", () => go(state.tripDetail ? "tripdetail" : "dashboard"));
     $("#chat-form").addEventListener("submit", onChatSubmit);
     // Delegated click handler for reroute option cards — one listener on the
     // log survives re-renders. Clicking sends "Take option <id>" as the next
@@ -1103,6 +1218,192 @@ const renderers = {
 
 // ---------------------------------------------------------------------------
 // Chat: send messages to the orchestrator and render the conversation
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Book: station autocomplete + journey search results
+// ---------------------------------------------------------------------------
+
+function nowLocalISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Generic station autocomplete on /api/stations (like the home-station field).
+// Returns a getter for the selected station; onSelect fires on pick/clear.
+function attachStationAutocomplete(input, sugBox, onSelect) {
+  let selected = null;
+  let debounce = null;
+  input.addEventListener("input", () => {
+    selected = null;
+    onSelect(null);
+    clearTimeout(debounce);
+    debounce = setTimeout(async () => {
+      const q = input.value.trim();
+      sugBox.innerHTML = "";
+      if (q.length < 2) return;
+      const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
+      if (!data.stations.length) return;
+      const list = document.createElement("div");
+      list.className = "suggestions";
+      data.stations.forEach((s) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = data.source === "db-live" ? `🟢 ${s.name}` : s.name;
+        btn.addEventListener("click", () => {
+          selected = s;
+          onSelect(s);
+          input.value = s.name;
+          sugBox.innerHTML = "";
+        });
+        list.appendChild(btn);
+      });
+      sugBox.replaceChildren(list);
+    }, 250);
+  });
+  return () => selected;
+}
+
+// Resolve free text to the best station hit (when nothing was picked from the list).
+async function resolveStation(text) {
+  const q = text.trim();
+  if (!q) return null;
+  const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
+  return data.stations[0] || null;
+}
+
+function renderBookResults() {
+  const box = $("#book-results");
+  if (!box) return;
+  const b = state.book;
+  if (b.error) {
+    box.innerHTML = `<div class="jd-notice">⚠️ ${escapeHtml(b.error)}</div>`;
+    return;
+  }
+  if (!b.results) {
+    box.innerHTML = "";
+    return;
+  }
+  if (!b.results.length) {
+    box.innerHTML = `<p class="muted" style="padding:0 6px">No connections found for this search.</p>`;
+    return;
+  }
+
+  const cards = b.results.map((j, i) => {
+    const dep = j.planned_departure || j.departure;
+    const arr = j.planned_arrival || j.arrival;
+    const delay = j.arrival_delay_minutes;
+    const transfers = j.transfers === 0 ? "direct" : `${j.transfers} transfer${j.transfers > 1 ? "s" : ""}`;
+    return `
+      <div class="card journey-option" data-journey-index="${i}">
+        <div class="jo-times">
+          <b>${fmtTime(dep)}</b> → <b>${fmtTime(arr)}</b>
+          <span class="muted">${fmtDuration(minutesBetween(dep, arr))} · ${transfers}</span>
+          ${delay ? `<span class="jo-delay">+${delay} min</span>` : ""}
+        </div>
+        <div class="jo-meta">${escapeHtml(j.description || "")}${j.price_eur ? ` · from ${Number(j.price_eur).toFixed(2)} €` : ""}</div>
+        <div class="jo-add">＋ Add to my trips</div>
+      </div>`;
+  }).join("");
+
+  box.innerHTML = `<h2 style="margin: 18px 4px 10px">Connections</h2>${cards}`;
+  box.querySelectorAll(".journey-option").forEach((cardEl) => {
+    cardEl.addEventListener("click", () => bookJourney(b.results[Number(cardEl.dataset.journeyIndex)]));
+  });
+}
+
+async function bookJourney(journey) {
+  try {
+    const data = await api("/api/trips", { method: "POST", body: { journey } });
+    state.trips = data.trips;
+    toast(`✓ ${data.trip.train} ${data.trip.origin} → ${data.trip.destination} added to your trips`);
+    go("dashboard");
+  } catch (err) {
+    toast(`⚠️ ${err.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Trip detail: DB Navigator-style itinerary with live delay + expected delay
+// ---------------------------------------------------------------------------
+
+function openTripDetail(trip) {
+  const detail = { trip, data: null, error: null };
+  state.tripDetail = detail;
+  go("tripdetail");
+  api(`/api/trips/${encodeURIComponent(trip.trip_id)}/details`)
+    .then((data) => { detail.data = data; })
+    .catch((err) => { detail.error = err.message; })
+    .finally(() => {
+      if (state.step === "tripdetail" && state.tripDetail === detail) renderers.tripdetail();
+    });
+}
+
+// One stop row: planned/actual time, station name, platform badge.
+function stopHTML(stop, delayMinutes, { arrival = false } = {}) {
+  const late = delayMinutes > 0;
+  return `
+    <div class="jd-stop">
+      <div class="jd-times">
+        <span class="jd-planned">${fmtTime(stop.planned)}</span>
+        <span class="jd-actual ${late ? "late" : "ok"}">${fmtTime(shiftedTime(stop.planned, delayMinutes))}</span>
+      </div>
+      <div class="jd-node${arrival ? " arr" : " dep"}"><i></i></div>
+      <div class="jd-station">${escapeHtml(stop.name)}</div>
+      <span class="jd-plat">Pl. ${escapeHtml(stop.platform)}</span>
+    </div>`;
+}
+
+// The full itinerary: stops and train legs, each leg with its current ("real")
+// delay next to the expected delay from the risk forecast (historical DB data).
+function journeyHTML(data) {
+  const incidents = (data.incidents || []).map((inc) => `
+    <div class="jd-notice">⚠️ <b>${escapeHtml(inc.type)}</b> (${escapeHtml(inc.location)}): ${escapeHtml(inc.impact)}</div>
+  `).join("");
+
+  const parts = data.legs.map((leg, i) => {
+    const delay = leg.current_delay_minutes || 0;
+    const fc = leg.forecast || {};
+    const expected = fc.expected_delay_minutes ?? 0;
+    const legMinutes = minutesBetween(leg.origin.planned, leg.destination.planned);
+
+    // Transfer row between the previous leg's arrival and this departure.
+    const transfer = i === 0 ? "" : `
+      <div class="jd-transfer">
+        <div class="jd-legdur">${fmtDuration(minutesBetween(data.legs[i - 1].destination.planned, leg.origin.planned))}</div>
+        <div class="jd-line dotted"></div>
+        <div class="jd-transfer-label">↷ Transfer</div>
+      </div>`;
+
+    return `
+      ${transfer}
+      ${stopHTML(leg.origin, delay)}
+      <div class="jd-leg">
+        <div class="jd-legdur">${fmtDuration(legMinutes)}</div>
+        <div class="jd-line"></div>
+        <div class="jd-leginfo">
+          <span class="jd-train">🚄 ${escapeHtml(leg.train)}</span>
+          <div class="jd-dir">to ${escapeHtml(leg.direction)}</div>
+          <div class="jd-delays">
+            <span class="jd-chip real ${delay > 0 ? "late" : "ok"}">${delay > 0 ? `+${delay} min delay` : "On time"}</span>
+            <span class="jd-chip expected ${fc.level || "low"}">Expected: ${expected > 0 ? `+${expected} min` : "on time"}</span>
+          </div>
+          ${fc.factors && fc.factors.length ? `<div class="jd-forecast-note">🔮 Autopilot forecast (${Math.round((fc.confidence || 0) * 100)}%): ${escapeHtml(fc.factors[0])}</div>` : ""}
+        </div>
+      </div>
+      ${stopHTML(leg.destination, delay, { arrival: true })}`;
+  }).join("");
+
+  return `
+    ${incidents}
+    ${data.connection_risk ? `<div class="jd-notice">⚠️ ${escapeHtml(data.connection_risk)}</div>` : ""}
+    <div class="jd-timeline">${parts}</div>
+    <p class="muted" style="margin-top:14px">Expected delay is the autopilot's risk forecast, based on historical DB punctuality data for this route — not a live prediction.</p>`;
+}
+
+// ---------------------------------------------------------------------------
+// Chat persistence: survive a page reload within the same tab
 // ---------------------------------------------------------------------------
 
 // Chat state (sessionId, trip, messages) is mirrored into sessionStorage on
@@ -1513,9 +1814,9 @@ async function persistCurrentStep() {
 
 function go(step) {
   state.step = step;
-  // The chat is a full-height flex layout (scrolling log + pinned input bar);
-  // other screens scroll normally.
-  const chatMode = step === "chat";
+  // Chat and trip detail are full-height flex layouts (scrolling body with a
+  // pinned header/footer); other screens scroll normally.
+  const chatMode = step === "chat" || step === "tripdetail";
   document.querySelector(".phone").classList.toggle("chat-active", chatMode);
   screen.classList.toggle("chat-mode", chatMode);
   setProgress(step);
@@ -1581,7 +1882,8 @@ $("#ms-accept").addEventListener("click", async () => {
   }
 });
 
-// Tab bar: Trips ↔ Profile navigation
+// Tab bar: Book / Trips / Profile navigation
+$("#tab-book").addEventListener("click", () => go("book"));
 $("#tab-trips").addEventListener("click", () => go("dashboard"));
 $("#tab-profile").addEventListener("click", () => go("profile"));
 

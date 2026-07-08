@@ -16,9 +16,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from . import risk_model
 
-from .. import mock_data
+from .. import mock_data, risk
 from ..errors import with_resilience, with_resilience_async
 from ..integrations.rights_rag.rights_service import calculate_compensation
 from ..integrations import db_ops as db_api
@@ -87,6 +86,12 @@ def _find_trip_context(trip_id: str) -> dict | None:
 
 
 def _journey_for_trip(trip: dict) -> dict | None:
+    """Live search result for exactly the booked itinerary, or ``None``.
+
+    Strict on purpose: matching only by origin/destination (or first train)
+    would return a *different* connection — e.g. a later journey via another
+    hub — and its delays/transfers would then be presented as the user's trip.
+    """
     origin = trip.get("origin")
     destination = trip.get("destination")
     if not origin or not destination:
@@ -104,12 +109,7 @@ def _journey_for_trip(trip: dict) -> dict | None:
         results=5,
         tickets=True,
     )
-    options = db_api.normalize_journeys(payload)
-    train = str(trip.get("train") or "")
-    for option in options:
-        if train and train in option.get("trains", []):
-            return option
-    return options[0] if options else None
+    return db_api.match_booked_journey(trip, db_api.normalize_journeys(payload))
 
 
 def _trip_position(option: dict) -> str | None:
@@ -231,16 +231,65 @@ def _board_warnings(board: Any) -> list[dict]:
 # --- Monitoring tools ---------------------------------------------------------
 
 
+def _overall_level(forecasts: list[dict]) -> str:
+    """Worst per-leg forecast level as the trip's risk band (LOW/MEDIUM/HIGH).
+
+    Ranked explicitly — max() on the raw strings would sort alphabetically
+    ("low" > "high"), inverting the result.
+    """
+    rank = {"low": 0, "medium": 1, "high": 2}
+    if not forecasts:
+        return "LOW"
+    worst = max(
+        (f.get("level", "low") for f in forecasts),
+        key=lambda lvl: rank.get(lvl, 0),
+    )
+    return worst.upper()
+
+
+def _booked_risk_legs(trip: dict) -> list[dict]:
+    """The booked trip's own legs in the risk module's shape (no live delay).
+
+    Used when live data for the exact booked connection is unavailable, so the
+    forecast still describes the user's actual itinerary instead of nothing.
+    """
+    booked = trip.get("legs") or []
+    if not booked:
+        if not (trip.get("origin") and trip.get("destination")):
+            return []
+        booked = [
+            {
+                "train": trip.get("train"),
+                "origin": trip.get("origin"),
+                "destination": trip.get("destination"),
+                "planned_departure": trip.get("planned_departure"),
+                "planned_arrival": trip.get("planned_arrival"),
+            }
+        ]
+    return [
+        {
+            "train": leg.get("train"),
+            "origin": {"name": leg.get("origin"), "planned": leg.get("planned_departure")},
+            "destination": {"name": leg.get("destination"), "planned": leg.get("planned_arrival")},
+            "current_delay_minutes": 0,
+        }
+        for leg in booked
+    ]
+
+
 def get_live_trip_status(trip_id: str) -> dict:
-    """Returns the current live status of a train journey.
+    """Returns the current live status of a train journey with risk forecasts.
 
     Args:
         trip_id: The trip ID, e.g. "DB-2026-0603-MUC-BLN".
 
     Returns:
         A dict with current delay, trend, position, known incidents,
-        connection risk, and ``source``. Contains "error" only if neither live
-        data nor the demo fallback knows the trip.
+        connection risk, risk forecasts, and ``source``. When ``source`` is
+        ``db_history_forecast`` no live data was available for the exact booked
+        connection — the numbers are the historical forecast for the booked
+        legs and ``current_delay_minutes`` is null (see ``note``). Contains
+        "error" only if the trip is entirely unknown.
     """
     trip = _find_trip_context(trip_id)
     if trip is not None:
@@ -251,6 +300,34 @@ def get_live_trip_status(trip_id: str) -> dict:
                 if delay is None:
                     delay = option.get("departure_delay_minutes") or 0
                 delay_int = round(delay)
+
+                # Adapt the sidecar's flat legs (origin/destination are plain
+                # strings, times in separate keys) into the shape the risk module
+                # expects: origin/destination as dicts with ``name`` and
+                # ``planned``, plus the leg's own live arrival delay. Passing the
+                # flat legs directly would crash ``connection_risks`` (it reads
+                # ``leg["destination"]["planned"]``).
+                risk_legs: list[dict] = []
+                for leg in option.get("legs") or []:
+                    leg_delay = leg.get("arrival_delay_minutes")
+                    if leg_delay is None:
+                        leg_delay = leg.get("departure_delay_minutes") or 0
+                    risk_legs.append(
+                        {
+                            "train": leg.get("train"),
+                            "origin": {"name": leg.get("origin"), "planned": leg.get("planned_departure")},
+                            "destination": {"name": leg.get("destination"), "planned": leg.get("planned_arrival")},
+                            "current_delay_minutes": round(leg_delay or 0),
+                        }
+                    )
+
+                # Historical forecast + transfer-miss warnings from the risk module.
+                forecasts = risk.forecast_trip(trip, risk_legs)
+                for leg, forecast in zip(risk_legs, forecasts):
+                    leg["forecast"] = forecast
+                connection_warnings = risk.connection_risks(risk_legs)
+                risk_level = _overall_level(forecasts)
+
                 incidents = [
                     {"type": text, "location": trip.get("destination"), "impact": "DB live remark"}
                     for text in option.get("remarks") or []
@@ -267,6 +344,7 @@ def get_live_trip_status(trip_id: str) -> dict:
                         }
                         for change in option["platform_changes"]
                     )
+
                 return {
                     "trip_id": trip_id,
                     "train": option.get("train") or trip.get("train"),
@@ -274,11 +352,14 @@ def get_live_trip_status(trip_id: str) -> dict:
                     "trend": "unknown",
                     "current_position": _trip_position(option),
                     "incidents": incidents,
-                    "connection_risk": (
+                    "connection_risk": " ".join(connection_warnings) or (
                         "Arrival delay may affect onward plans."
                         if delay_int >= 15
                         else "No elevated connection risk visible from DB live data."
                     ),
+                    "risk_level": risk_level,
+                    "forecasts": forecasts,
+                    "legs": risk_legs,
                     "planned_departure": option.get("planned_departure") or trip.get("planned_departure"),
                     "planned_arrival": option.get("planned_arrival") or trip.get("planned_arrival"),
                     "estimated_arrival": option.get("arrival") or option.get("planned_arrival"),
@@ -294,6 +375,40 @@ def get_live_trip_status(trip_id: str) -> dict:
     status = mock_data.LIVE_TRIP_STATUS.get(trip_id)
     if status is not None:
         return {**status, "source": "mock_live_status"}
+
+    # Trip is known but the exact booked connection had no live match (and no
+    # simulated status exists): answer from the booked legs' historical
+    # forecast instead of erroring — but clearly flagged, never as live data.
+    if trip is not None:
+        risk_legs = _booked_risk_legs(trip)
+        if risk_legs:
+            forecasts = risk.forecast_trip(trip, risk_legs)
+            for leg, forecast in zip(risk_legs, forecasts):
+                leg["forecast"] = forecast
+            connection_warnings = risk.connection_risks(risk_legs)
+            return {
+                "trip_id": trip_id,
+                "train": trip.get("train"),
+                "current_delay_minutes": None,
+                "trend": "unknown",
+                "current_position": None,
+                "incidents": [],
+                "connection_risk": " ".join(connection_warnings)
+                or "No live data — no connection risk visible from the historical forecast.",
+                "risk_level": _overall_level(forecasts),
+                "forecasts": forecasts,
+                "legs": risk_legs,
+                "planned_departure": trip.get("planned_departure"),
+                "planned_arrival": trip.get("planned_arrival"),
+                "note": (
+                    "Live status for the exact booked connection is currently "
+                    "unavailable; this assessment is the historical forecast for "
+                    "the booked legs only."
+                ),
+                "data_timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "db_history_forecast",
+            }
+
     return {"trip_id": trip_id, "source": "none", "error": f"No trip data found for trip_id '{trip_id}'."}
 
 
@@ -667,36 +782,64 @@ def get_passenger_rights(
 
 
 def get_connection_delay_reference(origin: str, destination: str, train: str = "") -> dict:
-    """Returns the historical punctuality reference for a connection (monthly archive).
+    """Returns the pre-trip risk forecast (historical baseline) for a connection.
 
-    The reliable baseline for the risk assessment: how punctually do trains of
-    this type arrive at the destination station over SEVERAL MONTHS? The source
-    is a real delay archive (piebro/deutsche-bahn-data, DB data, CC BY 4.0),
-    pre-aggregated into metrics per station and train type. Complements
-    ``get_connection_delay_history`` (only the last few hours, current situation):
-    the archive provides the long-term normal case, the live history today's
-    situation.
+    Scores how delay-prone the connection normally is, from the historical DB
+    punctuality archive (piebro/deutsche-bahn-data) via the risk module — the
+    reliable "normal case" for the pre-trip assessment. Pair it with
+    ``get_connection_delay_history`` (today's situation) and
+    ``get_planned_connection`` (the scheduled-arrival ETA anchor).
 
     Args:
         origin: Departure station (context only; the arrival at the destination is scored).
         destination: Destination station, e.g. "Berlin Hbf".
-        train: Optional train name (e.g. "ICE 1006") — determines the train type.
+        train: Optional train name (e.g. "ICE 1006") — determines the train type;
+            omitted falls back to the station-wide baseline.
 
     Returns:
-        A dict with ``sample_count``, mean/median/p90 delay, punctuality rate,
-        cancellation rate, the ``basis`` used (train type), the covered ``months``
-        and ``source="db_history_archive"``. Contains "error" if the station is
-        not in the archive.
+        A dict with ``risk_level`` (LOW/MEDIUM/HIGH), ``risk_score`` (0-100),
+        ``expected_delay_minutes``, ``confidence`` (from sample size), ``factors``
+        (a plain-language note), and ``source``. Returns an error if the route
+        cannot be forecasted.
     """
-    ref = risk_model.historical_reference(destination, train=train)
-    if ref is None:
+    try:
+        trip = {"origin": origin, "destination": destination, "train": train}
+        # forecast_leg scores from destination + train type; times are not read.
+        legs = [
+            {
+                "origin": {"name": origin},
+                "destination": {"name": destination},
+                "train": train,
+                "current_delay_minutes": 0,
+            }
+        ]
+
+        forecasts = risk.forecast_trip(trip, legs)
+        if forecasts:
+            forecast = forecasts[0]
+            return {
+                "origin": origin,
+                "destination": destination,
+                "train": train,
+                "risk_level": forecast.get("level", "medium").upper(),
+                "risk_score": forecast.get("risk_score", 50),
+                "expected_delay_minutes": forecast.get("expected_delay_minutes", 0),
+                "confidence": forecast.get("confidence", 0.5),
+                "factors": forecast.get("factors", []),
+                "source": forecast.get("source", "db_history"),
+            }
+        else:
+            return {
+                "origin": origin,
+                "destination": destination,
+                "error": "Could not compute risk forecast for this connection.",
+            }
+    except Exception as e:
         return {
             "origin": origin,
             "destination": destination,
-            "error": "No historical reference available for this destination station.",
+            "error": f"Risk forecast error: {e}",
         }
-    ref["origin"] = origin
-    return ref
 
 
 def _connection_delay_history(

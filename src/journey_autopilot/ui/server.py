@@ -22,6 +22,7 @@ stations without it.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import secrets
@@ -39,9 +40,11 @@ from pydantic import BaseModel
 
 # Onboarding logic ("the functions") lives in a separate package; the UI only
 # imports it. The chat module is local to this UI package.
+from journey_autopilot import mock_data, risk
 from journey_autopilot.onboarding import accounts
 from journey_autopilot.persistence import store
 from journey_autopilot.integrations import db_ops as db_api
+from journey_autopilot.integrations import stations as db_api_stations
 from . import chat
 
 if TYPE_CHECKING:
@@ -127,6 +130,10 @@ class ChatRequest(BaseModel):
     trip: dict | None = None
 
 
+class BookTripRequest(BaseModel):
+    journey: dict
+
+
 # --- Auth helpers ---------------------------------------------------------------------
 
 
@@ -154,8 +161,24 @@ def db_login(body: LoginRequest) -> dict:
         )
 
     store.upsert_user(account)
-    trips = accounts.booked_trips(account["user_id"])
-    store.save_trips(account["user_id"], trips)
+    imported = accounts.booked_trips(account["user_id"])
+    store.save_trips(account["user_id"], imported)
+    # Re-importing owns the DB-account bookings ("DB-…" ids): drop imports from
+    # earlier logins that are no longer in the account — their demo ids are
+    # date-relative, so each day's login would otherwise pile up stale copies.
+    # Locally booked monitors ("BK-…" ids) are never touched.
+    fresh_ids = {t["trip_id"] for t in imported}
+    stale = [
+        t["trip_id"]
+        for t in store.get_trips(account["user_id"])
+        if t["trip_id"].startswith("DB-") and t["trip_id"] not in fresh_ids
+    ]
+    store.delete_trips(account["user_id"], stale)
+    # Return the full stored list — imported demo trips AND locally booked
+    # connections. Returning only the fresh import made booked trips vanish
+    # from the UI after every re-login (until the next booking refreshed the
+    # list from the store).
+    trips = store.get_trips(account["user_id"])
     profile = store.update_profile(account["user_id"], {"connections": {"db_account": True}})
 
     token = secrets.token_urlsafe(24)
@@ -177,6 +200,164 @@ def me(authorization: str | None = Header(default=None)) -> dict:
 def trips(authorization: str | None = Header(default=None)) -> dict:
     user_id = _user_id(authorization)
     return {"trips": store.get_trips(user_id)}
+
+
+# --- Booking (simple journey search via db_service, adds to monitored trips) ---
+
+
+def _journey_to_trip(journey: dict) -> dict:
+    """Convert a normalized db_ops journey option into the booked-trip shape.
+
+    Times are truncated to naive local ISO (DB times are German local) so the
+    booked trip renders like the imported demo trips. Coach/seat are mocked —
+    there is no real booking, this exists to monitor live connections.
+    """
+    dep = (journey.get("planned_departure") or journey.get("departure") or "")[:19]
+    arr = (journey.get("planned_arrival") or journey.get("arrival") or "")[:19]
+    origin, destination = journey.get("origin"), journey.get("destination")
+    train = journey.get("train") or journey.get("description")
+    if not (dep and arr and origin and destination and train):
+        raise HTTPException(status_code=422, detail="Journey is missing route or time data.")
+
+    legs = journey.get("legs") or []
+    platform = (legs[0].get("planned_platform") or legs[0].get("platform")) if legs else None
+    # Deterministic id: booking the same connection twice updates instead of duplicating.
+    key = f"{train}|{dep}|{origin}|{destination}"
+    return {
+        "trip_id": "BK-" + hashlib.md5(key.encode()).hexdigest()[:10].upper(),
+        "order_number": secrets.token_hex(3).upper(),
+        "origin": origin,
+        "destination": destination,
+        "train": train,
+        "planned_departure": dep,
+        "planned_arrival": arr,
+        "platform": f"Platform {platform}" if platform else "Platform tba",
+        "coach": "Coach 12",
+        "seat": "Seat 42, window",
+        "travel_class": 2,
+        "price_eur": journey.get("price_eur"),
+        "purpose": "Booked connection",
+        # Real itinerary from the live search — the trip-detail screen renders
+        # these instead of the simulated legs.
+        "legs": [
+            {
+                "train": leg.get("train"),
+                "direction": leg.get("direction"),
+                "origin": leg.get("origin"),
+                "destination": leg.get("destination"),
+                "planned_departure": (leg.get("planned_departure") or leg.get("departure") or "")[:19],
+                "planned_arrival": (leg.get("planned_arrival") or leg.get("arrival") or "")[:19],
+                "platform": leg.get("planned_platform") or leg.get("platform"),
+                "arrival_platform": leg.get("planned_arrival_platform") or leg.get("arrival_platform"),
+            }
+            for leg in legs
+            if leg.get("train")
+        ],
+    }
+
+
+@app.get("/api/journeys")
+def search_journeys(
+    from_id: str,
+    to_id: str,
+    departure: str | None = None,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Live journey search between two stations (EVA ids) via the db_service sidecar."""
+    _user_id(authorization)
+    try:
+        payload = db_api.journeys(from_id, to_id, departure=departure, results=6)
+    except db_api.DBServiceError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Journey search needs the db_service sidecar (see db_service/README.md). {exc}",
+        )
+    return {"journeys": db_api.normalize_journeys(payload)}
+
+
+@app.post("/api/trips")
+def book_trip(body: BookTripRequest, authorization: str | None = Header(default=None)) -> dict:
+    """Add a searched journey to the monitored trips (simulated booking)."""
+    user_id = _user_id(authorization)
+    trip = _journey_to_trip(body.journey)
+    store.save_trips(user_id, [trip])
+    return {"trip": trip, "trips": store.get_trips(user_id)}
+
+
+def _live_leg_delays(trip: dict) -> dict[str, int]:
+    """Best-effort live arrival delay per train from the db_service sidecar.
+
+    Trips booked via the journey search (``BK-…`` ids) are not in the simulated
+    ``LIVE_TRIP_STATUS``, so their live delay has to come from real DB data.
+    Re-runs the connection search, matches the trip's exact itinerary (full
+    train sequence + planned departure, see ``db_ops.match_booked_journey``),
+    and returns ``{train_name: delay_minutes}``. Returns ``{}`` on any sidecar
+    miss or when the exact booked connection is not found — never the delays
+    of a different journey.
+    """
+    origin, destination = trip.get("origin"), trip.get("destination")
+    if not origin or not destination:
+        return {}
+    try:
+        from_eva = db_api_stations.resolve_eva(origin)
+        to_eva = db_api_stations.resolve_eva(destination)
+        if from_eva is None or to_eva is None:
+            return {}
+        payload = db_api.journeys(
+            from_eva, to_eva, departure=trip.get("planned_departure"), results=5
+        )
+        option = db_api.match_booked_journey(trip, db_api.normalize_journeys(payload))
+        if not option:
+            return {}
+        delays: dict[str, int] = {}
+        for leg in option.get("legs") or []:
+            name = leg.get("train")
+            if not name:
+                continue
+            delay = leg.get("arrival_delay_minutes")
+            if delay is None:
+                delay = leg.get("departure_delay_minutes")
+            delays[name] = round(delay or 0)
+        return delays
+    except db_api.DBServiceError:
+        return {}
+    except Exception:
+        return {}
+
+
+@app.get("/api/trips/{trip_id}/details")
+def trip_details(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """Journey details for one booked trip: legs, live delay, and risk forecast.
+
+    The itinerary is simulated (ADR 0005), but the live delay is real: for trips
+    booked via the journey search it is fetched from the db_service sidecar
+    (``_live_leg_delays``); the demo trips fall back to the simulated
+    ``LIVE_TRIP_STATUS``. The expected delay comes from ``journey_autopilot.risk``,
+    scored from real historical DB punctuality data (see ``risk/delay_reference.py``).
+    """
+    user_id = _user_id(authorization)
+    trip = next((t for t in store.get_trips(user_id) if t["trip_id"] == trip_id), None)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found.")
+
+    legs = accounts.trip_journey(trip)
+    live = mock_data.LIVE_TRIP_STATUS.get(trip_id)
+    live_delays = _live_leg_delays(trip)
+    for leg in legs:
+        if live and live.get("train") == leg["train"]:
+            leg["current_delay_minutes"] = live["current_delay_minutes"]
+        else:
+            leg["current_delay_minutes"] = live_delays.get(leg["train"], 0)
+    for leg, forecast in zip(legs, risk.forecast_trip(trip, legs)):
+        leg["forecast"] = forecast
+    connection_warnings = risk.connection_risks(legs)
+
+    return {
+        "trip_id": trip_id,
+        "legs": legs,
+        "incidents": (live or {}).get("incidents", []),
+        "connection_risk": " ".join(connection_warnings) or (live or {}).get("connection_risk"),
+    }
 
 
 # --- Mobile number: SMS verification (simulated) ------------------------------------------
