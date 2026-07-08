@@ -44,6 +44,7 @@ from journey_autopilot import mock_data, risk
 from journey_autopilot.onboarding import accounts
 from journey_autopilot.persistence import store
 from journey_autopilot.integrations import db_ops as db_api
+from journey_autopilot.integrations.stations import resolve_eva_or_id
 from journey_autopilot.integrations import stations as db_api_stations
 from . import chat
 
@@ -132,6 +133,7 @@ class ChatRequest(BaseModel):
 
 class BookTripRequest(BaseModel):
     journey: dict
+    purpose: str | None = None
 
 
 # --- Auth helpers ---------------------------------------------------------------------
@@ -205,7 +207,7 @@ def trips(authorization: str | None = Header(default=None)) -> dict:
 # --- Booking (simple journey search via db_service, adds to monitored trips) ---
 
 
-def _journey_to_trip(journey: dict) -> dict:
+def _journey_to_trip(journey: dict, purpose: str | None = None) -> dict:
     """Convert a normalized db_ops journey option into the booked-trip shape.
 
     Times are truncated to naive local ISO (DB times are German local) so the
@@ -236,7 +238,7 @@ def _journey_to_trip(journey: dict) -> dict:
         "seat": "Seat 42, window",
         "travel_class": 2,
         "price_eur": journey.get("price_eur"),
-        "purpose": "Booked connection",
+        "purpose": purpose or "Booked connection",
         # Real itinerary from the live search — the trip-detail screen renders
         # these instead of the simulated legs.
         "legs": [
@@ -279,9 +281,17 @@ def search_journeys(
 def book_trip(body: BookTripRequest, authorization: str | None = Header(default=None)) -> dict:
     """Add a searched journey to the monitored trips (simulated booking)."""
     user_id = _user_id(authorization)
-    trip = _journey_to_trip(body.journey)
+    trip = _journey_to_trip(body.journey, body.purpose)
     store.save_trips(user_id, [trip])
     return {"trip": trip, "trips": store.get_trips(user_id)}
+
+
+@app.delete("/api/trips/{trip_id}")
+def delete_trip(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """Remove a single imported/added trip (does not touch the rest of the profile)."""
+    user_id = _user_id(authorization)
+    store.delete_trip(user_id, trip_id)
+    return {"deleted": True, "trips": store.get_trips(user_id)}
 
 
 def _live_leg_delays(trip: dict) -> dict[str, int]:
@@ -642,6 +652,73 @@ def stations(query: str = "") -> dict:
         needle = query.lower()
         hits = [s for s in accounts.FALLBACK_STATIONS if needle in s["name"].lower()]
         return {"stations": hits[:6], "source": "fallback"}
+
+
+# --- Journey search (live DB data via sidecar) --------------------------------
+# NOTE: intentionally live-only — no mock fallback. Unlike the station lookup
+# above (which falls back to a static list) and the agent tools (which fall
+# back to mock_data and tag every result with `source`), there is no realistic
+# mock for an arbitrary origin/destination journey search. When the sidecar is
+# down we return an empty result set with source "unavailable" (HTTP 200) so
+# the UI shows "Search unavailable" instead of crashing. This is a deliberate,
+# documented exception to the AGENTS.md live-then-mock-fallback contract: the
+# search endpoint is UI-only (not an LLM tool), so the Orchestrator's "disclose
+# mock_* sources" rule doesn't apply.
+
+
+@app.get("/api/journeys/search")
+def journeys_search(
+    origin: str = "",
+    destination: str = "",
+    date: str = "",
+    time: str = "08:00",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Search live DB journeys between two stations.
+
+    ``origin`` / ``destination`` accept either a station name or an EVA (all-digit
+    id, passed straight through from the autocomplete). ``date`` is ``YYYY-MM-DD``;
+    ``time`` defaults to 08:00 and is combined into the ISO datetime db_api wants.
+
+    Returns ``{"results": [...], "source": "db-live"}`` on success, or
+    ``{"results": [], "source": "unavailable", "message": ...}`` (HTTP 200)
+    when a station can't be resolved, the sidecar is down, or DB temporarily
+    rejects the upstream request.
+    """
+    _user_id(authorization)
+
+    origin = (origin or "").strip()
+    destination = (destination or "").strip()
+    date = (date or "").strip()
+    time = (time or "08:00").strip()
+    if not origin or not destination or not date:
+        return {
+            "results": [],
+            "source": "unavailable",
+            "message": "Please fill in origin, destination and date.",
+        }
+
+    from_eva = resolve_eva_or_id(origin)
+    to_eva = resolve_eva_or_id(destination)
+    if from_eva is None or to_eva is None:
+        return {
+            "results": [],
+            "source": "unavailable",
+            "message": "Station lookup failed. Pick a station from the suggestions or try a major Hbf.",
+        }
+
+    try:
+        payload = db_api.journeys(
+            from_eva,
+            to_eva,
+            departure=f"{date}T{time}:00",
+            results=6,
+            tickets=True,
+        )
+        results = db_api.normalize_journeys(payload)
+        return {"results": results, "source": "db-live"}
+    except db_api.DBServiceError:
+        return {"results": [], "source": "unavailable"}
 
 
 # --- Chat (runs the ReAct orchestrator, like scenarios/happy_path.py) --------------------------------

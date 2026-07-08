@@ -78,33 +78,71 @@ const SVG = {
   bell: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 19a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   download: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   qr: `<svg viewBox="0 0 24 24" fill="#111"><path d="M3 3h7v7H3V3Zm2 2v3h3V5H5Zm9-2h7v7h-7V3Zm2 2v3h3V5h-3ZM3 14h7v7H3v-7Zm2 2v3h3v-3H5Zm11-2h2v2h-2v-2Zm3 0h2v2h-2v-2Zm-3 3h2v2h-2v-2Zm0 3h2v2h-2v-2Zm3-3h2v2h-2v-2Zm0 3h2v2h-2v-2Z"/></svg>`,
+  transfer: `<svg class="ic" viewBox="0 0 24 24" fill="none"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg>`,
+  trash: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
+
+// Route grid for a trip card. Single-leg journeys keep the simple origin →
+// destination layout; multi-leg journeys (self-added connections, or any trip
+// with >1 leg) render the full station chain — origin → each change station →
+// final destination — using the existing .route grid markers.
+function routeHTML(t) {
+  const legs = Array.isArray(t.legs) ? t.legs : [];
+  if (legs.length > 1) {
+    // leg[i].destination === leg[i+1].origin, so taking each leg's destination
+    // (after the origin) yields the change chain without duplicates.
+    const stops = [legs[0].origin, ...legs.map((leg) => leg.destination)];
+    const rows = stops.map((stop, i) => {
+      const isLast = i === stops.length - 1;
+      const marker = isLast ? SVG.pin : i === 0 ? SVG.origin : SVG.transfer;
+      const dots = isLast ? "" : `<span class="dots"><i></i><i></i><i></i></span><span></span>`;
+      return `<span class="marker">${marker}</span><span class="station${isLast ? "" : " intermediate"}">${escapeHtml(stop || "")}</span>${dots}`;
+    }).join("");
+    return `<div class="route multi">${rows}</div>`;
+  }
+  return `
+    <div class="route">
+      <span class="marker">${SVG.origin}</span><span class="station">${escapeHtml(t.origin || "")}</span>
+      <span class="dots"><i></i><i></i><i></i></span><span></span>
+      <span class="marker">${SVG.pin}</span><span class="station">${escapeHtml(t.destination || "")}</span>
+    </div>`;
+}
 
 // A trip card in DB Navigator layout: DB logo + train, purpose of travel,
 // origin/destination with dot/pin markers, date/time, and a footer status.
 // When `index` is given the card becomes clickable (opens the trip chat).
-function tripCardHTML(t, { foot, live = false, index = null } = {}) {
+// `deletable` renders a trash button (data-trip-delete-id) in the head; the
+// dashboard wires a delegated handler that stops propagation so the card click
+// (chat) doesn't fire. The seat/coach/platform row is hidden when none of
+// those fields are present (self-added trips have no booking).
+function tripCardHTML(t, { foot, live = false, index = null, deletable = false } = {}) {
   const clickable = index !== null;
+  const legs = Array.isArray(t.legs) ? t.legs : [];
+  const trains = Array.isArray(t.trains) ? t.trains : (t.train ? [t.train] : []);
+  const multi = legs.length > 1;
+  const trainHead = escapeHtml(t.train || "") + (trains.length > 1 ? ` <span class="train-more">+${trains.length - 1}</span>` : "");
+  const hasSeatRow = t.platform || t.coach || t.seat;
+  const deleteBtn = deletable
+    ? `<button class="trip-delete" type="button" data-trip-delete-id="${escapeHtml(t.trip_id || "")}" aria-label="Delete trip" title="Delete trip">${SVG.trash}</button>`
+    : "";
   return `
     <div class="trip-card${clickable ? " clickable" : ""}"${clickable ? ` data-trip-index="${index}"` : ""}>
       <div class="trip-head">
         <span class="db-logo">${SVG.dbLogo}</span>
-        <span class="train">${t.train}</span>
+        <span class="train">${trainHead}</span>
         <span class="trip-head-right">
+          ${deleteBtn}
           <span>${t.travel_class}. Kl.</span>
           <span class="qr">${SVG.qr}</span>
         </span>
       </div>
-      <div class="trip-fare">${t.purpose}</div>
+      <div class="trip-fare">${escapeHtml(t.purpose || "")}</div>
       <hr class="trip-divider">
       <div class="trip-body">
-        <div class="route">
-          <span class="marker">${SVG.origin}</span><span class="station">${t.origin}</span>
-          <span class="dots"><i></i><i></i><i></i></span><span></span>
-          <span class="marker">${SVG.pin}</span><span class="station">${t.destination}</span>
-        </div>
+        ${routeHTML(t)}
         <div class="trip-meta-row">${SVG.calendar} ${fmtDate(t.planned_departure)} · ${fmtTime(t.planned_departure)} – ${fmtTime(t.planned_arrival)}</div>
-        <div class="trip-meta-row">${SVG.seat} ${t.platform} · ${t.coach}, ${t.seat}</div>
+        ${multi ? `<div class="trip-meta-row">${SVG.transfer} ${trains.map(escapeHtml).join(" → ")} · ${legs.length - 1} change${legs.length - 1 === 1 ? "" : "s"}</div>` : ""}
+        ${hasSeatRow ? `<div class="trip-meta-row">${SVG.seat} ${escapeHtml(t.platform || "")}${t.coach ? ` · ${escapeHtml(t.coach)}` : ""}${t.seat ? `, ${escapeHtml(t.seat)}` : ""}</div>` : ""}
       </div>
       ${foot ? `<div class="trip-foot ${live ? "live" : ""}">${live ? SVG.bell : SVG.download} ${foot}</div>` : ""}
     </div>`;
@@ -143,16 +181,35 @@ const LABELS = {
 const seatLabel = (pref) =>
   `${LABELS[pref.seat_location]}, ${LABELS[pref.seat_area]}${pref.quiet_zone ? ", quiet zone" : ""}`;
 
-const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", {
-  weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
-});
-const fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-US", {
+const fmtDate = (iso) => new Date(iso).toLocaleDateString("de-DE", {
+  day: "2-digit", month: "2-digit", year: "numeric",
+}).replace(/\./g, "/");
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString("de-DE", {
   hour: "2-digit", minute: "2-digit",
 });
 const fmtDuration = (minutes) =>
   minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : `${minutes}min`;
 const minutesBetween = (isoA, isoB) => Math.round((new Date(isoB) - new Date(isoA)) / 60000);
 const shiftedTime = (iso, delayMinutes) => new Date(new Date(iso).getTime() + delayMinutes * 60000);
+
+const tripStartTime = (trip) => {
+  const time = new Date(trip?.planned_departure || "").getTime();
+  return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER;
+};
+const tripEndTime = (trip) => {
+  const time = new Date(trip?.planned_arrival || trip?.planned_departure || "").getTime();
+  return Number.isFinite(time) ? time : null;
+};
+const isPastTrip = (trip, now = new Date()) => {
+  const end = tripEndTime(trip);
+  return end !== null && end < now.getTime();
+};
+const isUpcomingTrip = (trip, now = new Date()) => {
+  const start = tripStartTime(trip);
+  return start !== Number.MAX_SAFE_INTEGER && start >= now.getTime();
+};
+const sortTripsByDate = (trips) =>
+  [...(trips || [])].sort((a, b) => tripStartTime(a) - tripStartTime(b));
 
 function setNav({ back = true, next = "Next", skip = null, nextEnabled = true } = {}) {
   $("#tabbar").hidden = true; // tab bar only in the dashboard (see renderers.dashboard)
@@ -174,20 +231,18 @@ function setProgress(step) {
   }
 }
 
-function setupHomeStationAutocomplete(home) {
-  const input = $("#home-station");
-  const sugBox = $("#station-suggestions");
-  if (!input || !sugBox) return;
+function setupStationAutocomplete(inputEl, sugBoxEl, initial) {
+  if (!inputEl || !sugBoxEl) return null;
 
-  let selected = home.home_station || null;
+  let selected = initial || null;
   let debounce = null;
 
-  input.addEventListener("input", () => {
+  inputEl.addEventListener("input", () => {
     selected = null;
     clearTimeout(debounce);
     debounce = setTimeout(async () => {
-      const q = input.value.trim();
-      sugBox.innerHTML = "";
+      const q = inputEl.value.trim();
+      sugBoxEl.innerHTML = "";
       if (q.length < 2) return;
       const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
       if (!data.stations.length) return;
@@ -199,16 +254,23 @@ function setupHomeStationAutocomplete(home) {
         b.textContent = data.source === "db-live" ? `🟢 ${s.name}` : s.name;
         b.addEventListener("click", () => {
           selected = s;
-          input.value = s.name;
-          sugBox.innerHTML = "";
+          inputEl.value = s.name;
+          sugBoxEl.innerHTML = "";
         });
         list.appendChild(b);
       });
-      sugBox.replaceChildren(list);
+      sugBoxEl.replaceChildren(list);
     }, 250);
   });
 
-  screen._getHomeStation = () => selected || (input.value.trim() ? { id: null, name: input.value.trim() } : null);
+  return () => selected || (inputEl.value.trim() ? { id: null, name: inputEl.value.trim() } : null);
+}
+
+function setupHomeStationAutocomplete(home) {
+  // Thin wrapper that exposes the selected home station via screen._getHomeStation,
+  // preserving the contract the preferences/home/profile screens rely on.
+  const getStation = setupStationAutocomplete($("#home-station"), $("#station-suggestions"), home.home_station || null);
+  if (getStation) screen._getHomeStation = getStation;
 }
 
 function updateTopbarAccount() {
@@ -665,9 +727,19 @@ const renderers = {
   dashboard() {
     const p = state.profile;
     const pref = p.preferences;
-    const nextTrip = state.trips[0];
-    const cards = state.trips
-      .map((t, i) => tripCardHTML(t, { foot: "Monitored by the autopilot · tap for details", live: true, index: i }))
+    const now = new Date();
+    const sortedTrips = sortTripsByDate(state.trips);
+    const nextTrip = sortedTrips.find((t) => isUpcomingTrip(t, now));
+    const cards = sortedTrips
+      .map((t, i) => {
+        const past = isPastTrip(t, now);
+        return tripCardHTML(t, {
+          foot: past ? "Past trip" : "Monitored by the autopilot · tap to chat",
+          live: !past,
+          index: i,
+          deletable: true,
+        });
+      })
       .join("");
 
     screen.replaceChildren(el(`
@@ -675,10 +747,15 @@ const renderers = {
         <h1>Hi ${state.account.first_name} 👋</h1>
         <p class="muted">${nextTrip
           ? `Your next trip starts ${fmtDate(nextTrip.planned_departure)} at ${fmtTime(nextTrip.planned_departure)} — the autopilot is watching.`
-          : "No upcoming trips — the autopilot is ready."}</p>
+          : "No upcoming trips — past trips are kept for your records."}</p>
       </div>
 
-      <div class="section-title"><h2>Monitored trips</h2></div>
+      <div class="section-title">
+        <h2>Monitored trips</h2>
+        <div class="section-actions">
+          <button id="add-trip" type="button">+ Add trip</button>
+        </div>
+      </div>
       ${cards || '<div class="card"><p class="muted">No trips imported.</p></div>'}
 
       <div class="section-title">
@@ -720,9 +797,16 @@ const renderers = {
 
     // Clicking a monitored trip opens the journey detail screen (delay + forecast).
     screen.querySelectorAll(".trip-card.clickable").forEach((cardEl) => {
-      cardEl.addEventListener("click", () => openTripDetail(state.trips[Number(cardEl.dataset.tripIndex)]));
+      cardEl.addEventListener("click", () => openTripDetail(sortedTrips[Number(cardEl.dataset.tripIndex)]));
     });
 
+    // Attach the delete handler directly to each trash button (per-element) so
+    // its stopPropagation fires on the button and blocks the card click above.
+    screen.querySelectorAll(".trip-delete").forEach((btn) => {
+      btn.addEventListener("click", onDeleteTripClick);
+    });
+
+    $("#add-trip").addEventListener("click", () => go("book"));
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
     $("#edit-policy").addEventListener("click", () => go("policy"));
@@ -1182,12 +1266,16 @@ const renderers = {
   // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
   chat() {
     const trip = state.chat.trip;
+    const chatRoute = `${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}`;
+    const chatTrain = escapeHtml(trip.train || "Connection");
+    const chatDate = escapeHtml(fmtDate(trip.planned_departure));
+    const chatTime = escapeHtml(fmtTime(trip.planned_departure));
     screen.replaceChildren(el(`
       <div class="chat-head">
         <button class="chat-back" id="chat-back" type="button" aria-label="Back">‹</button>
         <div class="chat-trip">
-          <span class="chat-route">${trip.origin} → ${trip.destination}</span>
-          <span class="chat-sub">${trip.train} · ${fmtDate(trip.planned_departure)} · ${fmtTime(trip.planned_departure)}</span>
+          <span class="chat-route">${chatRoute}</span>
+          <span class="chat-sub">${chatTrain} · ${chatDate} · ${chatTime}</span>
         </div>
         <span class="chat-live">● live</span>
       </div>
@@ -1307,15 +1395,42 @@ function renderBookResults() {
       </div>`;
   }).join("");
 
-  box.innerHTML = `<h2 style="margin: 18px 4px 10px">Connections</h2>${cards}`;
+  box.innerHTML = `<h2 style="margin: 18px 4px 10px">Connections</h2>${cards}<div id="book-confirm"></div>`;
   box.querySelectorAll(".journey-option").forEach((cardEl) => {
-    cardEl.addEventListener("click", () => bookJourney(b.results[Number(cardEl.dataset.journeyIndex)]));
+    cardEl.addEventListener("click", () => showBookConfirm(b.results[Number(cardEl.dataset.journeyIndex)]));
   });
 }
 
-async function bookJourney(journey) {
+function showBookConfirm(journey) {
+  const dest = journey.destination || "destination";
+  const confirmBox = $("#book-confirm");
+  if (!confirmBox) return;
+  confirmBox.innerHTML = `
+    <div class="card">
+      <h2>Name this trip</h2>
+      <label class="field">Purpose / subject
+        <input type="text" id="book-purpose" value="Trip to ${escapeHtml(dest)}">
+      </label>
+      <div class="search-confirm-summary">
+        ${escapeHtml(journey.origin || "")} → ${escapeHtml(journey.destination || "")}
+        · ${escapeHtml(journey.description || "")}
+      </div>
+      <button class="btn primary block" id="book-confirm-btn" type="button">Add trip</button>
+      <button class="btn block" id="book-cancel-btn" type="button" style="margin-top:8px">Back to results</button>
+    </div>`;
+  confirmBox.scrollIntoView({ behavior: "smooth" });
+  $("#book-purpose").focus();
+  $("#book-purpose").select();
+  $("#book-cancel-btn").addEventListener("click", () => { confirmBox.innerHTML = ""; });
+  $("#book-confirm-btn").addEventListener("click", () => {
+    const purpose = $("#book-purpose").value.trim() || `Trip to ${dest}`;
+    bookJourney(journey, purpose);
+  });
+}
+
+async function bookJourney(journey, purpose) {
   try {
-    const data = await api("/api/trips", { method: "POST", body: { journey } });
+    const data = await api("/api/trips", { method: "POST", body: { journey, purpose } });
     state.trips = data.trips;
     toast(`✓ ${data.trip.train} ${data.trip.origin} → ${data.trip.destination} added to your trips`);
     go("dashboard");
@@ -1489,6 +1604,90 @@ function renderTrace(trace) {
   return `<details class="chat-trace"><summary>Agent trace (${trace.length})</summary>${lines}</details>`;
 }
 
+// Inline Markdown (bold, italic, inline code, links) for one span of text.
+// Escapes first so nothing the model emits can inject HTML, THEN applies the
+// token replacements — the escaped `*`, `` ` ``, `[` … survive escaping.
+// Only *…* / **…** are treated as emphasis (not `_`), because agent prose is
+// full of snake_case identifiers like `mock_hotels` that `_`-italic would mangle.
+function renderInlineMd(text) {
+  let s = escapeHtml(text);
+  s = s.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_, t, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${t}</a>`);
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  return s;
+}
+
+// Minimal, safe Markdown -> HTML for assistant replies. A small line-based block
+// grammar (headings, ordered/unordered lists, tables, blockquotes, fenced code,
+// rules, paragraphs) wrapping renderInlineMd. Not full CommonMark — just the
+// subset the agents actually emit. All raw text passes through renderInlineMd or
+// escapeHtml, so no unescaped model output ever reaches innerHTML.
+function renderMarkdown(src) {
+  const lines = String(src ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const isBlockStart = (l) =>
+    !l.trim() || /^```/.test(l.trim()) || /^#{1,6}\s/.test(l) || /^\s*>/.test(l) ||
+    /^\s*[-*+]\s+/.test(l) || /^\s*\d+[.)]\s+/.test(l);
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+
+    if (/^```/.test(line.trim())) {
+      const buf = [];
+      for (i++; i < lines.length && !/^```/.test(lines[i].trim()); i++) buf.push(lines[i]);
+      i++;
+      out.push(`<pre><code>${escapeHtml(buf.join("\n"))}</code></pre>`);
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      const level = Math.min(h[1].length, 6);
+      out.push(`<h${level}>${renderInlineMd(h[2].trim())}</h${level}>`);
+      i++; continue;
+    }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { out.push("<hr>"); i++; continue; }
+
+    // Table: a row with pipes followed by a |---|---| separator row.
+    if (line.includes("|") && i + 1 < lines.length &&
+        /^\s*\|?[\s:|-]*-[\s:|-]*$/.test(lines[i + 1]) && lines[i + 1].includes("|")) {
+      const cells = (r) => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+      const head = cells(line);
+      i += 2;
+      const rows = [];
+      for (; i < lines.length && lines[i].includes("|") && lines[i].trim(); i++) rows.push(cells(lines[i]));
+      const thead = `<thead><tr>${head.map((c) => `<th>${renderInlineMd(c)}</th>`).join("")}</tr></thead>`;
+      const tbody = `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${renderInlineMd(c)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+      out.push(`<div class="md-tablewrap"><table class="md-table">${thead}${tbody}</table></div>`);
+      continue;
+    }
+    if (/^\s*>\s?/.test(line)) {
+      const buf = [];
+      for (; i < lines.length && /^\s*>\s?/.test(lines[i]); i++) buf.push(lines[i].replace(/^\s*>\s?/, ""));
+      out.push(`<blockquote>${renderInlineMd(buf.join(" "))}</blockquote>`);
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const buf = [];
+      for (; i < lines.length && /^\s*[-*+]\s+/.test(lines[i]); i++) buf.push(lines[i].replace(/^\s*[-*+]\s+/, ""));
+      out.push(`<ul>${buf.map((it) => `<li>${renderInlineMd(it)}</li>`).join("")}</ul>`);
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const buf = [];
+      for (; i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i]); i++) buf.push(lines[i].replace(/^\s*\d+[.)]\s+/, ""));
+      out.push(`<ol>${buf.map((it) => `<li>${renderInlineMd(it)}</li>`).join("")}</ol>`);
+      continue;
+    }
+    const buf = [];
+    for (; i < lines.length && lines[i].trim() && !isBlockStart(lines[i]); i++) buf.push(lines[i]);
+    out.push(`<p>${renderInlineMd(buf.join("\n")).replace(/\n/g, "<br>")}</p>`);
+  }
+  return out.join("");
+}
+
 function renderChatLog() {
   persistChat();
   const log = $("#chat-log");
@@ -1498,11 +1697,31 @@ function renderChatLog() {
     if (m.role === "error") return `<div class="bubble error">⚠️ ${escapeHtml(m.text)}</div>`;
     const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
     const cards = m.options && m.options.length ? renderOptionCards(m.options, m.optionsSource, m) : "";
-    return `<div class="bubble assistant">${escapeHtml(m.text)}${cards}${trace}</div>`;
+    return `<div class="bubble assistant"><div class="md">${renderMarkdown(m.text)}</div>${cards}${trace}</div>`;
   });
   if (state.chat.busy) parts.push(`<div class="bubble assistant typing"><i></i><i></i><i></i></div>`);
   log.innerHTML = parts.join("");
   log.scrollTop = log.scrollHeight;
+}
+
+// Shared inner body for a train journey/reroute option. The helper speaks one
+// vocabulary — the arrival field is always `arrival` — so each caller maps its
+// source field at the call site: a reroute option passes `new_arrival`, a live
+// search result passes `planned_arrival || arrival`. Centralises the null-price
+// guard too. Used by renderOptionCards (chat reroutes) and the search screen.
+function journeyBodyHTML(j) {
+  const trains = (j.trains || []).map(escapeHtml).join(" → ") || escapeHtml(j.description || "Connection");
+  const dep = j.departure ? fmtTime(j.departure) : "—";
+  const arr = j.arrival ? fmtTime(j.arrival) : "—";
+  const transfers = j.transfers != null ? `${j.transfers} change${j.transfers === 1 ? "" : "s"}` : "—";
+  const delay = j.added_delay_minutes != null ? `<span class="option-delay">+${j.added_delay_minutes} min</span>` : "";
+  const price = j.price_eur != null ? `<span>${Number(j.price_eur).toFixed(2)} €</span>` : "";
+  const remarks = (j.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+  return `
+    <div class="option-trains">${trains}</div>
+    <div class="option-times">${dep} → ${arr}</div>
+    <div class="option-meta"><span>${transfers}</span>${delay}${price}</div>
+    ${remarks}`;
 }
 
 // Render reroute option cards below the agent's prose. Clicking a card sends
@@ -1538,13 +1757,12 @@ function renderOptionCards(options, optionsSource, message) {
     if (mode === "hotel") {
       const name = escapeHtml(o.name || o.description || "Hotel");
       const dist = o.distance_to_station_km != null ? `${o.distance_to_station_km} km from station` : "";
-      const price = o.price_per_night_eur != null ? `${Number(o.price_per_night_eur).toFixed(2)} €/night` : "";
       const nights = o.nights != null ? `${o.nights} night${o.nights === 1 ? "" : "s"}` : "";
       const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
       body = `
         <div class="option-trains">${name}</div>
         <div class="option-meta">
-          ${dist ? `<span>${dist}</span>` : ""}${price ? `<span class="option-price">${price}</span>` : ""}${nights ? `<span>${nights}</span>` : ""}
+          ${dist ? `<span>${dist}</span>` : ""}${nights ? `<span>${nights}</span>` : ""}
         </div>
         ${remarks}`;
     } else if (mode === "car_sharing" || mode === "bike_sharing") {
@@ -1564,20 +1782,13 @@ function renderOptionCards(options, optionsSource, message) {
         ${remarks}`;
     } else {
       // train (default)
-      const trains = (o.trains || []).map(escapeHtml).join(" → ") || escapeHtml(o.description || "Connection");
-      const dep = o.departure ? fmtTime(o.departure) : "—";
-      const arr = o.new_arrival ? fmtTime(o.new_arrival) : "—";
-      const transfers = o.transfers != null ? `${o.transfers} change${o.transfers === 1 ? "" : "s"}` : "—";
-      const delay = o.added_delay_minutes != null ? `+${o.added_delay_minutes} min` : "";
-      const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
-      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
-      body = `
-        <div class="option-trains">${trains}</div>
-        <div class="option-times">${dep} → ${arr}</div>
-        <div class="option-meta">
-          <span>${transfers}</span>${delay ? `<span class="option-delay">${delay}</span>` : ""}${price ? `<span>${price}</span>` : ""}
-        </div>
-        ${remarks}`;
+      body = journeyBodyHTML({
+        trains: o.trains, description: o.description,
+        departure: o.departure,
+        arrival: o.new_arrival,            // reroute-specific field
+        transfers: o.transfers, added_delay_minutes: o.added_delay_minutes,
+        price_eur: o.price_eur, remarks: o.remarks,
+      });
     }
 
     return `
@@ -1855,6 +2066,34 @@ function back() {
   const idx = STEPS.indexOf(state.step);
   // From the phone step back to the trip overview, not to login
   go(STEPS[Math.max(0, idx - 1)]);
+}
+
+// Single-trip delete. Attached directly to each .trip-delete button (per-
+// element, in the dashboard renderer) so ev.stopPropagation() fires ON the
+// button — blocking the parent .trip-card click (which opens the chat) from
+// ever firing. (A delegated handler on #screen would run AFTER the card's
+// handler, by which point state.step is already "chat".)
+async function onDeleteTripClick(ev) {
+  const btn = ev.target.closest(".trip-delete");
+  if (!btn) return;
+  const tripId = btn.dataset.tripDeleteId;
+  if (!tripId) return;
+  ev.stopPropagation();
+  if (!confirm("Delete this trip? This cannot be undone.")) return;
+  try {
+    const data = await api(`/api/trips/${encodeURIComponent(tripId)}`, { method: "DELETE" });
+    state.trips = data.trips;
+    // If the deleted trip was the one open in the chat, drop the chat too.
+    if (state.chat && state.chat.trip && state.chat.trip.trip_id === tripId) {
+      state.chat = null;
+      persistChat();
+    }
+    toast("✓ Trip deleted");
+    // Trash buttons only appear on the dashboard (trips page); stay there.
+    go("dashboard");
+  } catch (err) {
+    toast(`⚠️ ${err.message}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

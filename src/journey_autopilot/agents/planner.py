@@ -105,14 +105,16 @@ Answer in structured form:
   if the profile was unavailable.
 - **Options**: Present EVERY viable option across ALL modes, each with its
   option_id (R# train / C# car / B# bike / H# hotel), mode, key facts
-  (trains or name, departure/arrival or est. duration, price if known), and a
+  (trains or name, departure/arrival or est. duration; price only for non-hotel
+  modes when known), and a
   one-line calendar + profile verdict. Lead with the recommended option.
   DO NOT collapse to a single option — the user must be able to choose.
   Keep non-viable options only as a brief "rejected" note.
   For ecosystem options (C#/B#/H#) note they are NOT same-day alternatives
   unless their new_arrival clears the deadline.
-- For EVERY option, state its **added cost** in EUR (the ``added_cost_eur`` field;
-  0 means a free rebooking). The downstream booking step needs this number.
+- For every non-hotel option, state its **added cost** in EUR (the
+  ``added_cost_eur`` field; 0 means a free rebooking). Do not quote or invent
+  prices for hotel options; the live hotel source cannot check rates.
 - **Passenger Rights/Compensation**: for the recommended option's added delay.
 - If NO option at all meets the hard deadline: state this clearly. If only hotel
   or long-detour options remain, say so and list the least bad options.

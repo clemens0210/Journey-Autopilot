@@ -204,6 +204,15 @@ def get_trips(user_id: str) -> list[dict]:
     return trips
 
 
+def delete_trip(user_id: str, trip_id: str) -> None:
+    """Remove a single imported/added trip for a user."""
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM trips WHERE user_id = ? AND trip_id = ?",
+            (user_id, trip_id),
+        )
+
+
 def any_profile() -> dict | None:
     """Profile of the most recently onboarded user — for the agent tools that
     (still) run without a login context and need the one profile in the

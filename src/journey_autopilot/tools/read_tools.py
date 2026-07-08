@@ -12,6 +12,7 @@ keep the same presentation-safe fallback pattern.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -21,7 +22,10 @@ from .. import mock_data, risk
 from ..errors import with_resilience, with_resilience_async
 from ..integrations.rights_rag.rights_service import calculate_compensation
 from ..integrations import db_ops as db_api
+from ..integrations import hotels as hotels_api
 from ..integrations import stations
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -62,6 +66,11 @@ def _minutes_between(start: str | None, end: str | None) -> int | None:
     end_dt = _parse_datetime(end)
     if start_dt is None or end_dt is None:
         return None
+    # Stored trips use naive German-local times while the live sidecar returns
+    # offset-aware ones; on a mix, compare wall clocks (both are German local).
+    if (start_dt.tzinfo is None) != (end_dt.tzinfo is None):
+        start_dt = start_dt.replace(tzinfo=None)
+        end_dt = end_dt.replace(tzinfo=None)
     return round((end_dt - start_dt).total_seconds() / 60)
 
 
@@ -517,9 +526,11 @@ def find_reroute_options(
                 "source": "db_service_live",
             }
     except db_api.DBServiceError:
-        pass
+        pass  # sidecar down/blocked — expected, fall back to mock quietly
     except Exception:
-        pass
+        # A bug in the live path (not a sidecar outage) — fall back too, but
+        # leave a trace: this once hid a TypeError as "sidecar unavailable".
+        logger.warning("find_reroute_options live path failed", exc_info=True)
 
     options = mock_data.lookup_route(mock_data.REROUTE_OPTIONS, origin, destination)
     if options:
@@ -599,14 +610,16 @@ def find_partner_hotels(
     check_in_date: str,
     max_results: int = 4,
 ) -> dict:
-    """Finds DB partner hotel options near a stranded station for an overnight stay.
+    """Finds hotel options near a stranded station for an overnight stay.
 
     Call this ONLY when no same-day option (train or mobility) can get the
     traveler to their destination, AND ``profile.home.hotel_ok`` is True.
     Covers the overnight case — traveler cannot reach the destination today.
 
-    Swap point for a future real integration: replace the mock lookup below with
-    a call to bahn.de/hotels or a DB partner hotel API.
+    Live-first: real hotels near the station via OpenStreetMap
+    (``integrations.hotels``), sorted by distance. Hotel prices are not shown
+    because the live source cannot check rates. Falls back to the mock
+    partner-hotel list when the live lookup fails or finds nothing.
 
     Args:
         location: Station or city near which to search (typically the destination
@@ -618,17 +631,27 @@ def find_partner_hotels(
         A dict with a ``hotels`` list (option_id H#). Each hotel carries:
         ``mode`` ("hotel"), ``option_id``, ``name``, ``description``,
         ``distance_to_station_km``, ``price_per_night_eur``, ``check_in_date``,
-        ``nights``, ``remarks``, and ``source`` ("mock_hotels").
+        ``nights``, ``remarks``, and ``source`` ("osm_hotels_live" or
+        "mock_hotels").
     """
-    raw = mock_data.lookup_location(mock_data.PARTNER_HOTELS, location)[:max_results]
-    hotels = [{**h, "source": "mock_hotels", "check_in_date": check_in_date} for h in raw]
+    outcome = with_resilience(
+        lambda: hotels_api.find_hotels_near_station(location, max_results=max_results),
+        lambda: [
+            {**h, "source": "mock_hotels"}
+            for h in mock_data.lookup_location(mock_data.PARTNER_HOTELS, location)[:max_results]
+        ],
+        tool="find_partner_hotels",
+        accept=lambda hs: bool(hs),
+    )
+    hotels = [{**h, "check_in_date": check_in_date} for h in outcome.value]
+    source = hotels[0]["source"] if hotels else "none"
     if hotels:
-        _stash_options(hotels, origin=location, destination=location, source="mock_hotels")
+        _stash_options(hotels, origin=location, destination=location, source=source)
     return {
         "location": location,
         "check_in_date": check_in_date,
         "hotels": hotels,
-        "source": "mock_hotels" if hotels else "none",
+        "source": source,
     }
 
 
