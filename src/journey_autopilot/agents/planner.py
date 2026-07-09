@@ -49,9 +49,15 @@ Procedure — follow all steps in order:
 3. Call `get_user_calendar(date="YYYY-MM-DD")` with the travel date given by the
    Orchestrator (e.g. "on 2026-06-19"). Use EXACTLY that date — never invent one.
 
-4. Check each train option against calendar events with `hard_constraint: True`.
-   An option is only viable if its new arrival is BEFORE the start of a
-   hard-constraint appointment (plan 30 minutes travel from station).
+4. Check each train option deterministically with `get_calendar_conflicts`: pass
+   the travel date, the option's departure as `planned_departure`, and its new
+   arrival as `expected_arrival` (when the option data includes a delay
+   estimate, also pass the worse arrival as `latest_arrival` so at-risk
+   appointments are flagged). The tool classifies every appointment against the
+   option's window (a 30-minute station-to-appointment travel buffer is already
+   included — do NOT recompute times yourself). An option is only viable if its
+   `conflicts` list contains NO appointment with `hard_constraint: true`.
+   Clashes with soft appointments do not gate viability but must be mentioned.
 
 4b. [CONDITIONAL — SKIP if at least one train option from step 2 is viable]
    Trigger this widening step when ANY of the following is true:
@@ -89,7 +95,12 @@ hard deadline.
 In your answer you MUST explicitly mention BOTH the calendar check and the
 profile fit:
 - List the found hard-constraint appointments (title, time, and — when present —
-  the event id, its status tentative/confirmed, and its participants).
+  the event id, its status tentative/confirmed, and its participants). Include
+  each clashing appointment's contact (`organizer_name` / `organizer_email` from
+  the event) when present — the orchestrator needs it to offer a notice email to
+  that contact. If the event has `self_organized: true`, the organizer is the
+  traveler themself — then also list `attendee_emails` as the counterpart
+  contacts.
 - State for each option whether it meets the hard deadline or not.
 - Justify the recommendation with calendar compatibility AND profile.
 
