@@ -310,7 +310,7 @@ def _send_whatsapp(to_number: str, body: str, *, action: str) -> dict:
         return {"sent": False, "demo": True}
 
     try:
-        _client().messages.create(
+        message = _client().messages.create(
             from_=_from_number(),
             to=f"whatsapp:{to_number}",
             body=body,
@@ -322,8 +322,13 @@ def _send_whatsapp(to_number: str, body: str, *, action: str) -> dict:
         logger.error("Twilio error sending %s to %s: %s", action, to_number, exc)
         return {"sent": False, "error": str(exc)}
 
-    logger.info("action=%s to=%s", action, to_number)
-    return {"sent": True}
+    # "sent" means Twilio ACCEPTED the message — delivery is asynchronous and
+    # can still fail afterwards. Most common with the WhatsApp sandbox:
+    # error 63016, the recipient's 24-hour session window is closed (they must
+    # message the sandbox number to reopen it). The sid lets a failed send be
+    # looked up in the Twilio console / messages API.
+    logger.info("action=%s to=%s sid=%s status=%s", action, to_number, message.sid, message.status)
+    return {"sent": True, "sid": message.sid, "status": message.status}
 
 
 def send_disruption_alert(to_number: str, body: str) -> dict:

@@ -23,11 +23,17 @@ logger = logging.getLogger(__name__)
 APP_NAME = "journey_autopilot"
 USER_ID = "ui-user"
 
-# The monitoring agent is instructed to emit the band as "Risk: <LOW|MEDIUM|HIGH>"
-# (see agents/monitoring.py). We also accept the looser "<band> risk" phrasing in
-# case the orchestrator rephrases the summary. Risk is a free-text signal here, so
-# this is a deliberate heuristic — good enough to trigger the proactive alert.
-_RISK_LABEL_RE = re.compile(r"\brisk[\s:*_·—-]*\b(high|medium|low)\b", re.IGNORECASE)
+# The orchestrator is instructed to lead its summary with "Risk: <LOW|MEDIUM|HIGH>"
+# (see orchestrator.py), but LLMs rephrase — observed variants include
+# "**Risk level:** **HIGH**" and "the risk band is HIGH". The pattern therefore
+# tolerates one connector word (level/band/score/rating) and one linking verb
+# between "risk" and the band. Risk is a free-text signal here, so this is a
+# deliberate heuristic — good enough to trigger the proactive alert.
+_RISK_LABEL_RE = re.compile(
+    r"\brisk(?:\s+(?:level|band|score|rating))?(?:\s+(?:is|remains|stays|currently))?"
+    r"[\s:*_·—-]*\b(high|medium|low)\b",
+    re.IGNORECASE,
+)
 _RISK_LOOSE_RE = re.compile(r"\b(high|medium|low)[\s-]+risk\b", re.IGNORECASE)
 
 

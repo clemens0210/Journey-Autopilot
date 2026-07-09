@@ -54,7 +54,10 @@ the result, think again:
      Use the actual values from the user request, not the example.
 3. Summarize clearly for the user: current situation (from Monitoring) and,
    if available, the recommended plan (from Planner) incl. calendar check and
-   compensation note.
+   compensation note. Whenever the summary contains a risk assessment, its
+   FIRST line must be exactly `Risk: LOW`, `Risk: MEDIUM`, or `Risk: HIGH` —
+   the app parses this line to trigger the proactive WhatsApp alert to the
+   traveler.
 4. NOTICE EMAIL (draft): if the Planner reports a clashing appointment that
    has a contact email, call `communicator_agent` in DRAFT mode: pass the
    appointment (title, date, time), the contact's name and email, the
