@@ -6,9 +6,11 @@ lands in the `tools` list. The LLM then runs through a ReAct loop —
 Thought (reason) -> Action (call an agent/tool) -> Observation
 (read result) -> reason again — until it can provide an answer.
 
-This allows testing the collaboration of Monitoring and Planner without
-hard-wiring the control flow: The Orchestrator decides based on the
-Monitoring result whether the Planner is needed at all.
+This allows testing the collaboration of Monitoring, Planner, and
+Communicator without hard-wiring the control flow: the Orchestrator decides
+based on the Monitoring result whether the Planner is needed at all, and
+based on the Planner's calendar clashes whether the Communicator should
+draft a notice email (sent only after the user approves the shown draft).
 
 `root_agent` is the entry point expected by `adk web` / `adk run`.
 """
@@ -19,6 +21,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools.agent_tool import AgentTool
 
 from .config import ORCHESTRATOR_MODEL
+from .agents.communicator import build_email_communicator_agent
 from .agents.monitoring import build_monitoring_agent
 from .agents.planner import build_planner_agent
 from .agents.executor import build_executor_agent
@@ -26,6 +29,7 @@ from .agents.executor import build_executor_agent
 # Instantiate sub-agents and make them available as tools.
 monitoring_agent = build_monitoring_agent()
 planner_agent = build_planner_agent()
+communicator_agent = build_email_communicator_agent()
 executor_agent = build_executor_agent()
 
 ORCHESTRATOR_INSTRUCTION = """\
@@ -109,6 +113,7 @@ root_agent = LlmAgent(
     tools=[
         AgentTool(agent=monitoring_agent),
         AgentTool(agent=planner_agent),
+        AgentTool(agent=communicator_agent),
         AgentTool(agent=executor_agent),
     ],
 )

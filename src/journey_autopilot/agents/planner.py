@@ -22,6 +22,7 @@ from ..tools.read_tools import (
     find_mobility_alternatives,
     find_partner_hotels,
     find_reroute_options,
+    get_calendar_conflicts,
     get_passenger_rights,
     get_user_calendar,
     get_user_profile,
@@ -142,6 +143,7 @@ def build_planner_agent() -> LlmAgent:
             find_mobility_alternatives,
             find_partner_hotels,
             get_user_calendar,
+            get_calendar_conflicts,
             get_passenger_rights,
         ],
     )

@@ -4,6 +4,8 @@ Public API:
 
     get_calendar_events(date, user_email=None, credential=None) -> list[dict]
     get_calendar_events_range(start_date, end_date, user_email=None, credential=None) -> list[dict]
+    get_signed_in_user(credential=None) -> dict   # {"email", "name"} of the connected MS account
+    send_notice_email(to_address, subject, body, credential=None) -> None  # Mail.Send scope
     is_outlook_configured() -> bool
     create_device_credential(prompt_callback, timeout=900) -> DeviceCodeCredential
     StaticTokenCredential(access_token) -> TokenCredential
@@ -25,7 +27,13 @@ from .auth import (
     create_device_credential,
     is_outlook_configured,
 )
-from .client import StaticTokenCredential, get_events, get_events_range
+from .client import (
+    StaticTokenCredential,
+    get_events,
+    get_events_range,
+    get_signed_in_user,
+    send_mail,
+)
 from .mapper import graph_events_to_internal
 
 if TYPE_CHECKING:
@@ -80,3 +88,25 @@ async def get_calendar_events_range(
     """
     raw_events = await get_events_range(start_date, end_date, user_email, credential=credential)
     return graph_events_to_internal(raw_events)
+
+
+async def send_notice_email(
+    to_address: str,
+    subject: str,
+    body: str,
+    credential: TokenCredential | None = None,
+) -> None:
+    """Send a plain-text notice email from the connected Microsoft account.
+
+    Thin wrapper over :func:`client.send_mail`. Requires the ``Mail.Send``
+    scope — logins made before that scope was introduced must reconnect
+    Outlook once (the interactive flows request ``MAIL_SCOPES``).
+
+    Args:
+        to_address: Recipient email address (e.g. the organizer of a
+            clashing calendar appointment).
+        subject: Mail subject line.
+        body: Plain-text mail body.
+        credential: Optional ``TokenCredential`` to reuse.
+    """
+    await send_mail(to_address, subject, body, credential=credential)

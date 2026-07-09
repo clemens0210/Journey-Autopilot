@@ -75,6 +75,8 @@ DEFAULT_PROFILE: dict = {
     "connections": {
         "db_account": False,
         "outlook": False,
+        "outlook_email": None,            # actual signed-in MS account (real device-code flow)
+        "outlook_name": None,
     },
     "autonomy": "approve_each",           # notify_only | approve_each | auto_within_limits
     # Policy / veto gate — read by journey_autopilot.policy.resolve(). The

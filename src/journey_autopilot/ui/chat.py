@@ -13,10 +13,70 @@ onboarding flow — does not require the agent dependencies to be installed.
 
 from __future__ import annotations
 
+import json
+import logging
+import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 APP_NAME = "journey_autopilot"
 USER_ID = "ui-user"
+
+# The orchestrator is instructed to lead its summary with "Risk: <LOW|MEDIUM|HIGH>"
+# (see orchestrator.py), but LLMs rephrase — observed variants include
+# "**Risk level:** **HIGH**" and "the risk band is HIGH". The pattern therefore
+# tolerates one connector word (level/band/score/rating) and one linking verb
+# between "risk" and the band. Risk is a free-text signal here, so this is a
+# deliberate heuristic — good enough to trigger the proactive alert.
+_RISK_LABEL_RE = re.compile(
+    r"\brisk(?:\s+(?:level|band|score|rating))?(?:\s+(?:is|remains|stays|currently))?"
+    r"[\s:*_·—-]*\b(high|medium|low)\b",
+    re.IGNORECASE,
+)
+_RISK_LOOSE_RE = re.compile(r"\b(high|medium|low)[\s-]+risk\b", re.IGNORECASE)
+
+
+def detect_risk_band(text: str | None) -> str | None:
+    """Pull the risk band (HIGH/MEDIUM/LOW) out of an agent message, or None."""
+    if not text:
+        return None
+    match = _RISK_LABEL_RE.search(text) or _RISK_LOOSE_RE.search(text)
+    return match.group(1).upper() if match else None
+
+
+def _is_high_risk(reply: str, trace: list[dict]) -> bool:
+    """True if the final reply or any intermediate agent text flags HIGH risk.
+
+    Scanning the trace too (not just the final answer) catches the case where the
+    monitoring agent reported HIGH but the orchestrator softened the summary.
+    """
+    candidates = [reply]
+    candidates += [t.get("text", "") for t in trace if t.get("kind") == "text"]
+    return any(detect_risk_band(text) == "HIGH" for text in candidates)
+
+
+def _alert_body(trip: dict | None, reply: str, risk_band: str | None = None) -> str:
+    """Compose the WhatsApp notice (kept short for messaging).
+
+    The header reflects the detected band: a HIGH-risk warning, a plain trip
+    update with the band, or a generic update when no band was parsed.
+    """
+    if risk_band == "HIGH":
+        header = "⚠️ Journey Autopilot — HIGH disruption risk"
+    elif risk_band:
+        header = f"🚆 Journey Autopilot — trip update (risk: {risk_band})"
+    else:
+        header = "🚆 Journey Autopilot — trip update"
+    if trip:
+        when = (trip.get("planned_departure") or "")[:10]
+        route = f"{trip.get('origin')} → {trip.get('destination')}"
+        line = " · ".join(p for p in (trip.get("train"), when) if p)
+        header += f"\n{route}" + (f" ({line})" if line else "")
+    summary = reply.strip()
+    if len(summary) > 900:  # keep the WhatsApp body manageable
+        summary = summary[:900].rstrip() + "…"
+    return f"{header}\n\n{summary}"
 
 # A single in-memory runner is created lazily and reused across requests; ADK
 # keeps the per-chat conversation history in its session service. A server
@@ -117,7 +177,10 @@ def _describe(event: Any) -> list[dict]:
 
 
 async def chat_turn(
-    session_id: str | None, message: str, trip: dict | None = None
+    session_id: str | None,
+    message: str,
+    trip: dict | None = None,
+    notify_phone: str | None = None,
 ) -> dict:
     """Run one chat turn through the orchestrator.
 
@@ -126,10 +189,14 @@ async def chat_turn(
             new conversation.
         message: The user's chat message.
         trip: The selected trip (added as context on the first turn only).
+        notify_phone: The traveler's saved number. When monitoring comes back
+            HIGH risk, a proactive WhatsApp disruption alert is sent here.
 
     Returns:
-        ``{"session_id", "reply", "trace"}`` — the (new or reused) session id,
-        the orchestrator's final answer, and the agent/tool trace.
+        ``{"session_id", "reply", "trace", "risk_band", "alert"}`` — the (new or
+        reused) session id, the orchestrator's final answer, the agent/tool
+        trace, the detected risk band, and the disruption-alert result (or
+        ``None`` when no alert was attempted).
     """
     from google.genai import types
 
@@ -149,6 +216,76 @@ async def chat_turn(
     trace: list[dict] = []
     reply = ""
 
+    async def _run_turn() -> str:
+        """One pass through the orchestrator; rebuilds the trace from scratch."""
+        trace.clear()
+        result = ""
+        async for event in runner.run_async(
+            user_id=USER_ID, session_id=session_id, new_message=new_message
+        ):
+            if event.is_final_response() and event.content and event.content.parts:
+                result = "".join(
+                    p.text for p in event.content.parts if getattr(p, "text", None)
+                )
+                continue
+            trace.extend(_describe(event))
+        return result
+
+    # The LLM backend occasionally emits malformed JSON in a tool call
+    # (typically long multi-line arguments like an email body); ADK's parser
+    # then raises JSONDecodeError. That's transient model output, not app
+    # state — one retry usually clears it (error policy: recover inside the
+    # loop, don't crash the turn). Write tools stay safe under the replay:
+    # the email approval_id is single-use, so a send can never fire twice.
+    for attempt in (1, 2):
+        try:
+            reply = await _run_turn()
+            break
+        except json.JSONDecodeError as exc:
+            if attempt == 1:
+                logger.warning(
+                    "malformed tool-call JSON from the model (%s) — retrying the turn once",
+                    exc,
+                )
+            else:
+                logger.error("malformed tool-call JSON twice in a row: %s", exc)
+                reply = (
+                    "The language model produced a malformed tool call twice in "
+                    "a row, so this turn could not be completed. Please send "
+                    "your message again."
+                )
+
+    reply = reply or "(no response)"
+
+    # Proactive notice: push a one-way WhatsApp message to the traveler's saved
+    # number (via Twilio) on every MONITORING turn — i.e. whenever the reply
+    # carries a risk band, not only on HIGH. Turns without a band (greetings,
+    # email approvals, follow-up questions) send nothing (alert=None), so the
+    # traveler isn't spammed on every message. Twilio's client is blocking, so
+    # it runs off the event loop.
+    high = _is_high_risk(reply, trace)
+    risk_band = "HIGH" if high else detect_risk_band(reply)
+    alert: dict | None = None
+    if risk_band is not None:
+        import asyncio
+
+        from journey_autopilot.integrations import whatsapp
+
+        alert = await asyncio.to_thread(
+            whatsapp.send_disruption_alert,
+            notify_phone or "",
+            _alert_body(trip, reply, risk_band),
+        )
+
+    # Always log the outcome so "no alert" is diagnosable (band detected, phone
+    # present, send result) — not just silence.
+    logger.info(
+        "chat turn: session=%s risk_band=%s phone=%s alert=%s",
+        session_id,
+        risk_band,
+        notify_phone or "(none)",
+        alert,
+    )
     # Reset the in-process reroute slot so options from a previous turn are
     # never shown. The Planner's find_reroute_options tool repopulates it when
     # it runs; read after the loop. (Base AgentTool runs the sub-agent in its
@@ -181,8 +318,10 @@ async def chat_turn(
 
     return {
         "session_id": session_id,
-        "reply": reply or "(no response)",
+        "reply": reply,
         "trace": trace,
+        "risk_band": risk_band,
+        "alert": alert,
         "options": options,
         "options_source": options_source,
     }
