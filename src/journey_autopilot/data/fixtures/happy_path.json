@@ -79,8 +79,10 @@
         "hard_constraint": true,
         "organizer_name": "Anna Client",
         "organizer_email": "anna.client@example.com",
-        "attendee_emails": ["lucas.wild@example.com"],
-        "self_organized": false
+        "attendee_emails": [
+          "lucas.wild@example.com"
+        ],
+        "self_organized": false,
         "end": "2026-06-19T17:00:00",
         "status": "confirmed",
         "participants": [
@@ -91,8 +93,14 @@
     ]
   },
   "passenger_rights": [
-    { "min_delay_minutes": 60, "compensation": "25% of ticket price" },
-    { "min_delay_minutes": 120, "compensation": "50% of ticket price" }
+    {
+      "min_delay_minutes": 60,
+      "compensation": "25% of ticket price"
+    },
+    {
+      "min_delay_minutes": 120,
+      "compensation": "50% of ticket price"
+    }
   ],
   "connection_delay_history": [
     {
@@ -142,7 +150,10 @@
           "est_duration_minutes": 360,
           "new_arrival": "2026-06-19T16:00:00",
           "price_eur": 89.50,
-          "remarks": ["Unlimited km included", "Return at Berlin Tegel Flinkster station"],
+          "remarks": [
+            "Unlimited km included",
+            "Return at Berlin Tegel Flinkster station"
+          ],
           "source": "mock_flinkster"
         }
       ]
@@ -161,7 +172,10 @@
           "est_duration_minutes": 35,
           "new_arrival": null,
           "price_eur": 3.90,
-          "remarks": ["Ride to U-Bahn/S-Bahn connection", "Max 30 min included per ride"],
+          "remarks": [
+            "Ride to U-Bahn/S-Bahn connection",
+            "Max 30 min included per ride"
+          ],
           "source": "mock_callabike"
         }
       ]
@@ -180,7 +194,10 @@
           "price_per_night_eur": 89.00,
           "check_in_date": null,
           "nights": 1,
-          "remarks": ["DB partner rate", "Booking via bahn.de/hotels"],
+          "remarks": [
+            "DB partner rate",
+            "Booking via bahn.de/hotels"
+          ],
           "source": "mock_hotels"
         },
         {
@@ -192,7 +209,9 @@
           "price_per_night_eur": 72.00,
           "check_in_date": null,
           "nights": 1,
-          "remarks": ["DB partner rate available"],
+          "remarks": [
+            "DB partner rate available"
+          ],
           "source": "mock_hotels"
         }
       ]
@@ -209,7 +228,10 @@
           "price_per_night_eur": 115.00,
           "check_in_date": null,
           "nights": 1,
-          "remarks": ["DB partner rate", "Booking via bahn.de/hotels"],
+          "remarks": [
+            "DB partner rate",
+            "Booking via bahn.de/hotels"
+          ],
           "source": "mock_hotels"
         }
       ]
