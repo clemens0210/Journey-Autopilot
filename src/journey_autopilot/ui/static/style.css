@@ -741,6 +741,27 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 .bubble.user { align-self: flex-end; background: var(--db-red); color: #fff; border-bottom-right-radius: 5px; }
 .bubble.assistant { align-self: flex-start; background: var(--card); color: var(--ink); border-bottom-left-radius: 5px; }
 .bubble.error { align-self: flex-start; background: #3A1417; color: #FF8A93; border-bottom-left-radius: 5px; }
+.bubble.notice {
+  align-self: flex-start;
+  background: var(--card);
+  color: var(--ink);
+  border: 1.5px dashed var(--db-red);
+  border-bottom-left-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.notice-link {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--db-red);
+  font-weight: 700;
+  font-size: 13.5px;
+  padding: 0;
+  cursor: pointer;
+}
+.notice-link:hover { text-decoration: underline; }
 
 /* Typing indicator (three blinking dots) */
 .bubble.typing { display: inline-flex; gap: 5px; padding: 14px; }

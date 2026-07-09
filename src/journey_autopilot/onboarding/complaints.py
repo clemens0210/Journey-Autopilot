@@ -56,24 +56,42 @@ def build_complaint_payload(
     }
 
 
-def maybe_create_from_trace(
-    user_id: str,
-    trip: dict | None,
-    trace: list[dict],
-    account: dict | None,
-) -> dict | None:
-    """Create a draft complaint if the chat trace includes eligible passenger rights."""
-    rights: dict | None = None
-    for item in trace:
-        if item.get("kind") != "result" or item.get("name") != "get_passenger_rights":
-            continue
-        data = item.get("data") or {}
-        if data.get("eligible") and float(data.get("compensation_eur") or 0) > 0:
-            rights = data
-            break
+def maybe_create_from_last_rights(user_id: str, trip: dict | None) -> dict | None:
+    """Create a draft complaint from this turn's get_passenger_rights call, if eligible.
+
+    Reads ``tools.read_tools``' in-process stash rather than the ADK event
+    trace: ``get_passenger_rights`` runs inside the Planner sub-agent, which
+    is only reachable via an ``AgentTool`` — ADK forwards just the Planner's
+    final merged text to the parent, never its own tool-call results, so a
+    trace scan for a "get_passenger_rights" entry can never match.
+    """
+    from ..tools.read_tools import last_passenger_rights
+
+    rights = last_passenger_rights()
     if rights is None:
         return None
+    if not rights.get("eligible") or float(rights.get("compensation_eur") or 0) <= 0:
+        return None
     return create_draft_complaint(user_id, trip, rights, source="auto_chat")
+
+
+def is_trip_completed(trip: dict | None) -> bool:
+    """Whether the trip has actually arrived — conservative by default.
+
+    A complaint may only be drafted once the trip is over, not while it's
+    still en route (e.g. compensation figures the Planner cites for a
+    candidate reroute mid-disruption are estimates, not a filed claim). Only
+    an explicit ``arrived: true`` in live status (see
+    ``scripts/simulate_arrival.py``) counts as completed; absent that flag
+    the trip is treated as still ongoing.
+    """
+    trip_id = (trip or {}).get("trip_id")
+    if not trip_id:
+        return False
+    from ..tools.read_tools import get_live_trip_status
+
+    status = get_live_trip_status(trip_id)
+    return bool(status.get("arrived"))
 
 
 def create_draft_complaint(
@@ -83,9 +101,12 @@ def create_draft_complaint(
     *,
     source: str = "auto_chat",
 ) -> dict | None:
-    """Persist a draft; returns None if an open draft already exists for this trip/date."""
+    """Persist a draft; returns None if not eligible, the trip isn't over yet,
+    or an open draft already exists for this trip/date."""
     payload = build_complaint_payload(trip, rights, source=source)
     if not payload["eligible"] or payload["compensation_eur"] <= 0:
+        return None
+    if not is_trip_completed(trip):
         return None
 
     trip_id = payload.get("trip_id")

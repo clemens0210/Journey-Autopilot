@@ -486,13 +486,9 @@ async def chat_endpoint(
     """
     user_id = _user_id(authorization)
     try:
-        result = await chat.chat_turn(body.session_id, body.message, body.trip)
-        created = complaints.maybe_create_from_trace(
-            user_id,
-            body.trip,
-            result.get("trace") or [],
-            store.get_account(user_id),
-        )
+        account = store.get_account(user_id)
+        result = await chat.chat_turn(body.session_id, body.message, body.trip, account)
+        created = complaints.maybe_create_from_last_rights(user_id, body.trip)
         if created:
             result["complaint_created"] = created
         return result

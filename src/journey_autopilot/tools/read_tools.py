@@ -13,6 +13,7 @@ keep the same presentation-safe fallback pattern.
 from __future__ import annotations
 
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -35,9 +36,9 @@ _STATION_ALIASES: dict[str, str] = {
     "frankfurt(main)hbf": "Frankfurt Hbf",
 }
 
+
 def _normalize_station(name: str) -> str:
     return _STATION_ALIASES.get(name.strip().lower(), name)
-
 
 
 def _calendar_configured() -> bool:
@@ -185,6 +186,24 @@ def _board_warnings(board: Any) -> list[dict]:
 # --- Monitoring tools ---------------------------------------------------------
 
 
+def _arrival_in_past(arrival_iso: str | None) -> bool:
+    """True if the (estimated) arrival lies in the past — i.e. the trip is over.
+
+    The live DB feed has no explicit "arrived" flag (unlike the mock fixture,
+    where scripts/simulate_arrival.py sets one), so it is derived from the
+    arrival timestamp. Complaint drafting and the Monitoring agent's
+    EN ROUTE/ARRIVED status both depend on this field being present.
+    """
+    if not arrival_iso:
+        return False
+    try:
+        arrival = datetime.fromisoformat(arrival_iso)
+    except ValueError:
+        return False
+    now = datetime.now(arrival.tzinfo) if arrival.tzinfo else datetime.now()
+    return arrival <= now
+
+
 def get_live_trip_status(trip_id: str) -> dict:
     """Returns the current live status of a train journey.
 
@@ -236,6 +255,9 @@ def get_live_trip_status(trip_id: str) -> dict:
                     "planned_departure": option.get("planned_departure") or trip.get("planned_departure"),
                     "planned_arrival": option.get("planned_arrival") or trip.get("planned_arrival"),
                     "estimated_arrival": option.get("arrival") or option.get("planned_arrival"),
+                    "arrived": _arrival_in_past(
+                        option.get("arrival") or option.get("planned_arrival")
+                    ),
                     "platform_changes": option.get("platform_changes", []),
                     "data_timestamp": datetime.now(timezone.utc).isoformat(),
                     "source": "db_service_live",
@@ -467,6 +489,34 @@ def get_upcoming_trips() -> dict:
     return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
 
 
+# get_passenger_rights is a Planner tool, and the Planner is only reachable
+# through an AgentTool (the orchestrator calls it as a nested agent). ADK's
+# AgentTool runs the wrapped agent in its own internal Runner and forwards
+# only the agent's final merged *text* to the parent — the Planner's own
+# tool-call results (get_passenger_rights included) never reach the
+# top-level event stream that ui.chat iterates. Scanning that trace for a
+# "get_passenger_rights" entry therefore never matches.
+#
+# Workaround (same pattern as find_reroute_options' _LAST_REROUTE stash on
+# the rerouting branch): the tool stashes its result here while it runs
+# (same process), and the caller reads it after the run instead of the
+# trace. Safe for the single-user prototype (the chat UI's busy guard
+# prevents concurrent turns). ui.chat.chat_turn clears the slot at the start
+# of each turn so a stale result from a previous turn is never reused.
+_LAST_RIGHTS: dict | None = None
+
+
+def last_passenger_rights() -> dict | None:
+    """Returns the most recent get_passenger_rights result, or None."""
+    return _LAST_RIGHTS
+
+
+def clear_passenger_rights() -> None:
+    """Reset the in-process slot — called at the start of each chat turn."""
+    global _LAST_RIGHTS
+    _LAST_RIGHTS = None
+
+
 def get_passenger_rights(
     delay_minutes: int,
     ticket_type: str = "einzelticket",
@@ -502,12 +552,7 @@ def get_passenger_rights(
 
     # 2. RAG context for the agent — semantically matching chunks
     try:
-        from ..integrations.rights_rag.rag_store import FahrgastrechteRAG
-
-        rag = getattr(get_passenger_rights, "_rag", None)
-        if rag is None:
-            rag = FahrgastrechteRAG()
-            setattr(get_passenger_rights, "_rag", rag)
+        rag = _get_or_build_rag()
         chunks = rag.retrieve_for_case(
             delay_minutes=delay_minutes,
             ticket_type=ticket_type,
@@ -517,10 +562,51 @@ def get_passenger_rights(
     except Exception:
         legal_context = "Knowledge base temporarily unavailable."
 
-    return {
+    result = {
+        "delay_minutes": delay_minutes,
         **compensation,
         "legal_context": legal_context,
     }
+    global _LAST_RIGHTS
+    _LAST_RIGHTS = result
+    return result
+
+
+# Constructing FahrgastrechteRAG imports sentence_transformers + torch, which
+# takes ~20-40s the first time in a fresh process — almost entirely Python
+# import overhead (proven by timing it directly), not model download or
+# inference. Left to happen on the first real get_passenger_rights() call,
+# that cost lands squarely in the middle of a chat turn. Instead, kick it off
+# in the background as soon as this module loads (i.e. as soon as a chat turn
+# starts building the agent graph) so it runs concurrently with the ReAct
+# loop's own LLM latency — by the time the Planner actually calls
+# get_passenger_rights, the model is very likely already warm.
+_RAG_LOCK = threading.Lock()
+
+
+def _get_or_build_rag():
+    """Returns the cached FahrgastrechteRAG singleton, building it if needed."""
+    rag = getattr(get_passenger_rights, "_rag", None)
+    if rag is not None:
+        return rag
+    with _RAG_LOCK:
+        rag = getattr(get_passenger_rights, "_rag", None)
+        if rag is None:
+            from ..integrations.rights_rag.rag_store import FahrgastrechteRAG
+
+            rag = FahrgastrechteRAG()
+            setattr(get_passenger_rights, "_rag", rag)
+        return rag
+
+
+def _warm_rag_in_background() -> None:
+    try:
+        _get_or_build_rag()
+    except Exception:
+        pass  # get_passenger_rights() retries synchronously and surfaces the real error
+
+
+threading.Thread(target=_warm_rag_in_background, daemon=True).start()
 
 
 # --- Risk tools (pre-trip delay assessment) -----------------------------------

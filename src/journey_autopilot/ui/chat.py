@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..onboarding.complaints import bahncard_type
+
 APP_NAME = "journey_autopilot"
 USER_ID = "ui-user"
 
@@ -56,12 +58,14 @@ def _get_runner() -> Any:
     return _runner
 
 
-def _seed_prompt(trip: dict | None, message: str) -> str:
+def _seed_prompt(trip: dict | None, message: str, account: dict | None = None) -> str:
     """First message of a chat: prepend the selected trip as context.
 
     The orchestrator expects a trip_id (and route/date) to call the monitoring
     agent — exactly what ``scenarios/happy_path.py`` passes in its hard-coded prompt. Here
-    the values come from the trip the user clicked.
+    the values come from the trip the user clicked. The account's BahnCard is
+    included so a passenger-rights check uses the real discount instead of
+    defaulting to "keine".
     """
     if not trip:
         return message
@@ -79,6 +83,15 @@ def _seed_prompt(trip: dict | None, message: str) -> str:
         context += f", planned arrival {trip.get('planned_arrival')}"
     if when:
         context += f" on {when}"
+    if trip.get("price_eur") is not None:
+        context += f", ticket price {trip.get('price_eur')} EUR"
+    if trip.get("travel_class"):
+        context += f", travel class {trip.get('travel_class')}"
+    if account and account.get("bahncard"):
+        context += (
+            f". My BahnCard: {account['bahncard']}"
+            f" (bahncard_type: {bahncard_type(account)})"
+        )
     context += "."
     return f"{context}\n\n{message}"
 
@@ -104,22 +117,17 @@ def _describe(event: Any) -> list[dict]:
         if call is not None:
             out.append({"kind": "call", "author": author, "name": call.name})
         elif response is not None:
-            entry: dict[str, Any] = {
-                "kind": "result",
-                "author": author,
-                "name": response.name,
-            }
-            raw = getattr(response, "response", None)
-            if isinstance(raw, dict):
-                entry["data"] = raw
-            out.append(entry)
+            out.append({"kind": "result", "author": author, "name": response.name})
         elif text and text.strip():
             out.append({"kind": "text", "author": author, "text": text.strip()})
     return out
 
 
 async def chat_turn(
-    session_id: str | None, message: str, trip: dict | None = None
+    session_id: str | None,
+    message: str,
+    trip: dict | None = None,
+    account: dict | None = None,
 ) -> dict:
     """Run one chat turn through the orchestrator.
 
@@ -128,21 +136,25 @@ async def chat_turn(
             new conversation.
         message: The user's chat message.
         trip: The selected trip (added as context on the first turn only).
+        account: The logged-in account — its BahnCard is added to the first-turn
+            context for accurate passenger-rights checks.
 
     Returns:
         ``{"session_id", "reply", "trace"}`` — the (new or reused) session id,
         the orchestrator's final answer, and the agent/tool trace.
     """
     from google.genai import types
+    from journey_autopilot.tools.read_tools import clear_passenger_rights
 
     runner = _get_runner()
+    clear_passenger_rights()  # a stale rights result from a prior turn must not leak in
 
     if not session_id:
         session = await runner.session_service.create_session(
             app_name=APP_NAME, user_id=USER_ID
         )
         session_id = session.id
-        text = _seed_prompt(trip, message)
+        text = _seed_prompt(trip, message, account)
     else:
         # The session already carries the trip context from the first turn.
         text = message

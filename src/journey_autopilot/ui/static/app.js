@@ -268,11 +268,6 @@ function handleComplaintCreated(complaint) {
     complaint,
     ...state.complaints.filter((c) => c.complaint_id !== complaint.complaint_id),
   ];
-  toast(
-    `Draft complaint ready — est. ${fmtEur(complaint.compensation_eur)} compensation. `
-    + "Open Profile → Complaints to review and submit.",
-    6500,
-  );
 }
 
 function wireOpenComplaints() {
@@ -930,7 +925,6 @@ const renderers = {
       <div class="card">
         <h2 style="margin-top:0;font-size:15px">Why this claim applies</h2>
         <p class="muted" style="margin-bottom:0">${escapeHtml(c.reason)}</p>
-        ${c.claim_via ? `<p class="muted" style="margin-top:12px;margin-bottom:0"><b>Submit via:</b> ${escapeHtml(c.claim_via)}</p>` : ""}
         ${(c.notes || []).length ? `<ul class="complaint-notes">${c.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>` : ""}
       </div>
 
@@ -1162,11 +1156,23 @@ function renderChatLog() {
   const parts = state.chat.messages.map((m) => {
     if (m.role === "user") return `<div class="bubble user">${escapeHtml(m.text)}</div>`;
     if (m.role === "error") return `<div class="bubble error">⚠️ ${escapeHtml(m.text)}</div>`;
+    if (m.role === "notice") {
+      return `<div class="bubble notice">
+        <div>${escapeHtml(m.text)}</div>
+        <button type="button" class="notice-link" data-complaint-id="${escapeHtml(m.complaintId)}">Review complaint →</button>
+      </div>`;
+    }
     const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
     return `<div class="bubble assistant">${escapeHtml(m.text)}${trace}</div>`;
   });
   if (state.chat.busy) parts.push(`<div class="bubble assistant typing"><i></i><i></i><i></i></div>`);
   log.innerHTML = parts.join("");
+  log.querySelectorAll(".notice-link").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.complaintId = btn.dataset.complaintId;
+      go("complaint_detail");
+    });
+  });
   log.scrollTop = log.scrollHeight;
 }
 
@@ -1193,7 +1199,14 @@ async function onChatSubmit(ev) {
       chat.messages.push({ role: "error", text: data.error });
     } else {
       chat.messages.push({ role: "assistant", text: data.reply, trace: data.trace });
-      if (data.complaint_created) handleComplaintCreated(data.complaint_created);
+      if (data.complaint_created) {
+        handleComplaintCreated(data.complaint_created);
+        chat.messages.push({
+          role: "notice",
+          text: `Drafted a complaint for this trip — est. ${fmtEur(data.complaint_created.compensation_eur)} compensation.`,
+          complaintId: data.complaint_created.complaint_id,
+        });
+      }
     }
   } catch (err) {
     chat.messages.push({ role: "error", text: err.message });
