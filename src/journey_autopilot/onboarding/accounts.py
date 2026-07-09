@@ -104,7 +104,11 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "purpose": "Client meeting Berlin",
             },
             {
-                "trip_id": f"DB-{d2:%Y-%m%d}-BLN-MUC",
+                # trip_id is route-stable (not date-encoded) so a re-login on a
+                # later day upserts the SAME row — the relative dates get
+                # refreshed to "always upcoming" without leaving stale duplicates
+                # behind. The canonical demo trip above keeps its pinned id.
+                "trip_id": "DB-BLN-MUC",
                 "order_number": "QX7K2P",
                 "origin": "Berlin Hbf",
                 "destination": "Munich Hbf",
@@ -119,7 +123,7 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "purpose": "Return trip",
             },
             {
-                "trip_id": f"DB-{d3:%Y-%m%d}-MUC-CGN",
+                "trip_id": "DB-MUC-CGN",
                 "order_number": "MR4T9A",
                 "origin": "Munich Hbf",
                 "destination": "Cologne Hbf",
@@ -133,12 +137,27 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 "price_eur": 99.90,
                 "purpose": "Workshop Cologne",
             },
+            {
+                "trip_id": "DB-CGN-MUC",
+                "order_number": "MR4T9A",
+                "origin": "Köln Hbf",
+                "destination": "München Hbf",
+                "train": "ICE 517",
+                "planned_departure": _iso(today, "11:54"),
+                "planned_arrival": _iso(today, "16:29"),
+                "platform": "Platform 6",
+                "coach": "Coach 12",
+                "seat": "Seat 45, window",
+                "travel_class": 2,
+                "price_eur": 89.90,
+                "purpose": "Return from Cologne",
+            },
         ]
 
     if user_id == "u-erika-muster":
         return [
             {
-                "trip_id": f"DB-{d2:%Y-%m%d}-FRA-HAM",
+                "trip_id": "DB-FRA-HAM",
                 "order_number": "ZK1N8B",
                 "origin": "Frankfurt (Main) Hbf",
                 "destination": "Hamburg Hbf",
@@ -155,6 +174,96 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
         ]
 
     return []
+
+
+# --- Journey details (simulated itinerary for the trip-detail screen) ---------
+
+# Routes that involve a transfer in the simulated network; everything else is
+# rendered as a direct connection. Mirrors what a DB journey-details API would
+# return for the booked ticket.
+_JOURNEY_VIA = {
+    ("Munich Hbf", "Cologne Hbf"): {"station": "Frankfurt (Main) Hbf", "second_train": "ICE 924"},
+    ("Frankfurt (Main) Hbf", "Hamburg Hbf"): {"station": "Hannover Hbf", "second_train": "ICE 787"},
+}
+
+_TRANSFER_MINUTES = 14
+
+
+def _mock_platform(station: str) -> str:
+    """Deterministic platform number so the itinerary is stable across reloads."""
+    return str(sum(station.encode()) % 18 + 1)
+
+
+def _leg(train: str, origin: tuple, destination: tuple) -> dict:
+    (o_name, o_time, o_plat), (d_name, d_time, d_plat) = origin, destination
+    return {
+        "train": train,
+        "direction": d_name,
+        "origin": {"name": o_name, "planned": o_time.isoformat(timespec="minutes"), "platform": o_plat},
+        "destination": {"name": d_name, "planned": d_time.isoformat(timespec="minutes"), "platform": d_plat},
+    }
+
+
+def trip_journey(trip: dict) -> list[dict]:
+    """Expand a booked trip into its itinerary legs (simulated journey details).
+
+    Returns one entry per train leg with per-stop planned times and platforms —
+    the structure the trip-detail screen renders. Live delays and risk
+    forecasts are layered on top by the API endpoint.
+
+    Trips booked via the journey search carry their real itinerary in
+    ``trip["legs"]`` — those are used as-is; only the demo trips get the
+    simulated expansion below.
+    """
+    if trip.get("legs"):
+        return [
+            _leg(
+                leg.get("train") or "?",
+                (
+                    leg["origin"],
+                    datetime.fromisoformat(leg["planned_departure"]),
+                    leg.get("platform") or _mock_platform(leg["origin"]),
+                ),
+                (
+                    leg["destination"],
+                    datetime.fromisoformat(leg["planned_arrival"]),
+                    leg.get("arrival_platform") or _mock_platform(leg["destination"]),
+                ),
+            )
+            for leg in trip["legs"]
+        ]
+
+    dep = datetime.fromisoformat(trip["planned_departure"])
+    arr = datetime.fromisoformat(trip["planned_arrival"])
+    first_platform = (
+        (trip.get("platform") or "").removeprefix("Platform ").strip()
+        or _mock_platform(trip["origin"])
+    )
+
+    via = _JOURNEY_VIA.get((trip["origin"], trip["destination"]))
+    if via is None:
+        return [_leg(
+            trip["train"],
+            (trip["origin"], dep, first_platform),
+            (trip["destination"], arr, _mock_platform(trip["destination"])),
+        )]
+
+    # First leg covers ~55% of the riding time, then a fixed transfer window.
+    ride_minutes = (arr - dep).total_seconds() / 60 - _TRANSFER_MINUTES
+    via_arr = dep + timedelta(minutes=round(ride_minutes * 0.55))
+    via_dep = via_arr + timedelta(minutes=_TRANSFER_MINUTES)
+    return [
+        _leg(
+            trip["train"],
+            (trip["origin"], dep, first_platform),
+            (via["station"], via_arr, _mock_platform(via["station"])),
+        ),
+        _leg(
+            via["second_train"],
+            (via["station"], via_dep, _mock_platform(via["station"] + " dep")),
+            (trip["destination"], arr, _mock_platform(trip["destination"])),
+        ),
+    ]
 
 
 # --- Outlook calendar (simulated Graph API call) ------------------------------

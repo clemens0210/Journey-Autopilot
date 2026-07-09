@@ -1,0 +1,35 @@
+# Build context for the app image (Dockerfile at repo root).
+
+# VCS / editor / agent state
+.git
+.gitignore
+.gitattributes
+.claude
+.vscode
+.idea
+
+# Secrets — compose injects .env at runtime via env_file; never bake it in.
+.env
+.env.*
+!.env.example
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local runtime data — recreated inside the container under /data
+# (JA_DB_PATH / CHROMA_PATH), never copied from the host.
+src/journey_autopilot/data/chromadb/
+*.db
+*.sqlite3
+
+# The Node sidecar is its own build context (db_service/Dockerfile).
+db_service/
+
+# Not needed inside the image (README.md stays: pyproject.toml references it).
+docs/
+Dockerfile
+docker-compose.yml

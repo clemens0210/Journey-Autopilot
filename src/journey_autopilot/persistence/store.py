@@ -62,6 +62,10 @@ DEFAULT_PROFILE: dict = {
         "hotel_ok": True,                 # hotel instead of overnight travel acceptable
         "taxi_ok": True,                  # taxi for the last mile acceptable
     },
+    "mobility": {
+        "car_sharing_ok": True,           # Flinkster / car sharing acceptable as reroute alternative
+        "bike_sharing_ok": True,          # Call-a-Bike / bike sharing acceptable as reroute alternative
+    },
     "notifications": {
         "phone": None,
         "phone_verified": False,
@@ -75,6 +79,16 @@ DEFAULT_PROFILE: dict = {
         "outlook_name": None,
     },
     "autonomy": "approve_each",           # notify_only | approve_each | auto_within_limits
+    # Policy / veto gate — read by journey_autopilot.policy.resolve(). The
+    # onboarding "autonomy" choice seeds global_autonomy_level; the advanced
+    # settings screen can pin per-write-tool overrides (auto | ask, plus
+    # "ask_over_threshold" for booking). Empty write_tools => fall back to the
+    # config/policy.yaml defaults shifted by the global level.
+    "policy": {
+        "global_autonomy_level": "balanced",   # conservative | balanced | aggressive
+        "book_cost_threshold_eur": 50,
+        "write_tools": {},                      # e.g. {"book_hotel": "ask"}
+    },
     "onboarding_completed": False,
 }
 
@@ -171,6 +185,17 @@ def save_trips(user_id: str, trips: list[dict]) -> None:
             )
 
 
+def delete_trips(user_id: str, trip_ids: list[str]) -> None:
+    """Remove specific trips for a user (e.g. stale demo imports at re-login)."""
+    if not trip_ids:
+        return
+    with _connect() as conn:
+        conn.executemany(
+            "DELETE FROM trips WHERE user_id = ? AND trip_id = ?",
+            [(user_id, trip_id) for trip_id in trip_ids],
+        )
+
+
 def get_trips(user_id: str) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
@@ -179,6 +204,15 @@ def get_trips(user_id: str) -> list[dict]:
     trips = [json.loads(row[0]) for row in rows]
     trips.sort(key=lambda t: t.get("planned_departure") or "")
     return trips
+
+
+def delete_trip(user_id: str, trip_id: str) -> None:
+    """Remove a single imported/added trip for a user."""
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM trips WHERE user_id = ? AND trip_id = ?",
+            (user_id, trip_id),
+        )
 
 
 def any_profile() -> dict | None:

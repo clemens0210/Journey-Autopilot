@@ -139,6 +139,12 @@ def _seed_prompt(trip: dict | None, message: str) -> str:
         context += f", planned arrival {trip.get('planned_arrival')}"
     if when:
         context += f" on {when}"
+    if trip.get("price_eur") is not None:
+        # Give the agent the fare up front so a compensation claim doesn't stall
+        # asking the user for the ticket price.
+        context += f", ticket price {trip.get('price_eur')} EUR"
+    if trip.get("travel_class"):
+        context += f", {trip.get('travel_class')}. class"
     context += "."
     return f"{context}\n\n{message}"
 
@@ -280,6 +286,35 @@ async def chat_turn(
         notify_phone or "(none)",
         alert,
     )
+    # Reset the in-process reroute slot so options from a previous turn are
+    # never shown. The Planner's find_reroute_options tool repopulates it when
+    # it runs; read after the loop. (Base AgentTool runs the sub-agent in its
+    # own runner, so the tool payload doesn't surface in the event stream —
+    # see tools/read_tools.py.)
+    try:
+        from ..tools import read_tools
+        read_tools.clear_reroute_options()
+    except Exception:
+        read_tools = None  # type: ignore[assignment]
+
+    async for event in runner.run_async(
+        user_id=USER_ID, session_id=session_id, new_message=new_message
+    ):
+        if event.is_final_response() and event.content and event.content.parts:
+            reply = "".join(
+                p.text for p in event.content.parts if getattr(p, "text", None)
+            )
+            continue
+        trace.extend(_describe(event))
+
+    # Pick up the structured option list the Planner's tool stashed, if any.
+    options: list[dict] | None = None
+    options_source: str | None = None
+    if read_tools is not None:
+        stashed = read_tools.last_reroute_options()
+        if stashed and stashed.get("options"):
+            options = stashed["options"]
+            options_source = stashed.get("source")
 
     return {
         "session_id": session_id,
@@ -287,4 +322,6 @@ async def chat_turn(
         "trace": trace,
         "risk_band": risk_band,
         "alert": alert,
+        "options": options,
+        "options_source": options_source,
     }

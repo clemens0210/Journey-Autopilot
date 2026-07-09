@@ -22,6 +22,8 @@ const state = {
   editReturn: null, // "dashboard" / "profile" = return target after editing
   phone: { sent: false, verifiedThisSession: false },
   chat: null, // { sessionId, trip, messages: [...], busy } when a trip chat is open
+  tripDetail: null, // { trip, data, error } when the trip-detail screen is open
+  book: null, // { from, to, departure, results, error } for the Book tab
 };
 
 const STEPS = [
@@ -68,7 +70,7 @@ function escapeHtml(s) {
 
 // Inline SVGs in DB Navigator style — brand mark and icons for the trip cards.
 const SVG = {
-  dbLogo: `<svg viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>`,
+  dbLogo: `<img src="/static/db-logo.png" alt="DB Logo" class="db-logo-img">`,
   origin: `<svg class="ic" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>`,
   pin: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.4" fill="currentColor"/></svg>`,
   calendar: `<svg class="ic" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="16" rx="2.5" stroke="currentColor" stroke-width="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
@@ -76,33 +78,71 @@ const SVG = {
   bell: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 19a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   download: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   qr: `<svg viewBox="0 0 24 24" fill="#111"><path d="M3 3h7v7H3V3Zm2 2v3h3V5H5Zm9-2h7v7h-7V3Zm2 2v3h3V5h-3ZM3 14h7v7H3v-7Zm2 2v3h3v-3H5Zm11-2h2v2h-2v-2Zm3 0h2v2h-2v-2Zm-3 3h2v2h-2v-2Zm0 3h2v2h-2v-2Zm3-3h2v2h-2v-2Zm0 3h2v2h-2v-2Z"/></svg>`,
+  transfer: `<svg class="ic" viewBox="0 0 24 24" fill="none"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg>`,
+  trash: `<svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
+
+// Route grid for a trip card. Single-leg journeys keep the simple origin →
+// destination layout; multi-leg journeys (self-added connections, or any trip
+// with >1 leg) render the full station chain — origin → each change station →
+// final destination — using the existing .route grid markers.
+function routeHTML(t) {
+  const legs = Array.isArray(t.legs) ? t.legs : [];
+  if (legs.length > 1) {
+    // leg[i].destination === leg[i+1].origin, so taking each leg's destination
+    // (after the origin) yields the change chain without duplicates.
+    const stops = [legs[0].origin, ...legs.map((leg) => leg.destination)];
+    const rows = stops.map((stop, i) => {
+      const isLast = i === stops.length - 1;
+      const marker = isLast ? SVG.pin : i === 0 ? SVG.origin : SVG.transfer;
+      const dots = isLast ? "" : `<span class="dots"><i></i><i></i><i></i></span><span></span>`;
+      return `<span class="marker">${marker}</span><span class="station${isLast ? "" : " intermediate"}">${escapeHtml(stop || "")}</span>${dots}`;
+    }).join("");
+    return `<div class="route multi">${rows}</div>`;
+  }
+  return `
+    <div class="route">
+      <span class="marker">${SVG.origin}</span><span class="station">${escapeHtml(t.origin || "")}</span>
+      <span class="dots"><i></i><i></i><i></i></span><span></span>
+      <span class="marker">${SVG.pin}</span><span class="station">${escapeHtml(t.destination || "")}</span>
+    </div>`;
+}
 
 // A trip card in DB Navigator layout: DB logo + train, purpose of travel,
 // origin/destination with dot/pin markers, date/time, and a footer status.
 // When `index` is given the card becomes clickable (opens the trip chat).
-function tripCardHTML(t, { foot, live = false, index = null } = {}) {
+// `deletable` renders a trash button (data-trip-delete-id) in the head; the
+// dashboard wires a delegated handler that stops propagation so the card click
+// (chat) doesn't fire. The seat/coach/platform row is hidden when none of
+// those fields are present (self-added trips have no booking).
+function tripCardHTML(t, { foot, live = false, index = null, deletable = false } = {}) {
   const clickable = index !== null;
+  const legs = Array.isArray(t.legs) ? t.legs : [];
+  const trains = Array.isArray(t.trains) ? t.trains : (t.train ? [t.train] : []);
+  const multi = legs.length > 1;
+  const trainHead = escapeHtml(t.train || "") + (trains.length > 1 ? ` <span class="train-more">+${trains.length - 1}</span>` : "");
+  const hasSeatRow = t.platform || t.coach || t.seat;
+  const deleteBtn = deletable
+    ? `<button class="trip-delete" type="button" data-trip-delete-id="${escapeHtml(t.trip_id || "")}" aria-label="Delete trip" title="Delete trip">${SVG.trash}</button>`
+    : "";
   return `
     <div class="trip-card${clickable ? " clickable" : ""}"${clickable ? ` data-trip-index="${index}"` : ""}>
       <div class="trip-head">
         <span class="db-logo">${SVG.dbLogo}</span>
-        <span class="train">${t.train}</span>
+        <span class="train">${trainHead}</span>
         <span class="trip-head-right">
+          ${deleteBtn}
           <span>${t.travel_class}. Kl.</span>
           <span class="qr">${SVG.qr}</span>
         </span>
       </div>
-      <div class="trip-fare">${t.purpose}</div>
+      <div class="trip-fare">${escapeHtml(t.purpose || "")}</div>
       <hr class="trip-divider">
       <div class="trip-body">
-        <div class="route">
-          <span class="marker">${SVG.origin}</span><span class="station">${t.origin}</span>
-          <span class="dots"><i></i><i></i><i></i></span><span></span>
-          <span class="marker">${SVG.pin}</span><span class="station">${t.destination}</span>
-        </div>
+        ${routeHTML(t)}
         <div class="trip-meta-row">${SVG.calendar} ${fmtDate(t.planned_departure)} · ${fmtTime(t.planned_departure)} – ${fmtTime(t.planned_arrival)}</div>
-        <div class="trip-meta-row">${SVG.seat} ${t.platform} · ${t.coach}, ${t.seat}</div>
+        ${multi ? `<div class="trip-meta-row">${SVG.transfer} ${trains.map(escapeHtml).join(" → ")} · ${legs.length - 1} change${legs.length - 1 === 1 ? "" : "s"}</div>` : ""}
+        ${hasSeatRow ? `<div class="trip-meta-row">${SVG.seat} ${escapeHtml(t.platform || "")}${t.coach ? ` · ${escapeHtml(t.coach)}` : ""}${t.seat ? `, ${escapeHtml(t.seat)}` : ""}</div>` : ""}
       </div>
       ${foot ? `<div class="trip-foot ${live ? "live" : ""}">${live ? SVG.bell : SVG.download} ${foot}</div>` : ""}
     </div>`;
@@ -117,6 +157,22 @@ function toast(msg, ms = 4200) {
   toastTimer = setTimeout(() => { node.hidden = true; }, ms);
 }
 
+// Policy / veto gate — display labels and the onboarding-autonomy mapping.
+const POLICY_LEVEL_LABEL = {
+  conservative: "Conservative — asks before everything",
+  balanced: "Balanced",
+  aggressive: "Automatic within limits",
+};
+const AUTONOMY_TO_LEVEL = {
+  notify_only: "conservative",
+  approve_each: "balanced",
+  auto_within_limits: "aggressive",
+};
+function policyOverrideCount(p) {
+  const wt = (p.policy && p.policy.write_tools) || {};
+  return Object.values(wt).filter((v) => v && v !== "default").length;
+}
+
 // Display labels for the internally stored profile values
 const LABELS = {
   fenster: "Window", gang: "Aisle", egal: "No preference",
@@ -125,12 +181,35 @@ const LABELS = {
 const seatLabel = (pref) =>
   `${LABELS[pref.seat_location]}, ${LABELS[pref.seat_area]}${pref.quiet_zone ? ", quiet zone" : ""}`;
 
-const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", {
-  weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
-});
-const fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-US", {
+const fmtDate = (iso) => new Date(iso).toLocaleDateString("de-DE", {
+  day: "2-digit", month: "2-digit", year: "numeric",
+}).replace(/\./g, "/");
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString("de-DE", {
   hour: "2-digit", minute: "2-digit",
 });
+const fmtDuration = (minutes) =>
+  minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}min` : `${minutes}min`;
+const minutesBetween = (isoA, isoB) => Math.round((new Date(isoB) - new Date(isoA)) / 60000);
+const shiftedTime = (iso, delayMinutes) => new Date(new Date(iso).getTime() + delayMinutes * 60000);
+
+const tripStartTime = (trip) => {
+  const time = new Date(trip?.planned_departure || "").getTime();
+  return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER;
+};
+const tripEndTime = (trip) => {
+  const time = new Date(trip?.planned_arrival || trip?.planned_departure || "").getTime();
+  return Number.isFinite(time) ? time : null;
+};
+const isPastTrip = (trip, now = new Date()) => {
+  const end = tripEndTime(trip);
+  return end !== null && end < now.getTime();
+};
+const isUpcomingTrip = (trip, now = new Date()) => {
+  const start = tripStartTime(trip);
+  return start !== Number.MAX_SAFE_INTEGER && start >= now.getTime();
+};
+const sortTripsByDate = (trips) =>
+  [...(trips || [])].sort((a, b) => tripStartTime(a) - tripStartTime(b));
 
 function setNav({ back = true, next = "Next", skip = null, nextEnabled = true } = {}) {
   $("#tabbar").hidden = true; // tab bar only in the dashboard (see renderers.dashboard)
@@ -152,20 +231,18 @@ function setProgress(step) {
   }
 }
 
-function setupHomeStationAutocomplete(home) {
-  const input = $("#home-station");
-  const sugBox = $("#station-suggestions");
-  if (!input || !sugBox) return;
+function setupStationAutocomplete(inputEl, sugBoxEl, initial) {
+  if (!inputEl || !sugBoxEl) return null;
 
-  let selected = home.home_station || null;
+  let selected = initial || null;
   let debounce = null;
 
-  input.addEventListener("input", () => {
+  inputEl.addEventListener("input", () => {
     selected = null;
     clearTimeout(debounce);
     debounce = setTimeout(async () => {
-      const q = input.value.trim();
-      sugBox.innerHTML = "";
+      const q = inputEl.value.trim();
+      sugBoxEl.innerHTML = "";
       if (q.length < 2) return;
       const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
       if (!data.stations.length) return;
@@ -177,16 +254,23 @@ function setupHomeStationAutocomplete(home) {
         b.textContent = data.source === "db-live" ? `🟢 ${s.name}` : s.name;
         b.addEventListener("click", () => {
           selected = s;
-          input.value = s.name;
-          sugBox.innerHTML = "";
+          inputEl.value = s.name;
+          sugBoxEl.innerHTML = "";
         });
         list.appendChild(b);
       });
-      sugBox.replaceChildren(list);
+      sugBoxEl.replaceChildren(list);
     }, 250);
   });
 
-  screen._getHomeStation = () => selected || (input.value.trim() ? { id: null, name: input.value.trim() } : null);
+  return () => selected || (inputEl.value.trim() ? { id: null, name: inputEl.value.trim() } : null);
+}
+
+function setupHomeStationAutocomplete(home) {
+  // Thin wrapper that exposes the selected home station via screen._getHomeStation,
+  // preserving the contract the preferences/home/profile screens rely on.
+  const getStation = setupStationAutocomplete($("#home-station"), $("#station-suggestions"), home.home_station || null);
+  if (getStation) screen._getHomeStation = getStation;
 }
 
 function updateTopbarAccount() {
@@ -201,7 +285,9 @@ function updateTopbarAccount() {
 
 function setActiveTab(tab) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-  const el = tab === "trips" ? $("#tab-trips") : tab === "profile" ? $("#tab-profile") : null;
+  const el = tab === "trips" ? $("#tab-trips")
+    : tab === "profile" ? $("#tab-profile")
+    : tab === "book" ? $("#tab-book") : null;
   if (el) el.classList.add("active");
 }
 
@@ -215,7 +301,7 @@ const renderers = {
   welcome() {
     screen.replaceChildren(el(`
       <div class="card hero">
-        <svg class="hero-logo" viewBox="0 0 64 44"><rect width="64" height="44" rx="9" fill="#EC0016"/><rect x="5" y="5" width="54" height="34" rx="5" fill="#fff"/><text x="32" y="33" font-size="27" font-weight="900" fill="#EC0016" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif">DB</text></svg>
+        <img class="hero-logo" src="/static/db-logo.png" alt="DB Logo">
         <h1>Your Journey Autopilot</h1>
         <p class="muted">Travels with you. Thinks ahead. Replans before you have to.</p>
         <ul class="feature-list">
@@ -397,6 +483,7 @@ const renderers = {
   preferences() {
     const p = state.profile.preferences;
     const h = state.profile.home;
+    const mob = state.profile.mobility || {};
     screen.replaceChildren(el(`
       <div class="card">
         <h2>Your travel preferences</h2>
@@ -467,6 +554,14 @@ const renderers = {
             <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
             <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
           </div>
+          <div class="switch-row">
+            <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+            <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+          </div>
+          <div class="switch-row">
+            <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+            <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+          </div>
         </div>
       ` : ""}
     `));
@@ -501,6 +596,7 @@ const renderers = {
   // -- 6: Home & constraints --------------------------------------------------------------
   home() {
     const h = state.profile.home;
+    const mob = state.profile.mobility || {};
     screen.replaceChildren(el(`
       <div class="card">
         <h2>Home &amp; hard limits</h2>
@@ -526,6 +622,14 @@ const renderers = {
         <div class="switch-row">
           <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
           <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+          <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+          <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
         </div>
       </div>
     `));
@@ -619,13 +723,23 @@ const renderers = {
     setNav({ back: true, next: "Finish onboarding 🚀" });
   },
 
-  // -- Dashboard -------------------------------------------------------------------------------
+  // -- Dashboard -------------------------------------------------------------------------
   dashboard() {
     const p = state.profile;
     const pref = p.preferences;
-    const nextTrip = state.trips[0];
-    const cards = state.trips
-      .map((t, i) => tripCardHTML(t, { foot: "Monitored by the autopilot · tap to chat", live: true, index: i }))
+    const now = new Date();
+    const sortedTrips = sortTripsByDate(state.trips);
+    const nextTrip = sortedTrips.find((t) => isUpcomingTrip(t, now));
+    const cards = sortedTrips
+      .map((t, i) => {
+        const past = isPastTrip(t, now);
+        return tripCardHTML(t, {
+          foot: past ? "Past trip" : "Monitored by the autopilot · tap to chat",
+          live: !past,
+          index: i,
+          deletable: true,
+        });
+      })
       .join("");
 
     screen.replaceChildren(el(`
@@ -633,10 +747,15 @@ const renderers = {
         <h1>Hi ${state.account.first_name} 👋</h1>
         <p class="muted">${nextTrip
           ? `Your next trip starts ${fmtDate(nextTrip.planned_departure)} at ${fmtTime(nextTrip.planned_departure)} — the autopilot is watching.`
-          : "No upcoming trips — the autopilot is ready."}</p>
+          : "No upcoming trips — past trips are kept for your records."}</p>
       </div>
 
-      <div class="section-title"><h2>Monitored trips</h2></div>
+      <div class="section-title">
+        <h2>Monitored trips</h2>
+        <div class="section-actions">
+          <button id="add-trip" type="button">+ Add trip</button>
+        </div>
+      </div>
       ${cards || '<div class="card"><p class="muted">No trips imported.</p></div>'}
       <div class="card clickable" id="general-chat-card" style="cursor:pointer; display:flex; flex-direction:column; gap:4px">
         <span style="font-weight:600">💬 Ask the autopilot about any trip</span>
@@ -654,6 +773,12 @@ const renderers = {
         <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
         <div class="summary-row"><span class="k">Home station</span><span class="v">${p.home.home_station?.name || "—"}</span></div>
         <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
+      </div>
+
+      <div class="section-title"><h2>Automation &amp; veto</h2><button id="edit-policy" type="button">Manage</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Autonomy level</span><span class="v">${POLICY_LEVEL_LABEL[(p.policy && p.policy.global_autonomy_level) || "balanced"]}</span></div>
+        <div class="summary-row"><span class="k">Pinned action rules</span><span class="v">${policyOverrideCount(p)}</span></div>
       </div>
 
       <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
@@ -674,19 +799,28 @@ const renderers = {
     $("#tabbar").hidden = false; // mock tab bar of the DB Navigator
     setActiveTab("trips");
 
-    // Clicking a monitored trip opens the chat that runs the orchestrator demo.
+    // Clicking a monitored trip opens the journey detail screen (delay + forecast).
     screen.querySelectorAll(".trip-card.clickable").forEach((cardEl) => {
-      cardEl.addEventListener("click", () => openChat(state.trips[Number(cardEl.dataset.tripIndex)]));
+      cardEl.addEventListener("click", () => openTripDetail(sortedTrips[Number(cardEl.dataset.tripIndex)]));
+    });
+
+    // Attach the delete handler directly to each trash button (per-element) so
+    // its stopPropagation fires on the button and blocks the card click above.
+    screen.querySelectorAll(".trip-delete").forEach((btn) => {
+      btn.addEventListener("click", onDeleteTripClick);
     });
     $("#general-chat-card")?.addEventListener("click", () => openChat(null));
 
+    $("#add-trip").addEventListener("click", () => go("book"));
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
+    $("#edit-policy").addEventListener("click", () => go("policy"));
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -698,6 +832,7 @@ const renderers = {
     const p = state.profile;
     const pref = p.preferences;
     const h = p.home;
+    const mob = p.mobility || {};
 
     screen.replaceChildren(el(`
       <div class="dash-greeting">
@@ -734,6 +869,14 @@ const renderers = {
           <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
           <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
         </div>
+        <div class="switch-row">
+          <span>🚗 Car sharing okay (Flinkster)<span class="sub">Suggest a rental car when trains are disrupted</span></span>
+          <label class="switch"><input type="checkbox" id="car-sharing-ok" ${mob.car_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>🚲 Bike sharing okay (Call-a-Bike)<span class="sub">Suggest an e-bike for short last-mile legs</span></span>
+          <label class="switch"><input type="checkbox" id="bike-sharing-ok" ${mob.bike_sharing_ok !== false ? "checked" : ""}><span class="track"></span></label>
+        </div>
         <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
       </div>
 
@@ -743,6 +886,12 @@ const renderers = {
         <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
         <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
         <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
+      </div>
+
+      <div class="section-title"><h2>Automation &amp; veto</h2><button id="edit-policy" type="button">Manage</button></div>
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Autonomy level</span><span class="v">${POLICY_LEVEL_LABEL[(p.policy && p.policy.global_autonomy_level) || "balanced"]}</span></div>
+        <div class="summary-row"><span class="k">Pinned action rules</span><span class="v">${policyOverrideCount(p)}</span></div>
       </div>
 
       <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
@@ -774,6 +923,10 @@ const renderers = {
             hotel_ok: $("#hotel-ok").checked,
             taxi_ok: $("#taxi-ok").checked,
           },
+          mobility: {
+            car_sharing_ok: $("#car-sharing-ok").checked,
+            bike_sharing_ok: $("#bike-sharing-ok").checked,
+          },
         });
         toast("✓ Home settings saved");
       } catch (err) {
@@ -783,11 +936,13 @@ const renderers = {
 
     $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
     $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("connections"); });
+    $("#edit-policy").addEventListener("click", () => go("policy"));
     $("#delete-profile").addEventListener("click", async () => {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -910,37 +1065,30 @@ const renderers = {
     }
   },
 
-// --- Profile (reachable via the Profile tab in the bottom tab bar) ---------------
-  profile() {
-    const p = state.profile;
-    const pref = p.preferences;
-    const h = p.home;
+  // -- Book: live journey search via db_service, adds the pick to "Trips" ----------
+  book() {
+    if (!state.book) {
+      state.book = { from: null, to: null, departure: nowLocalISO(), results: null, error: null };
+    }
+    const b = state.book;
 
     screen.replaceChildren(el(`
       <div class="dash-greeting">
-        <h1>Profile</h1>
+        <h1>Book a trip</h1>
+        <p class="muted">Search live connections and add one to your monitored trips — handy for testing the autopilot on a real, current journey.</p>
       </div>
-
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Name</span><span class="v">${state.account.display_name}</span></div>
-        <div class="summary-row"><span class="k">Email</span><span class="v">${state.account.email}</span></div>
-        <div class="summary-row"><span class="k">BahnCard</span><span class="v">${state.account.bahncard}</span></div>
-        <div class="summary-row"><span class="k">BahnBonus</span><span class="v">${state.account.bahnbonus_status} · ${state.account.bahnbonus_points.toLocaleString("en-US")} points</span></div>
-      </div>
-
-      <div class="section-title"><h2>Home station</h2></div>
       <div class="card">
-        <label class="field">Home station
-          <span class="hint">Search uses live DB data once db_service is running</span>
+        <label class="field">From
           <span class="autocomplete">
-            <input type="text" id="home-station" placeholder="e.g. München Hbf" autocomplete="off" value="${h.home_station?.name || ""}">
-            <span id="station-suggestions"></span>
+            <input type="text" id="book-from" placeholder="e.g. München Hbf" autocomplete="off" value="${b.from?.name || ""}">
+            <span id="book-from-sug"></span>
           </span>
         </label>
-
-        <label class="field">Latest arrival home
-          <span class="hint">After this, the autopilot prefers to suggest a hotel</span>
-          <input type="time" id="latest-arrival" value="${h.latest_arrival_home}">
+        <label class="field">To
+          <span class="autocomplete">
+            <input type="text" id="book-to" placeholder="e.g. Berlin Hbf" autocomplete="off" value="${b.to?.name || ""}">
+            <span id="book-to-sug"></span>
+          </span>
         </label>
 
         <div class="switch-row">
@@ -972,89 +1120,97 @@ const renderers = {
       <div class="card">
         <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
         <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
+        <label class="field">Departure
+          <input type="datetime-local" id="book-depart" value="${b.departure}">
+        </label>
+        <p class="error" id="book-error"></p>
+        <button class="btn primary block" id="book-search" type="button">Search connections</button>
+        <div class="demo-hint">🎓 Live data — requires the <code>db_service</code> sidecar to be running.</div>
       </div>
+      <div id="book-results"></div>
     `));
-
     $("#navbar").hidden = true;
     $("#progress").hidden = true;
     $("#tabbar").hidden = false;
-    setActiveTab("profile");
+    setActiveTab("book");
 
-    setupHomeStationAutocomplete(h);
+    const getFrom = attachStationAutocomplete($("#book-from"), $("#book-from-sug"), (s) => { b.from = s; });
+    const getTo = attachStationAutocomplete($("#book-to"), $("#book-to-sug"), (s) => { b.to = s; });
+    renderBookResults();
 
-    $("#save-home").addEventListener("click", async () => {
+    $("#book-depart").addEventListener("change", () => { b.departure = $("#book-depart").value; });
+    $("#book-search").addEventListener("click", async () => {
+      const errEl = $("#book-error");
+      errEl.textContent = "";
       try {
-        await saveProfile({
-          home: {
-            home_station: screen._getHomeStation(),
-            latest_arrival_home: $("#latest-arrival").value,
-            hotel_ok: $("#hotel-ok").checked,
-            taxi_ok: $("#taxi-ok").checked,
-          },
-        });
-        toast("✓ Home settings saved");
+        const from = getFrom() || b.from || await resolveStation($("#book-from").value);
+        const to = getTo() || b.to || await resolveStation($("#book-to").value);
+        if (!from || !to) throw new Error("Please pick both stations from the suggestions.");
+        b.from = from;
+        b.to = to;
+        b.results = null;
+        b.error = null;
+        $("#book-results").innerHTML = `<div class="device-waiting"><span class="spinner"></span>Searching connections…</div>`;
+        const departure = new Date($("#book-depart").value || Date.now()).toISOString();
+        const data = await api(
+          `/api/journeys?from_id=${encodeURIComponent(from.id)}&to_id=${encodeURIComponent(to.id)}&departure=${encodeURIComponent(departure)}`
+        );
+        b.results = data.journeys;
+        renderBookResults();
       } catch (err) {
-        toast(`⚠️ ${err.message}`);
+        b.results = null;
+        b.error = err.message;
+        renderBookResults();
       }
-    });
-
-    $("#edit-prefs").addEventListener("click", () => { state.editReturn = "profile"; go("preferences"); });
-    $("#edit-connections").addEventListener("click", () => { state.editReturn = "profile"; go("connections"); });
-    $("#delete-profile").addEventListener("click", async () => {
-      if (!confirm("Really delete all data? This cannot be undone.")) return;
-      await api("/api/profile", { method: "DELETE" });
-      sessionStorage.removeItem("ja_token");
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null });
-      updateTopbarAccount();
-      toast("All data deleted. See you soon!");
-      go("welcome");
     });
   },
 
-  // -- Connections (reachable via "Manage" on the profile/dashboard) ---------------
-  connections() {
-    const phoneVerified = state.profile?.notifications?.phone_verified;
-    const outlookConnected = state.profile?.connections?.outlook;
-    const events = state.outlookEvents.map((e) => `
-      <div class="event-row">
-        <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
-        <span><span class="event-title">${e.title}</span>
-          <span class="event-loc">${e.location}</span>
-          ${e.hard_constraint ? '<span class="event-hard">Hard deadline</span>' : ""}
-        </span>
-      </div>
-    `).join("");
+  // -- Automation & veto (policy layer) — per-write-tool auto/ask + global level ----
+  policy() {
+    const pol = state.profile.policy || { global_autonomy_level: "balanced", book_cost_threshold_eur: 50, write_tools: {} };
+    const wt = pol.write_tools || {};
+    const level = pol.global_autonomy_level || "balanced";
+    const thr = pol.book_cost_threshold_eur ?? 50;
+
+    const opt = (value, label, current) =>
+      `<option value="${value}" ${(current || "default") === value ? "selected" : ""}>${label}</option>`;
+    const toolSelect = (key, withThreshold = false) => `
+      <select data-tool="${key}" class="policy-select">
+        ${opt("default", "Default (by level)", wt[key])}
+        ${opt("auto", "Always auto", wt[key])}
+        ${opt("ask", "Always ask", wt[key])}
+        ${withThreshold ? opt("ask_over_threshold", "Ask if over limit", wt[key]) : ""}
+      </select>`;
+    const toolRow = (label, sub, control) => `
+      <div class="switch-row">
+        <span>${label}<span class="sub">${sub}</span></span>
+        ${control}
+      </div>`;
 
     screen.replaceChildren(el(`
       <div class="dash-greeting">
-        <h1>Connections</h1>
-        <p class="muted">Manage your linked accounts and notification channels.</p>
+        <h1>Automation &amp; veto</h1>
+        <p class="muted">Decide which actions the autopilot may take on its own and which need your okay. These settings are saved and applied on every run.</p>
       </div>
 
-      <div class="section-title"><h2>Phone number</h2></div>
       <div class="card">
-        ${phoneVerified ? `
-          <div class="success-banner">✓ ${state.profile.notifications.phone} is confirmed</div>
-          <p class="muted" style="margin-top:10px">To change your number, disconnect first and re-verify.</p>
-          <button class="btn danger block" id="phone-disconnect" type="button">Remove number</button>
-        ` : `
-          <p class="muted">With a confirmed number we can reach you with alerts and replanning suggestions via SMS/WhatsApp — even when the app is closed.</p>
-          <label class="field">Phone number
-            <input type="tel" id="phone-input" placeholder="+49 151 12345678" autocomplete="tel" value="${state.profile?.notifications?.phone || ""}">
-          </label>
-          <button class="btn primary block" id="phone-send" type="button">Send code</button>
-          <div id="phone-confirm-area" hidden>
-            <label class="field" style="margin-top:16px">Confirmation code
-              <input type="text" id="phone-code" class="code-input" inputmode="numeric" maxlength="4" placeholder="····">
-            </label>
-            <button class="btn primary block" id="phone-verify" type="button">Confirm</button>
-          </div>
-          <p class="error" id="phone-error"></p>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> No real SMS is sent — the code is shown as a notification.</div>
-        `}
+        <h2>How independent should the autopilot be?</h2>
+        <div class="choices cols-1" data-group="alevel">
+          <button type="button" class="choice" data-value="conservative">
+            <span class="choice-title">🛡️ Conservative</span>
+            <span class="choice-sub">Ask before every action — maximum control.</span>
+          </button>
+          <button type="button" class="choice" data-value="balanced">
+            <span class="choice-title">⚖️ Balanced</span>
+            <span class="choice-sub">Beneficial &amp; free actions run automatically, the rest asks.</span>
+          </button>
+          <button type="button" class="choice" data-value="aggressive">
+            <span class="choice-title">🤖 Automatic within limits</span>
+            <span class="choice-sub">Most actions run automatically; hotels &amp; emails to others still ask.</span>
+          </button>
+        </div>
       </div>
 
-      <div class="section-title"><h2>Outlook calendar</h2></div>
       <div class="card">
         <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
         ${outlookConnected ? `
@@ -1066,6 +1222,22 @@ const renderers = {
           <div id="outlook-device-flow"></div>
           <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
         `}
+        <h2>Per-action overrides</h2>
+        <p class="muted" style="margin-top:0">"Default (by level)" follows the choice above. Pin a specific action to always run or always ask.</p>
+        ${toolRow("📲 Notify me", "You are the recipient — always automatic", '<span class="v muted">Always auto</span>')}
+        ${toolRow("💶 File compensation claim", "Purely beneficial, money back for you", toolSelect("file_compensation_claim"))}
+        ${toolRow("🗓️ Move a tentative appointment", "Reversible calendar change", toolSelect("reschedule_outlook_event_tentative"))}
+        ${toolRow("📅 Move a confirmed appointment", "Not freely reversible", toolSelect("reschedule_outlook_event_confirmed"))}
+        ${toolRow("🔀 Rebook an alternative train", "Cost depends on the option", toolSelect("book_alternative_connection", true))}
+        ${toolRow("🏨 Book a hotel", "Cost + overnight — high commitment", toolSelect("book_hotel"))}
+        ${toolRow("✉️ Email participants", "Affects third parties (clients, colleagues)", toolSelect("send_email_to_participants"))}
+
+        <label class="field" style="margin-top:12px">Rebooking cost limit (EUR)
+          <span class="hint">Used by "Ask if over limit" — under it rebooks automatically, over it asks</span>
+          <input type="number" id="book-threshold" min="0" step="5" value="${thr}">
+        </label>
+
+        <button class="btn primary block" id="save-policy" type="button" style="margin-top:14px">Save automation settings</button>
       </div>
     `));
 
@@ -1097,35 +1269,69 @@ const renderers = {
         } catch (err) {
           $("#phone-error").textContent = err.message;
         }
+    const box = screen.querySelector('[data-group="alevel"]');
+    box.querySelectorAll(".choice").forEach((btn) => {
+      if (btn.dataset.value === level) btn.classList.add("selected");
+      btn.addEventListener("click", () => {
+        box.querySelectorAll(".choice").forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
       });
+    });
 
-      $("#phone-verify").addEventListener("click", async () => {
-        $("#phone-error").textContent = "";
-        try {
-          const data = await api("/api/verify/phone/confirm", {
-            method: "POST", body: { code: $("#phone-code").value },
-          });
-          state.profile = data.profile;
-          toast("✓ Number confirmed");
-          renderers.connections();
-        } catch (err) {
-          $("#phone-error").textContent = err.message;
-        }
-      });
-    }
-
-    // --- Outlook handlers ---
-    if (outlookConnected) {
-      $("#outlook-disconnect").addEventListener("click", async () => {
-        const data = await api("/api/connect/outlook", { method: "DELETE" });
-        state.profile = data.profile;
-        state.outlookEvents = [];
-        renderers.connections();
-      });
-    } else {
-      $("#outlook-connect").addEventListener("click", () => startOutlookConnect());
-    }
+    $("#save-policy").addEventListener("click", async () => {
+      const write_tools = {};
+      screen.querySelectorAll("select[data-tool]").forEach((s) => { write_tools[s.dataset.tool] = s.value; });
+      try {
+        await saveProfile({
+          policy: {
+            global_autonomy_level: box.querySelector(".choice.selected")?.dataset.value || level,
+            book_cost_threshold_eur: Number($("#book-threshold").value) || 0,
+            write_tools,
+          },
+        });
+        toast("✓ Automation settings saved");
+      } catch (err) {
+        toast(`⚠️ ${err.message}`);
+      }
+    });
   },
+
+  // -- Trip detail: full itinerary with live delay + risk forecast (mock) ----------
+  tripdetail() {
+    const { trip, data, error } = state.tripDetail;
+    const duration = minutesBetween(trip.planned_departure, trip.planned_arrival);
+
+    let body;
+    if (error) {
+      body = `<div class="jd-error">⚠️ ${escapeHtml(error)}</div>`;
+    } else if (!data) {
+      body = `<div class="device-waiting"><span class="spinner"></span>Loading live journey data…</div>`;
+    } else {
+      body = journeyHTML(data);
+    }
+
+    screen.replaceChildren(el(`
+      <div class="chat-head">
+        <button class="chat-back" id="jd-back" type="button" aria-label="Back">‹</button>
+        <div class="chat-trip">
+          <span class="chat-route">${trip.origin} → ${trip.destination}</span>
+          <span class="chat-sub">${fmtDate(trip.planned_departure)} · Duration: ${fmtDuration(duration)}</span>
+        </div>
+        <span class="chat-live">● live</span>
+      </div>
+      <div class="jd-body">${body}</div>
+      <div class="jd-actions">
+        <button class="btn primary block" id="jd-chat" type="button">Ask the autopilot about this trip</button>
+      </div>
+    `));
+    $("#navbar").hidden = true;
+    $("#tabbar").hidden = true;
+    $("#progress").hidden = true;
+
+    $("#jd-back").addEventListener("click", () => { state.tripDetail = null; go("dashboard"); });
+    $("#jd-chat").addEventListener("click", () => openChat(trip));
+  },
+
 
   // -- Trip chat: runs the ReAct orchestrator (the scenarios/happy_path.py flow) ------------
   chat() {
@@ -1134,6 +1340,16 @@ const renderers = {
       ? `<div class="chat-trip">
           <span class="chat-route">${trip.origin} → ${trip.destination}</span>
           <span class="chat-sub">${trip.train} · ${fmtDate(trip.planned_departure)} · ${fmtTime(trip.planned_departure)}</span>
+    const chatRoute = `${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}`;
+    const chatTrain = escapeHtml(trip.train || "Connection");
+    const chatDate = escapeHtml(fmtDate(trip.planned_departure));
+    const chatTime = escapeHtml(fmtTime(trip.planned_departure));
+    screen.replaceChildren(el(`
+      <div class="chat-head">
+        <button class="chat-back" id="chat-back" type="button" aria-label="Back">‹</button>
+        <div class="chat-trip">
+          <span class="chat-route">${chatRoute}</span>
+          <span class="chat-sub">${chatTrain} · ${chatDate} · ${chatTime}</span>
         </div>
         <span class="chat-live">● live</span>`
       : `<div class="chat-trip">
@@ -1159,8 +1375,13 @@ const renderers = {
     $("#progress").hidden = true;
 
     renderChatLog();
-    $("#chat-back").addEventListener("click", () => { state.chat = null; go("dashboard"); });
+    // Leave the chat object in place — reopening this trip resumes it (see openChat).
+    $("#chat-back").addEventListener("click", () => go(state.tripDetail ? "tripdetail" : "dashboard"));
     $("#chat-form").addEventListener("submit", onChatSubmit);
+    // Delegated click handler for reroute option cards — one listener on the
+    // log survives re-renders. Clicking sends "Take option <id>" as the next
+    // user turn and marks the batch as chosen so the cards grey out.
+    $("#chat-log").addEventListener("click", onOptionCardClick);
     $("#chat-text").focus();
   },
 };
@@ -1176,12 +1397,290 @@ function openChat(trip = null) {
     : `Hi ${state.account.first_name}! I'm your monitoring assistant. Describe any trip — e.g. `
       + `"risk for an ICE from Cologne Hbf to Hamburg Hbf on 2026-06-30 at 09:00" — and I'll check the `
       + `delay risk, reroute options, and your calendar deadlines. No booking needed.`;
+// ---------------------------------------------------------------------------
+// Book: station autocomplete + journey search results
+// ---------------------------------------------------------------------------
+
+function nowLocalISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Generic station autocomplete on /api/stations (like the home-station field).
+// Returns a getter for the selected station; onSelect fires on pick/clear.
+function attachStationAutocomplete(input, sugBox, onSelect) {
+  let selected = null;
+  let debounce = null;
+  input.addEventListener("input", () => {
+    selected = null;
+    onSelect(null);
+    clearTimeout(debounce);
+    debounce = setTimeout(async () => {
+      const q = input.value.trim();
+      sugBox.innerHTML = "";
+      if (q.length < 2) return;
+      const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
+      if (!data.stations.length) return;
+      const list = document.createElement("div");
+      list.className = "suggestions";
+      data.stations.forEach((s) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = data.source === "db-live" ? `🟢 ${s.name}` : s.name;
+        btn.addEventListener("click", () => {
+          selected = s;
+          onSelect(s);
+          input.value = s.name;
+          sugBox.innerHTML = "";
+        });
+        list.appendChild(btn);
+      });
+      sugBox.replaceChildren(list);
+    }, 250);
+  });
+  return () => selected;
+}
+
+// Resolve free text to the best station hit (when nothing was picked from the list).
+async function resolveStation(text) {
+  const q = text.trim();
+  if (!q) return null;
+  const data = await api(`/api/stations?query=${encodeURIComponent(q)}`).catch(() => ({ stations: [] }));
+  return data.stations[0] || null;
+}
+
+function renderBookResults() {
+  const box = $("#book-results");
+  if (!box) return;
+  const b = state.book;
+  if (b.error) {
+    box.innerHTML = `<div class="jd-notice">⚠️ ${escapeHtml(b.error)}</div>`;
+    return;
+  }
+  if (!b.results) {
+    box.innerHTML = "";
+    return;
+  }
+  if (!b.results.length) {
+    box.innerHTML = `<p class="muted" style="padding:0 6px">No connections found for this search.</p>`;
+    return;
+  }
+
+  const cards = b.results.map((j, i) => {
+    const dep = j.planned_departure || j.departure;
+    const arr = j.planned_arrival || j.arrival;
+    const delay = j.arrival_delay_minutes;
+    const transfers = j.transfers === 0 ? "direct" : `${j.transfers} transfer${j.transfers > 1 ? "s" : ""}`;
+    return `
+      <div class="card journey-option" data-journey-index="${i}">
+        <div class="jo-times">
+          <b>${fmtTime(dep)}</b> → <b>${fmtTime(arr)}</b>
+          <span class="muted">${fmtDuration(minutesBetween(dep, arr))} · ${transfers}</span>
+          ${delay ? `<span class="jo-delay">+${delay} min</span>` : ""}
+        </div>
+        <div class="jo-meta">${escapeHtml(j.description || "")}${j.price_eur ? ` · from ${Number(j.price_eur).toFixed(2)} €` : ""}</div>
+        <div class="jo-add">＋ Add to my trips</div>
+      </div>`;
+  }).join("");
+
+  box.innerHTML = `<h2 style="margin: 18px 4px 10px">Connections</h2>${cards}<div id="book-confirm"></div>`;
+  box.querySelectorAll(".journey-option").forEach((cardEl) => {
+    cardEl.addEventListener("click", () => showBookConfirm(b.results[Number(cardEl.dataset.journeyIndex)]));
+  });
+}
+
+function showBookConfirm(journey) {
+  const dest = journey.destination || "destination";
+  const confirmBox = $("#book-confirm");
+  if (!confirmBox) return;
+  confirmBox.innerHTML = `
+    <div class="card">
+      <h2>Name this trip</h2>
+      <label class="field">Purpose / subject
+        <input type="text" id="book-purpose" value="Trip to ${escapeHtml(dest)}">
+      </label>
+      <div class="search-confirm-summary">
+        ${escapeHtml(journey.origin || "")} → ${escapeHtml(journey.destination || "")}
+        · ${escapeHtml(journey.description || "")}
+      </div>
+      <button class="btn primary block" id="book-confirm-btn" type="button">Add trip</button>
+      <button class="btn block" id="book-cancel-btn" type="button" style="margin-top:8px">Back to results</button>
+    </div>`;
+  confirmBox.scrollIntoView({ behavior: "smooth" });
+  $("#book-purpose").focus();
+  $("#book-purpose").select();
+  $("#book-cancel-btn").addEventListener("click", () => { confirmBox.innerHTML = ""; });
+  $("#book-confirm-btn").addEventListener("click", () => {
+    const purpose = $("#book-purpose").value.trim() || `Trip to ${dest}`;
+    bookJourney(journey, purpose);
+  });
+}
+
+async function bookJourney(journey, purpose) {
+  try {
+    const data = await api("/api/trips", { method: "POST", body: { journey, purpose } });
+    state.trips = data.trips;
+    toast(`✓ ${data.trip.train} ${data.trip.origin} → ${data.trip.destination} added to your trips`);
+    go("dashboard");
+  } catch (err) {
+    toast(`⚠️ ${err.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Trip detail: DB Navigator-style itinerary with live delay + expected delay
+// ---------------------------------------------------------------------------
+
+function openTripDetail(trip) {
+  const detail = { trip, data: null, error: null };
+  state.tripDetail = detail;
+  go("tripdetail");
+  api(`/api/trips/${encodeURIComponent(trip.trip_id)}/details`)
+    .then((data) => { detail.data = data; })
+    .catch((err) => { detail.error = err.message; })
+    .finally(() => {
+      if (state.step === "tripdetail" && state.tripDetail === detail) renderers.tripdetail();
+    });
+}
+
+// One stop row: planned/actual time, station name, platform badge.
+function stopHTML(stop, delayMinutes, { arrival = false } = {}) {
+  const late = delayMinutes > 0;
+  return `
+    <div class="jd-stop">
+      <div class="jd-times">
+        <span class="jd-planned">${fmtTime(stop.planned)}</span>
+        <span class="jd-actual ${late ? "late" : "ok"}">${fmtTime(shiftedTime(stop.planned, delayMinutes))}</span>
+      </div>
+      <div class="jd-node${arrival ? " arr" : " dep"}"><i></i></div>
+      <div class="jd-station">${escapeHtml(stop.name)}</div>
+      <span class="jd-plat">Pl. ${escapeHtml(stop.platform)}</span>
+    </div>`;
+}
+
+// The full itinerary: stops and train legs, each leg with its current ("real")
+// delay next to the expected delay from the risk forecast (historical DB data).
+function journeyHTML(data) {
+  const incidents = (data.incidents || []).map((inc) => `
+    <div class="jd-notice">⚠️ <b>${escapeHtml(inc.type)}</b> (${escapeHtml(inc.location)}): ${escapeHtml(inc.impact)}</div>
+  `).join("");
+
+  const parts = data.legs.map((leg, i) => {
+    const delay = leg.current_delay_minutes || 0;
+    const fc = leg.forecast || {};
+    const expected = fc.expected_delay_minutes ?? 0;
+    const legMinutes = minutesBetween(leg.origin.planned, leg.destination.planned);
+
+    // Transfer row between the previous leg's arrival and this departure.
+    const transfer = i === 0 ? "" : `
+      <div class="jd-transfer">
+        <div class="jd-legdur">${fmtDuration(minutesBetween(data.legs[i - 1].destination.planned, leg.origin.planned))}</div>
+        <div class="jd-line dotted"></div>
+        <div class="jd-transfer-label">↷ Transfer</div>
+      </div>`;
+
+    return `
+      ${transfer}
+      ${stopHTML(leg.origin, delay)}
+      <div class="jd-leg">
+        <div class="jd-legdur">${fmtDuration(legMinutes)}</div>
+        <div class="jd-line"></div>
+        <div class="jd-leginfo">
+          <span class="jd-train">🚄 ${escapeHtml(leg.train)}</span>
+          <div class="jd-dir">to ${escapeHtml(leg.direction)}</div>
+          <div class="jd-delays">
+            <span class="jd-chip real ${delay > 0 ? "late" : "ok"}">${delay > 0 ? `+${delay} min delay` : "On time"}</span>
+            <span class="jd-chip expected ${fc.level || "low"}">Expected: ${expected > 0 ? `+${expected} min` : "on time"}</span>
+          </div>
+          ${fc.factors && fc.factors.length ? `<div class="jd-forecast-note">🔮 Autopilot forecast (${Math.round((fc.confidence || 0) * 100)}%): ${escapeHtml(fc.factors[0])}</div>` : ""}
+        </div>
+      </div>
+      ${stopHTML(leg.destination, delay, { arrival: true })}`;
+  }).join("");
+
+  return `
+    ${incidents}
+    ${data.connection_risk ? `<div class="jd-notice">⚠️ ${escapeHtml(data.connection_risk)}</div>` : ""}
+    <div class="jd-timeline">${parts}</div>
+    <p class="muted" style="margin-top:14px">Expected delay is the autopilot's risk forecast, based on historical DB punctuality data for this route — not a live prediction.</p>`;
+}
+
+// ---------------------------------------------------------------------------
+// Chat persistence: survive a page reload within the same tab
+// ---------------------------------------------------------------------------
+
+// Chat state (sessionId, trip, messages) is mirrored into sessionStorage on
+// every render, so a full page reload within the same browser tab resumes
+// the conversation exactly where it left off — same pattern as the "ja_token"
+// auth token below.
+const CHAT_STORAGE_KEY = "ja_chat";
+
+function persistChat() {
+  try {
+    if (state.chat) {
+      sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
+        sessionId: state.chat.sessionId,
+        trip: state.chat.trip,
+        messages: state.chat.messages,
+      }));
+    } else {
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+    }
+  } catch {
+    // sessionStorage can be unavailable or quota-limited; chat should still work.
+  }
+}
+
+// Rehydrates a chat that survived a page reload (called once from boot()).
+// Returns true if a chat was restored, so boot() can land on it directly
+// instead of the dashboard.
+function restoreChatState() {
+  const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
+  if (!raw) return false;
+  let saved;
+  try {
+    saved = JSON.parse(raw);
+  } catch {
+    saved = null;
+  }
+  if (!saved || !saved.trip || !saved.trip.trip_id || !Array.isArray(saved.messages)) {
+    sessionStorage.removeItem(CHAT_STORAGE_KEY);
+    return false;
+  }
+  // Prefer the freshly-fetched trip (from /api/me) over the stored snapshot;
+  // fall back to the snapshot if the trip is no longer in the current list.
+  const freshTrip = state.trips.find((t) => t.trip_id === saved.trip.trip_id);
+  state.chat = {
+    sessionId: saved.sessionId || null,
+    trip: freshTrip || saved.trip,
+    busy: false,
+    messages: saved.messages,
+  };
+  return true;
+}
+
+// Reopening the trip you were already chatting about resumes that
+// conversation instead of starting over; opening a different trip still
+// starts fresh (only one conversation is kept active at a time).
+function openChat(trip) {
+  if (state.chat && state.chat.trip && state.chat.trip.trip_id === trip.trip_id) {
+    go("chat");
+    return;
+  }
   state.chat = {
     sessionId: null,
     trip,
     busy: false,
-    messages: [{ role: "assistant", text: greeting }],
+    messages: [{
+      role: "assistant",
+      text: `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip. `
+        + `Say "monitor my trip" for a live check. If your appointment is no longer reachable you can ask me to act — `
+        + `e.g. "rebook me, move the clashing meeting and let the participants know" — and I'll only do what your `
+        + `automation settings allow without asking first.`,
+    }],
   };
+  persistChat();
   go("chat");
 }
 
@@ -1194,18 +1693,219 @@ function renderTrace(trace) {
   return `<details class="chat-trace"><summary>Agent trace (${trace.length})</summary>${lines}</details>`;
 }
 
+// Inline Markdown (bold, italic, inline code, links) for one span of text.
+// Escapes first so nothing the model emits can inject HTML, THEN applies the
+// token replacements — the escaped `*`, `` ` ``, `[` … survive escaping.
+// Only *…* / **…** are treated as emphasis (not `_`), because agent prose is
+// full of snake_case identifiers like `mock_hotels` that `_`-italic would mangle.
+function renderInlineMd(text) {
+  let s = escapeHtml(text);
+  s = s.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_, t, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${t}</a>`);
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  return s;
+}
+
+// Minimal, safe Markdown -> HTML for assistant replies. A small line-based block
+// grammar (headings, ordered/unordered lists, tables, blockquotes, fenced code,
+// rules, paragraphs) wrapping renderInlineMd. Not full CommonMark — just the
+// subset the agents actually emit. All raw text passes through renderInlineMd or
+// escapeHtml, so no unescaped model output ever reaches innerHTML.
+function renderMarkdown(src) {
+  const lines = String(src ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const isBlockStart = (l) =>
+    !l.trim() || /^```/.test(l.trim()) || /^#{1,6}\s/.test(l) || /^\s*>/.test(l) ||
+    /^\s*[-*+]\s+/.test(l) || /^\s*\d+[.)]\s+/.test(l);
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+
+    if (/^```/.test(line.trim())) {
+      const buf = [];
+      for (i++; i < lines.length && !/^```/.test(lines[i].trim()); i++) buf.push(lines[i]);
+      i++;
+      out.push(`<pre><code>${escapeHtml(buf.join("\n"))}</code></pre>`);
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      const level = Math.min(h[1].length, 6);
+      out.push(`<h${level}>${renderInlineMd(h[2].trim())}</h${level}>`);
+      i++; continue;
+    }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { out.push("<hr>"); i++; continue; }
+
+    // Table: a row with pipes followed by a |---|---| separator row.
+    if (line.includes("|") && i + 1 < lines.length &&
+        /^\s*\|?[\s:|-]*-[\s:|-]*$/.test(lines[i + 1]) && lines[i + 1].includes("|")) {
+      const cells = (r) => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+      const head = cells(line);
+      i += 2;
+      const rows = [];
+      for (; i < lines.length && lines[i].includes("|") && lines[i].trim(); i++) rows.push(cells(lines[i]));
+      const thead = `<thead><tr>${head.map((c) => `<th>${renderInlineMd(c)}</th>`).join("")}</tr></thead>`;
+      const tbody = `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${renderInlineMd(c)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+      out.push(`<div class="md-tablewrap"><table class="md-table">${thead}${tbody}</table></div>`);
+      continue;
+    }
+    if (/^\s*>\s?/.test(line)) {
+      const buf = [];
+      for (; i < lines.length && /^\s*>\s?/.test(lines[i]); i++) buf.push(lines[i].replace(/^\s*>\s?/, ""));
+      out.push(`<blockquote>${renderInlineMd(buf.join(" "))}</blockquote>`);
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const buf = [];
+      for (; i < lines.length && /^\s*[-*+]\s+/.test(lines[i]); i++) buf.push(lines[i].replace(/^\s*[-*+]\s+/, ""));
+      out.push(`<ul>${buf.map((it) => `<li>${renderInlineMd(it)}</li>`).join("")}</ul>`);
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const buf = [];
+      for (; i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i]); i++) buf.push(lines[i].replace(/^\s*\d+[.)]\s+/, ""));
+      out.push(`<ol>${buf.map((it) => `<li>${renderInlineMd(it)}</li>`).join("")}</ol>`);
+      continue;
+    }
+    const buf = [];
+    for (; i < lines.length && lines[i].trim() && !isBlockStart(lines[i]); i++) buf.push(lines[i]);
+    out.push(`<p>${renderInlineMd(buf.join("\n")).replace(/\n/g, "<br>")}</p>`);
+  }
+  return out.join("");
+}
+
 function renderChatLog() {
+  persistChat();
   const log = $("#chat-log");
   if (!log) return;
   const parts = state.chat.messages.map((m) => {
     if (m.role === "user") return `<div class="bubble user">${escapeHtml(m.text)}</div>`;
     if (m.role === "error") return `<div class="bubble error">⚠️ ${escapeHtml(m.text)}</div>`;
     const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
-    return `<div class="bubble assistant">${escapeHtml(m.text)}${trace}</div>`;
+    const cards = m.options && m.options.length ? renderOptionCards(m.options, m.optionsSource, m) : "";
+    return `<div class="bubble assistant"><div class="md">${renderMarkdown(m.text)}</div>${cards}${trace}</div>`;
   });
   if (state.chat.busy) parts.push(`<div class="bubble assistant typing"><i></i><i></i><i></i></div>`);
   log.innerHTML = parts.join("");
   log.scrollTop = log.scrollHeight;
+}
+
+// Shared inner body for a train journey/reroute option. The helper speaks one
+// vocabulary — the arrival field is always `arrival` — so each caller maps its
+// source field at the call site: a reroute option passes `new_arrival`, a live
+// search result passes `planned_arrival || arrival`. Centralises the null-price
+// guard too. Used by renderOptionCards (chat reroutes) and the search screen.
+function journeyBodyHTML(j) {
+  const trains = (j.trains || []).map(escapeHtml).join(" → ") || escapeHtml(j.description || "Connection");
+  const dep = j.departure ? fmtTime(j.departure) : "—";
+  const arr = j.arrival ? fmtTime(j.arrival) : "—";
+  const transfers = j.transfers != null ? `${j.transfers} change${j.transfers === 1 ? "" : "s"}` : "—";
+  const delay = j.added_delay_minutes != null ? `<span class="option-delay">+${j.added_delay_minutes} min</span>` : "";
+  const price = j.price_eur != null ? `<span>${Number(j.price_eur).toFixed(2)} €</span>` : "";
+  const remarks = (j.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+  return `
+    <div class="option-trains">${trains}</div>
+    <div class="option-times">${dep} → ${arr}</div>
+    <div class="option-meta"><span>${transfers}</span>${delay}${price}</div>
+    ${remarks}`;
+}
+
+// Render reroute option cards below the agent's prose. Clicking a card sends
+// "Take option <id>" as the next user turn and disables the batch so the user
+// can't pick twice. The per-option `source` (db_service_live / mock_*) decides
+// the live/demo badge; optionsSource is the fallback for the whole batch.
+// Cards branch on `o.mode` (train / car_sharing / bike_sharing / hotel).
+const _MODE_META = {
+  car_sharing:  { icon: "🚗", label: "Flinkster",    cls: "car"   },
+  bike_sharing: { icon: "🚲", label: "Call-a-Bike",  cls: "bike"  },
+  hotel:        { icon: "🏨", label: "Hotel",         cls: "hotel" },
+};
+
+function renderOptionCards(options, optionsSource, message) {
+  const chosen = message.chosenOption || null;
+  const items = options.map((o) => {
+    const id = escapeHtml(o.option_id || "?");
+    const mode = o.mode || "train";
+    const src = o.source || optionsSource || "";
+    const liveBadge = src.startsWith("db_service_live")
+      ? '<span class="option-source live">● Live DB</span>'
+      : src.startsWith("mock_")
+        ? '<span class="option-source mock">Demo fallback</span>'
+        : "";
+    const meta = _MODE_META[mode];
+    const modeBadge = meta
+      ? `<span class="option-mode-badge option-mode-${meta.cls}">${meta.icon} ${meta.label}</span>`
+      : "";
+    const picked = chosen === (o.option_id || "");
+    const stateCls = picked ? " selected" : chosen ? " disabled" : "";
+
+    let body;
+    if (mode === "hotel") {
+      const name = escapeHtml(o.name || o.description || "Hotel");
+      const dist = o.distance_to_station_km != null ? `${o.distance_to_station_km} km from station` : "";
+      const nights = o.nights != null ? `${o.nights} night${o.nights === 1 ? "" : "s"}` : "";
+      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+      body = `
+        <div class="option-trains">${name}</div>
+        <div class="option-meta">
+          ${dist ? `<span>${dist}</span>` : ""}${nights ? `<span>${nights}</span>` : ""}
+        </div>
+        ${remarks}`;
+    } else if (mode === "car_sharing" || mode === "bike_sharing") {
+      const desc = escapeHtml(o.description || "");
+      const pickup = o.pickup ? `<div class="option-times">${escapeHtml(o.pickup)}</div>` : "";
+      const dist = o.distance_km != null ? `${o.distance_km} km` : "";
+      const dur = o.est_duration_minutes != null ? `~${o.est_duration_minutes} min` : "";
+      const arr = o.new_arrival ? `→ ${fmtTime(o.new_arrival)}` : "";
+      const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
+      const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
+      body = `
+        <div class="option-trains">${desc}</div>
+        ${pickup}
+        <div class="option-meta">
+          ${dist ? `<span>${dist}</span>` : ""}${dur ? `<span>${dur}</span>` : ""}${arr ? `<span>${arr}</span>` : ""}${price ? `<span class="option-price">${price}</span>` : ""}
+        </div>
+        ${remarks}`;
+    } else {
+      // train (default)
+      body = journeyBodyHTML({
+        trains: o.trains, description: o.description,
+        departure: o.departure,
+        arrival: o.new_arrival,            // reroute-specific field
+        transfers: o.transfers, added_delay_minutes: o.added_delay_minutes,
+        price_eur: o.price_eur, remarks: o.remarks,
+      });
+    }
+
+    return `
+      <button type="button" class="option-card${stateCls}" data-option-id="${id}"${chosen ? " disabled" : ""}>
+        <div class="option-head"><span class="option-badge">${id}</span>${modeBadge}${liveBadge}</div>
+        ${body}
+      </button>`;
+  }).join("");
+  return `<div class="option-cards" data-chosen="${chosen || ""}">${items}</div>`;
+}
+
+function onOptionCardClick(ev) {
+  const card = ev.target.closest(".option-card");
+  if (!card || card.disabled) return;
+  if (state.chat.busy) return;
+  const optionId = card.dataset.optionId;
+  if (!optionId) return;
+  // Mark the originating assistant message so its batch greys out on re-render.
+  for (let i = state.chat.messages.length - 1; i >= 0; i--) {
+    const m = state.chat.messages[i];
+    if (m.options && m.options.some((o) => (o.option_id || "?") === optionId)) {
+      m.chosenOption = optionId;
+      break;
+    }
+  }
+  const input = $("#chat-text");
+  if (input) input.value = `Take option ${optionId}`;
+  $("#chat-form").requestSubmit();
 }
 
 async function onChatSubmit(ev) {
@@ -1246,6 +1946,13 @@ async function onChatSubmit(ev) {
           toast(`⚠️ Could not send WhatsApp notice: ${data.alert.error}`, 7000);
         }
       }
+      chat.messages.push({
+        role: "assistant",
+        text: data.reply,
+        trace: data.trace,
+        options: data.options || null,
+        optionsSource: data.options_source || null,
+      });
     }
   } catch (err) {
     chat.messages.push({ role: "error", text: err.message });
@@ -1380,6 +2087,10 @@ async function persistCurrentStep() {
           hotel_ok: $("#hotel-ok").checked,
           taxi_ok: $("#taxi-ok").checked,
         };
+        patch.mobility = {
+          car_sharing_ok: $("#car-sharing-ok").checked,
+          bike_sharing_ok: $("#bike-sharing-ok").checked,
+        };
       }
       await saveProfile(patch);
       break;
@@ -1392,17 +2103,25 @@ async function persistCurrentStep() {
           hotel_ok: $("#hotel-ok").checked,
           taxi_ok: $("#taxi-ok").checked,
         },
+        mobility: {
+          car_sharing_ok: $("#car-sharing-ok").checked,
+          bike_sharing_ok: $("#bike-sharing-ok").checked,
+        },
       });
       break;
     case "notifications": {
       const channels = [...screen.querySelectorAll("[data-channel]")]
         .filter((c) => c.checked).map((c) => c.dataset.channel);
+      const autonomy = screen.querySelector('[data-group="autonomy"] .choice.selected')?.dataset.value;
       await saveProfile({
         notifications: {
           channels,
           quiet_hours: { from: $("#quiet-from").value, to: $("#quiet-to").value },
         },
-        autonomy: screen.querySelector('[data-group="autonomy"] .choice.selected')?.dataset.value,
+        autonomy,
+        // Seed the policy/veto global level from the onboarding choice; the
+        // "Automation & veto" screen can refine it per action later.
+        ...(autonomy ? { policy: { global_autonomy_level: AUTONOMY_TO_LEVEL[autonomy] } } : {}),
       });
       break;
     }
@@ -1411,9 +2130,9 @@ async function persistCurrentStep() {
 
 function go(step) {
   state.step = step;
-  // The chat is a full-height flex layout (scrolling log + pinned input bar);
-  // other screens scroll normally.
-  const chatMode = step === "chat";
+  // Chat and trip detail are full-height flex layouts (scrolling body with a
+  // pinned header/footer); other screens scroll normally.
+  const chatMode = step === "chat" || step === "tripdetail";
   document.querySelector(".phone").classList.toggle("chat-active", chatMode);
   screen.classList.toggle("chat-mode", chatMode);
   setProgress(step);
@@ -1454,6 +2173,34 @@ function back() {
   go(STEPS[Math.max(0, idx - 1)]);
 }
 
+// Single-trip delete. Attached directly to each .trip-delete button (per-
+// element, in the dashboard renderer) so ev.stopPropagation() fires ON the
+// button — blocking the parent .trip-card click (which opens the chat) from
+// ever firing. (A delegated handler on #screen would run AFTER the card's
+// handler, by which point state.step is already "chat".)
+async function onDeleteTripClick(ev) {
+  const btn = ev.target.closest(".trip-delete");
+  if (!btn) return;
+  const tripId = btn.dataset.tripDeleteId;
+  if (!tripId) return;
+  ev.stopPropagation();
+  if (!confirm("Delete this trip? This cannot be undone.")) return;
+  try {
+    const data = await api(`/api/trips/${encodeURIComponent(tripId)}`, { method: "DELETE" });
+    state.trips = data.trips;
+    // If the deleted trip was the one open in the chat, drop the chat too.
+    if (state.chat && state.chat.trip && state.chat.trip.trip_id === tripId) {
+      state.chat = null;
+      persistChat();
+    }
+    toast("✓ Trip deleted");
+    // Trash buttons only appear on the dashboard (trips page); stay there.
+    go("dashboard");
+  } catch (err) {
+    toast(`⚠️ ${err.message}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Events & startup
 // ---------------------------------------------------------------------------
@@ -1479,7 +2226,8 @@ $("#ms-accept").addEventListener("click", async () => {
   }
 });
 
-// Tab bar: Trips ↔ Profile navigation
+// Tab bar: Book / Trips / Profile navigation
+$("#tab-book").addEventListener("click", () => go("book"));
 $("#tab-trips").addEventListener("click", () => go("dashboard"));
 $("#tab-profile").addEventListener("click", () => go("profile"));
 
@@ -1492,8 +2240,13 @@ async function boot() {
       state.trips = data.trips;
       updateTopbarAccount();
       // Active session: users who finished onboarding land in the dashboard,
-      // everyone else continues after the login step.
-      go(state.profile.onboarding_completed ? "dashboard" : "trips");
+      // everyone else continues after the login step. A chat in progress
+      // (this browser tab, same session) takes priority over the dashboard.
+      if (state.profile.onboarding_completed) {
+        go(restoreChatState() ? "chat" : "dashboard");
+      } else {
+        go("trips");
+      }
       return;
     } catch {
       sessionStorage.removeItem("ja_token");
