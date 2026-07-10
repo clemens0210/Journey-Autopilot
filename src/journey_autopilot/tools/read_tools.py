@@ -299,12 +299,12 @@ def _arrival_in_past(arrival_iso: str | None) -> bool:
     arrival timestamp. Complaint drafting and the Monitoring agent's
     EN ROUTE/ARRIVED status both depend on this field being present.
     """
-    if not arrival_iso:
+    arrival = _parse_datetime(arrival_iso)
+    if arrival is None:
         return False
-    try:
-        arrival = datetime.fromisoformat(arrival_iso)
-    except ValueError:
-        return False
+    # Offset-aware timestamps (the live sidecar's format, including a trailing
+    # "Z") compare as instants; genuinely naive ones are German-local wall clock
+    # (see _minutes_between) and compare against the local clock.
     now = datetime.now(arrival.tzinfo) if arrival.tzinfo else datetime.now()
     return arrival <= now
 
@@ -441,9 +441,10 @@ def get_live_trip_status(trip_id: str) -> dict:
                     "planned_departure": option.get("planned_departure") or trip.get("planned_departure"),
                     "planned_arrival": option.get("planned_arrival") or trip.get("planned_arrival"),
                     "estimated_arrival": option.get("arrival") or option.get("planned_arrival"),
-                    "arrived": _arrival_in_past(
-                        option.get("arrival") or option.get("planned_arrival")
-                    ),
+                    # Only the *estimated* arrival confirms the trip is over; a
+                    # scheduled planned_arrival passing while a train is delayed
+                    # must NOT read as "arrived" (would draft a premature claim).
+                    "arrived": _arrival_in_past(option.get("arrival")),
                     "platform_changes": option.get("platform_changes", []),
                     "data_timestamp": datetime.now(timezone.utc).isoformat(),
                     "source": "db_service_live",

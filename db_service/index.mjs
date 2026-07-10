@@ -13,7 +13,7 @@
 import tls from 'tls'
 import Fastify from 'fastify'
 import { createClient } from 'db-vendo-client'
-import { profile } from 'db-vendo-client/p/db/index.js'
+import { profile } from 'db-vendo-client/p/dbnav/index.js'
 
 // --- TLS fingerprint workaround (the real cause of HTTP 452 "OPS_BLOCKED") ---
 //
