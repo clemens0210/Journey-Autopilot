@@ -62,6 +62,17 @@ def _outlook_connected() -> bool:
     return bool(_profile_connections().get("outlook"))
 
 
+def calendar_connected() -> bool:
+    """True when a real calendar is available (Entra creds + Outlook connected).
+
+    The Planner's instruction provider reads this at call time: without a
+    connected calendar the calendar steps are dropped from the prompt entirely,
+    so no LLM round-trip (and no mock-calendar check) is spent on appointments
+    the user never provided.
+    """
+    return _calendar_configured() and _outlook_connected()
+
+
 # Internal alias Microsoft consumer accounts report as the organizer address
 # of self-created events (e.g. outlook_45A79CDF4502E0CF@outlook.com). Graph's
 # sendMail accepts it, but it is NOT a routable inbox — mail silently goes
@@ -804,6 +815,54 @@ def _parse_trip_time(date: str, value: str | None) -> datetime | None:
     return dt.replace(tzinfo=None) if dt is not None else None
 
 
+def _classify_window_conflicts(
+    events: list[dict],
+    date: str,
+    planned_departure: str = "",
+    expected_arrival: str = "",
+    latest_arrival: str = "",
+) -> dict | None:
+    """Classify calendar events against one trip window (shared core).
+
+    Returns ``None`` when no usable arrival estimate was given; otherwise a
+    dict with ``conflicts`` (events tagged ``during_trip`` /
+    ``at_risk_if_delayed``), ``hard_conflicts``, ``unparsed_events``, and
+    ``departure_known``. Used by ``get_calendar_conflicts`` (one window) and
+    ``check_options_against_calendar`` (one window per reroute option).
+    """
+    departure = _parse_trip_time(date, planned_departure)
+    expected = _parse_trip_time(date, expected_arrival)
+    latest = _parse_trip_time(date, latest_arrival)
+    if expected is None and latest is None:
+        return None
+    expected = expected or latest
+    latest = max(latest, expected) if latest else expected  # invariant: latest >= expected
+
+    buffer = timedelta(minutes=CALENDAR_TRAVEL_BUFFER_MINUTES)
+    conflicts: list[dict] = []
+    unparsed = 0
+    for event in events:
+        start = _parse_trip_time(date, event.get("start"))
+        if start is None:
+            unparsed += 1
+            continue
+        if departure is not None and start < departure:
+            continue  # before the trip — unaffected
+        if start < expected + buffer:
+            clash = "during_trip"
+        elif start < latest + buffer:
+            clash = "at_risk_if_delayed"
+        else:
+            continue  # reachable even in the unfavorable case
+        conflicts.append({**event, "clash": clash})
+    return {
+        "conflicts": conflicts,
+        "hard_conflicts": sum(1 for c in conflicts if c.get("hard_constraint")),
+        "unparsed_events": unparsed,
+        "departure_known": departure is not None,
+    }
+
+
 async def get_calendar_conflicts(
     date: str,
     planned_departure: str = "",
@@ -848,10 +907,10 @@ async def get_calendar_conflicts(
     calendar = await get_user_calendar(date, user_email)
     events = calendar.get("events", [])
 
-    departure = _parse_trip_time(date, planned_departure)
-    expected = _parse_trip_time(date, expected_arrival)
-    latest = _parse_trip_time(date, latest_arrival)
-    if expected is None and latest is None:
+    classified = _classify_window_conflicts(
+        events, date, planned_departure, expected_arrival, latest_arrival
+    )
+    if classified is None:
         return {
             "date": date,
             "events_checked": len(events),
@@ -861,26 +920,8 @@ async def get_calendar_conflicts(
             ),
             "source": calendar.get("source"),
         }
-    expected = expected or latest
-    latest = max(latest, expected) if latest else expected  # invariant: latest >= expected
-
-    buffer = timedelta(minutes=CALENDAR_TRAVEL_BUFFER_MINUTES)
-    conflicts: list[dict] = []
-    unparsed = 0
-    for event in events:
-        start = _parse_trip_time(date, event.get("start"))
-        if start is None:
-            unparsed += 1
-            continue
-        if departure is not None and start < departure:
-            continue  # before the trip — unaffected
-        if start < expected + buffer:
-            clash = "during_trip"
-        elif start < latest + buffer:
-            clash = "at_risk_if_delayed"
-        else:
-            continue  # reachable even in the unfavorable case
-        conflicts.append({**event, "clash": clash})
+    conflicts = classified["conflicts"]
+    unparsed = classified["unparsed_events"]
 
     result = {
         "date": date,
@@ -892,18 +933,119 @@ async def get_calendar_conflicts(
         "buffer_minutes": CALENDAR_TRAVEL_BUFFER_MINUTES,
         "events_checked": len(events),
         "conflicts": conflicts,
-        "hard_conflicts": sum(1 for c in conflicts if c.get("hard_constraint")),
+        "hard_conflicts": classified["hard_conflicts"],
         "clear_events": len(events) - len(conflicts) - unparsed,
         "source": calendar.get("source"),
     }
     if unparsed:
         result["unparsed_events"] = unparsed
-    if departure is None and events:
+    if not classified["departure_known"] and events:
         result["warning"] = (
             "planned_departure was not provided — appointments before the "
             "trip could not be excluded and may be misclassified as "
             "during_trip. Pass the departure time for a reliable result."
         )
+    if calendar.get("error"):
+        result["calendar_error"] = calendar["error"]
+    return result
+
+
+async def check_options_against_calendar(
+    date: str,
+    planned_departure: str = "",
+    user_email: str | None = None,
+) -> dict:
+    """Checks ALL reroute options found this turn against the calendar at once.
+
+    Call this ONCE after ``find_reroute_options`` (and any ecosystem tools)
+    instead of checking options one by one with ``get_calendar_conflicts``.
+    It reads the options gathered in this planning turn, fetches the calendar
+    a single time, and returns a per-option verdict.
+
+    Args:
+        date: Travel date in "YYYY-MM-DD" format, e.g. "2026-06-19".
+        planned_departure: The trip's planned departure (ISO datetime or
+            "HH:MM") — used for options that carry no departure of their own,
+            so appointments before the trip are not misclassified.
+        user_email: Optional email of another user whose calendar to query.
+
+    Returns:
+        A dict with ``option_verdicts`` — one entry per option:
+        ``option_id``, ``mode``, ``viable`` (True = no hard-constraint clash),
+        ``hard_conflicts``, and the clashing appointments (incl. their
+        ``hard_constraint`` flag and organizer/attendee contacts). Options
+        without a same-day arrival (e.g. hotels) return ``viable: null`` with
+        a note. Also contains ``hard_constraint_appointments`` (all
+        non-negotiable appointments that day), ``events_checked``,
+        ``buffer_minutes``, and the calendar ``source``.
+    """
+    if not calendar_connected():
+        return {
+            "calendar_connected": False,
+            "checked": False,
+            "note": (
+                "No calendar is connected — appointment deadlines cannot be "
+                "checked. Treat options as free of calendar conflicts."
+            ),
+        }
+
+    stashed = last_reroute_options()
+    options = (stashed or {}).get("options") or []
+    if not options:
+        return {
+            "date": date,
+            "error": (
+                "No reroute options were gathered this turn — call "
+                "find_reroute_options first, then this check."
+            ),
+        }
+
+    calendar = await get_user_calendar(date, user_email)
+    events = calendar.get("events", [])
+
+    verdicts: list[dict] = []
+    for option in options:
+        entry: dict = {
+            "option_id": option.get("option_id"),
+            "mode": option.get("mode", "train"),
+        }
+        arrival = option.get("new_arrival")
+        if not arrival:
+            entry.update(
+                viable=None,
+                note=(
+                    "No same-day arrival time (e.g. overnight hotel) — not "
+                    "checkable against the travel day's appointments."
+                ),
+            )
+            verdicts.append(entry)
+            continue
+        classified = _classify_window_conflicts(
+            events,
+            date,
+            planned_departure=option.get("departure") or planned_departure,
+            expected_arrival=arrival,
+        )
+        # classified can't be None here: arrival is a non-empty expected_arrival.
+        entry.update(
+            new_arrival=arrival,
+            viable=classified["hard_conflicts"] == 0,
+            hard_conflicts=classified["hard_conflicts"],
+            conflicts=classified["conflicts"],
+        )
+        verdicts.append(entry)
+
+    result = {
+        "calendar_connected": True,
+        "date": date,
+        "buffer_minutes": CALENDAR_TRAVEL_BUFFER_MINUTES,
+        "events_checked": len(events),
+        "hard_constraint_appointments": [
+            e for e in events if e.get("hard_constraint")
+        ],
+        "option_verdicts": verdicts,
+        "source": calendar.get("source"),
+    }
     if calendar.get("error"):
         result["calendar_error"] = calendar["error"]
     return result

@@ -216,6 +216,17 @@ async def chat_turn(
     runner = _get_runner()
     clear_passenger_rights()  # a stale rights result from a prior turn must not leak in
 
+    # Reset the in-process reroute slot so options from a previous turn are
+    # never shown. The Planner's find_reroute_options tool repopulates it when
+    # it runs; read after the loop. (Base AgentTool runs the sub-agent in its
+    # own runner, so the tool payload doesn't surface in the event stream —
+    # see tools/read_tools.py.)
+    try:
+        from ..tools import read_tools
+        read_tools.clear_reroute_options()
+    except Exception:
+        read_tools = None  # type: ignore[assignment]
+
     if not session_id:
         session = await runner.session_service.create_session(
             app_name=APP_NAME, user_id=USER_ID
@@ -300,27 +311,6 @@ async def chat_turn(
         notify_phone or "(none)",
         alert,
     )
-    # Reset the in-process reroute slot so options from a previous turn are
-    # never shown. The Planner's find_reroute_options tool repopulates it when
-    # it runs; read after the loop. (Base AgentTool runs the sub-agent in its
-    # own runner, so the tool payload doesn't surface in the event stream —
-    # see tools/read_tools.py.)
-    try:
-        from ..tools import read_tools
-        read_tools.clear_reroute_options()
-    except Exception:
-        read_tools = None  # type: ignore[assignment]
-
-    async for event in runner.run_async(
-        user_id=USER_ID, session_id=session_id, new_message=new_message
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            reply = "".join(
-                p.text for p in event.content.parts if getattr(p, "text", None)
-            )
-            continue
-        trace.extend(_describe(event))
-
     # Pick up the structured option list the Planner's tool stashed, if any.
     options: list[dict] | None = None
     options_source: str | None = None

@@ -10,6 +10,14 @@ determines the order and the recommendation hint.
 Important (Human-in-the-loop): The Planner PROPOSES, it does not book. The
 veto control stays with the user — booking is deliberately (still) not a tool.
 
+The instruction is an ADK instruction *provider* (a callable), resolved per
+call: when no calendar is connected (``read_tools.calendar_connected()``),
+every calendar step is dropped from the prompt, so the agent spends no LLM
+round-trip — and no tool call — on appointments the user never provided. The
+calendar check itself is a single batched tool call
+(``check_options_against_calendar``) covering all options at once, instead of
+one ``get_calendar_conflicts`` round-trip per option.
+
 Model: stronger Pro model (most demanding task in the system).
 """
 
@@ -19,16 +27,16 @@ from google.adk.agents import LlmAgent
 
 from ..config import PLANNER_MODEL
 from ..tools.read_tools import (
+    calendar_connected,
+    check_options_against_calendar,
     find_mobility_alternatives,
     find_partner_hotels,
     find_reroute_options,
-    get_calendar_conflicts,
     get_passenger_rights,
-    get_user_calendar,
     get_user_profile,
 )
 
-PLANNER_INSTRUCTION = """\
+_PREAMBLE = """\
 You are the **Planner Agent** in the "Journey Autopilot" system. You are called
 when a trip is at risk, and you are to propose the best reroute — including
 alternatives from the wider DB ecosystem when no good train option exists.
@@ -66,29 +74,44 @@ Procedure — follow all steps in order:
    maximum number of transfers, travel class, and the latest acceptable arrival
    home. Also read `home.hotel_ok` and `mobility.car_sharing_ok` /
    `mobility.bike_sharing_ok` (default True when absent) — these gate the
-   ecosystem alternatives in step 4b. If the profile is unavailable (returns
+   ecosystem alternatives in step 4. If the profile is unavailable (returns
    an "error"), say so and fall back to "fastest arrival, fewest transfers" and
    assume all ecosystem alternatives are acceptable.
 
 2. Fetch train alternatives with `find_reroute_options` (origin, destination).
+"""
 
-3. Call `get_user_calendar(date="YYYY-MM-DD")` with the travel date given by the
-   Orchestrator (e.g. "on 2026-06-19"). Use EXACTLY that date — never invent one.
+_STEP3_CALENDAR = """\
+3. Call `check_options_against_calendar(date="YYYY-MM-DD")` ONCE with the
+   travel date given by the Orchestrator (e.g. "on 2026-06-19") — use EXACTLY
+   that date, never invent one — and pass the trip's planned departure as
+   `planned_departure` when the Orchestrator's message includes it. The tool
+   checks EVERY option from step 2 against the calendar in one call (a
+   30-minute station-to-appointment travel buffer is already included — do NOT
+   recompute times yourself) and returns one verdict per option. An option is
+   viable ONLY if its verdict says `viable: true` (no appointment with
+   `hard_constraint: true` in its conflicts). Clashes with soft appointments
+   do not gate viability but must be mentioned. NEVER check options one by
+   one, and call the tool again only if a later step adds NEW options
+   (ecosystem widening) that must be checked too.
+"""
 
-4. Check each train option deterministically with `get_calendar_conflicts`: pass
-   the travel date, the option's departure as `planned_departure`, and its new
-   arrival as `expected_arrival` (when the option data includes a delay
-   estimate, also pass the worse arrival as `latest_arrival` so at-risk
-   appointments are flagged). The tool classifies every appointment against the
-   option's window (a 30-minute station-to-appointment travel buffer is already
-   included — do NOT recompute times yourself). An option is only viable if its
-   `conflicts` list contains NO appointment with `hard_constraint: true`.
-   Clashes with soft appointments do not gate viability but must be mentioned.
+_STEP3_NO_CALENDAR = """\
+3. The traveler has NOT connected a calendar. Skip the calendar check
+   entirely — do NOT call any calendar tool. Treat every option as free of
+   appointment conflicts; viability is gated only by the profile
+   (max transfers, latest arrival home).
+"""
 
-4b. [CONDITIONAL — SKIP if at least one train option from step 2 is viable]
+_STEP4_WIDENING_TRIGGER_CALENDAR = """\
+   - every train option fails the hard-constraint deadline (step 3), OR
+"""
+
+_STEP4_WIDENING = """\
+4. [CONDITIONAL — SKIP if at least one train option from step 2 is viable]
    Trigger this widening step when ANY of the following is true:
    - `find_reroute_options` returned an empty list, OR
-   - every train option fails the hard-constraint deadline (step 4), OR
+{extra_trigger}\
    - every viable train option exceeds `preferences.max_transfers`, OR
    - every viable train option arrives after `home.latest_arrival_home`
      (the traveler cannot get home today without an overnight stay).
@@ -103,7 +126,9 @@ Procedure — follow all steps in order:
      for partner hotels near the destination (option_ids H#). This covers the
      overnight case — the traveler stays and travels the next day.
    Do NOT call these tools when a good train option already clears the deadline.
+"""
 
+_RANKING_CALENDAR = """\
 Ranking: the hard-constraint calendar deadline is the gating FILTER — options
 that miss it are not placed in the main list. Among viable options (all modes),
 the recommendation follows the PROFILE: weigh delay vs. transfers by the
@@ -129,9 +154,30 @@ travel plan. Recommend the fallback: book the earliest realistic connection to
 still get there, AND propose rescheduling that appointment (give the event id and
 its tentative/confirmed status) and informing its participants by email (name
 them). This hands the downstream step everything it needs to act.
+"""
 
-Answer in structured form:
+_RANKING_NO_CALENDAR = """\
+Ranking: among the options (all modes), the recommendation follows the
+PROFILE: weigh delay vs. transfers by the speed-vs-comfort value, drop options
+exceeding max-transfers (train only), respect latest_arrival_home. Hotels are
+a last-resort suggestion when no same-day option can make the destination.
+
+In your answer you MUST explicitly mention the profile fit and note that no
+calendar is connected, so appointment deadlines were not checked.
+"""
+
+_ANSWER_FORMAT_CALENDAR_BULLET = """\
 - **Calendar Check**: Hard-constraint appointments on the travel day.
+"""
+
+_ANSWER_FORMAT_NO_CALENDAR_BULLET = """\
+- **Calendar Check**: state "no calendar connected — appointment deadlines not
+  checked".
+"""
+
+_ANSWER_FORMAT = """\
+Answer in structured form:
+{calendar_bullet}\
 - **Profile Fit**: How options match speed-vs-comfort, max transfers, latest
   arrival home, and the ecosystem flags (hotel_ok, car/bike sharing ok). Note
   if the profile was unavailable.
@@ -161,6 +207,38 @@ only the tool results.
 """
 
 
+def _build_instruction(has_calendar: bool) -> str:
+    """Assemble the Planner instruction for the current calendar state."""
+    parts = [
+        _PREAMBLE,
+        "\n",
+        _STEP3_CALENDAR if has_calendar else _STEP3_NO_CALENDAR,
+        "\n",
+        _STEP4_WIDENING.format(
+            extra_trigger=_STEP4_WIDENING_TRIGGER_CALENDAR if has_calendar else ""
+        ),
+        "\n",
+        _RANKING_CALENDAR if has_calendar else _RANKING_NO_CALENDAR,
+        "\n",
+        _ANSWER_FORMAT.format(
+            calendar_bullet=_ANSWER_FORMAT_CALENDAR_BULLET
+            if has_calendar
+            else _ANSWER_FORMAT_NO_CALENDAR_BULLET
+        ),
+    ]
+    return "".join(parts)
+
+
+def planner_instruction(_ctx) -> str:
+    """ADK instruction provider — resolved on every Planner invocation.
+
+    The calendar can be connected mid-session (onboarding runs in the same
+    server), so the connected/not-connected variant is chosen per call, not
+    at agent build time.
+    """
+    return _build_instruction(calendar_connected())
+
+
 def build_planner_agent() -> LlmAgent:
     """Creates the Planner LlmAgent."""
     return LlmAgent(
@@ -170,14 +248,13 @@ def build_planner_agent() -> LlmAgent:
             "Generates reroute options, checks them against the user's hard "
             "deadlines, and cites passenger rights. Proposes, does not book."
         ),
-        instruction=PLANNER_INSTRUCTION,
+        instruction=planner_instruction,
         tools=[
             get_user_profile,
             find_reroute_options,
             find_mobility_alternatives,
             find_partner_hotels,
-            get_user_calendar,
-            get_calendar_conflicts,
+            check_options_against_calendar,
             get_passenger_rights,
         ],
     )
