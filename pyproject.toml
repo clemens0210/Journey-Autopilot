@@ -37,8 +37,8 @@ dependencies = [
 
 [project.optional-dependencies]
 # Only for (re-)building the historical delay reference
-# (scripts/build_db_delay_reference.py). The runtime just reads the JSON.
-reference-build = ["pyarrow", "huggingface_hub"]
+# (scripts/build_delay_stats.py). The runtime just reads the JSON.
+reference-build = ["pyarrow"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

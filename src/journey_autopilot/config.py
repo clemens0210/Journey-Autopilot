@@ -36,6 +36,9 @@ _UNI_MODEL = os.getenv("UNI_GPT_MODEL", "gpt-oss")
 _UNI_BASE_URL = os.getenv("UNI_GPT_BASE_URL")
 _UNI_API_KEY = os.getenv("UNI_GPT_API_KEY")
 
+_BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
+_BEDROCK_REGION = os.getenv("AWS_REGION", "us-east-1")
+
 BASE_DIR = Path(__file__).resolve().parent
 _SETTINGS_PATH = Path(
     os.getenv("JA_SETTINGS_PATH", str(BASE_DIR.parent.parent / "config" / "settings.yaml"))
@@ -55,9 +58,21 @@ def _uni_model() -> LiteLlm:
     )
 
 
+def _bedrock_claude_model() -> LiteLlm:
+    """Fresh LiteLlm instance for Claude on AWS Bedrock.
+
+    Auth uses the ``AWS_BEARER_TOKEN_BEDROCK`` env var (read by LiteLLM
+    automatically). Region comes from ``AWS_REGION`` (default: us-east-1).
+    """
+    return LiteLlm(
+        model=f"bedrock/{_BEDROCK_MODEL}",
+        aws_region_name=_BEDROCK_REGION,
+    )
+
+
 # Model alias -> builder. Add an entry here (plus the alias in settings.yaml)
-# once the Uni offers additional endpoints; agents stay untouched.
-_MODEL_BUILDERS = {"uni_gpt": _uni_model}
+# to introduce a new endpoint; agents stay untouched.
+_MODEL_BUILDERS = {"uni_gpt": _uni_model, "bedrock_claude": _bedrock_claude_model}
 
 # Defaults mirror config/settings.yaml so the app still runs if the file is
 # missing or PyYAML is unavailable (config.py must import cleanly for ADK

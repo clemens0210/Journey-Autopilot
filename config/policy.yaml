@@ -2,9 +2,11 @@
 # A single global level shifts all defaults; this is what gets swept to produce
 # the autonomy/control trade-off numbers. See build spec §8 and src/.../policy.py.
 #
-# STATUS: scaffold. Read by policy.py once the write path (M4) is built; until
-# then the read/write split is enforced at the agent level (Monitoring/Planner
-# hold no write tools).
+# STATUS: active. Read by policy.resolve() and enforced by the write tools
+# (tools/write_tools.py) the Executor holds. These values are the DEFAULTS; a
+# user's own choices (onboarding autonomy level + the "Automation & veto" screen)
+# are stored in their profile and override these per tool. Path override:
+# JA_POLICY_PATH.
 
 global_autonomy_level: balanced        # conservative | balanced | aggressive
 

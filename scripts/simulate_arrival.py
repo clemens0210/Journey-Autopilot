@@ -21,7 +21,7 @@ FIXTURE = Path("src/journey_autopilot/data/fixtures/happy_path.json")
 TRIP_ID = "DB-2026-0619-MUC-BLN"
 # current_delay_minutes des eingecheckten En-Route-Zustands der Fixture —
 # --reset stellt genau diesen Wert wieder her.
-EN_ROUTE_DELAY = 28
+EN_ROUTE_DELAY = 95
 
 
 def main() -> None:

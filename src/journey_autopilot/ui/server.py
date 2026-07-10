@@ -22,6 +22,7 @@ stations without it.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import secrets
@@ -39,9 +40,12 @@ from pydantic import BaseModel
 
 # Onboarding logic ("the functions") lives in a separate package; the UI only
 # imports it. The chat module is local to this UI package.
+from journey_autopilot import mock_data, risk
 from journey_autopilot.onboarding import accounts, complaints
 from journey_autopilot.persistence import store
 from journey_autopilot.integrations import db_ops as db_api
+from journey_autopilot.integrations.stations import resolve_eva_or_id
+from journey_autopilot.integrations import stations as db_api_stations
 from . import chat
 
 if TYPE_CHECKING:
@@ -57,7 +61,40 @@ if not _outlog.handlers:
     _outlog.setLevel(logging.INFO)
 _outlog.propagate = False
 
+# Surface this package's INFO logs in the terminal — e.g. the HIGH-risk
+# disruption alert emitted by integrations/whatsapp.py and ui/chat.py. uvicorn
+# only configures its own loggers, so without this our INFO lines are swallowed.
+# (Mirrors integrations/whatsapp_webhook.py, which runs under uvicorn too.)
+logging.getLogger("journey_autopilot").setLevel(logging.INFO)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO)
+
 app = FastAPI(title="Journey Autopilot — Web App", version="0.1.0")
+
+
+@app.on_event("startup")
+def _warm_rights_rag() -> None:
+    """Pre-load the passenger-rights embedding model in the background.
+
+    The first ``get_passenger_rights`` tool call otherwise blocks the first
+    chat answer while the ~1 GB sentence-transformers model loads. Warming it
+    here — while the user is still in onboarding/dashboard — hides that
+    latency; on failure the chat simply falls back to lazy loading.
+    """
+
+    def _load() -> None:
+        try:
+            from journey_autopilot.integrations.rights_rag.rag_store import (
+                FahrgastrechteRAG,
+            )
+            from journey_autopilot.tools import read_tools
+
+            read_tools.get_passenger_rights._rag = FahrgastrechteRAG()
+        except Exception:
+            pass
+
+    threading.Thread(target=_load, name="rights-rag-warmup", daemon=True).start()
+
 
 _STATIC = Path(__file__).resolve().parent / "static"
 
@@ -106,6 +143,11 @@ class ComplaintPatchRequest(BaseModel):
     status: str
 
 
+class BookTripRequest(BaseModel):
+    journey: dict
+    purpose: str | None = None
+
+
 # --- Auth helpers ---------------------------------------------------------------------
 
 
@@ -133,8 +175,24 @@ def db_login(body: LoginRequest) -> dict:
         )
 
     store.upsert_user(account)
-    trips = accounts.booked_trips(account["user_id"])
-    store.save_trips(account["user_id"], trips)
+    imported = accounts.booked_trips(account["user_id"])
+    store.save_trips(account["user_id"], imported)
+    # Re-importing owns the DB-account bookings ("DB-…" ids): drop imports from
+    # earlier logins that are no longer in the account — their demo ids are
+    # date-relative, so each day's login would otherwise pile up stale copies.
+    # Locally booked monitors ("BK-…" ids) are never touched.
+    fresh_ids = {t["trip_id"] for t in imported}
+    stale = [
+        t["trip_id"]
+        for t in store.get_trips(account["user_id"])
+        if t["trip_id"].startswith("DB-") and t["trip_id"] not in fresh_ids
+    ]
+    store.delete_trips(account["user_id"], stale)
+    # Return the full stored list — imported demo trips AND locally booked
+    # connections. Returning only the fresh import made booked trips vanish
+    # from the UI after every re-login (until the next booking refreshed the
+    # list from the store).
+    trips = store.get_trips(account["user_id"])
     profile = store.update_profile(account["user_id"], {"connections": {"db_account": True}})
 
     token = secrets.token_urlsafe(24)
@@ -183,6 +241,172 @@ def patch_complaint(
     return {"complaint": updated}
 
 
+# --- Booking (simple journey search via db_service, adds to monitored trips) ---
+
+
+def _journey_to_trip(journey: dict, purpose: str | None = None) -> dict:
+    """Convert a normalized db_ops journey option into the booked-trip shape.
+
+    Times are truncated to naive local ISO (DB times are German local) so the
+    booked trip renders like the imported demo trips. Coach/seat are mocked —
+    there is no real booking, this exists to monitor live connections.
+    """
+    dep = (journey.get("planned_departure") or journey.get("departure") or "")[:19]
+    arr = (journey.get("planned_arrival") or journey.get("arrival") or "")[:19]
+    origin, destination = journey.get("origin"), journey.get("destination")
+    train = journey.get("train") or journey.get("description")
+    if not (dep and arr and origin and destination and train):
+        raise HTTPException(status_code=422, detail="Journey is missing route or time data.")
+
+    legs = journey.get("legs") or []
+    platform = (legs[0].get("planned_platform") or legs[0].get("platform")) if legs else None
+    # Deterministic id: booking the same connection twice updates instead of duplicating.
+    key = f"{train}|{dep}|{origin}|{destination}"
+    return {
+        "trip_id": "BK-" + hashlib.md5(key.encode()).hexdigest()[:10].upper(),
+        "order_number": secrets.token_hex(3).upper(),
+        "origin": origin,
+        "destination": destination,
+        "train": train,
+        "planned_departure": dep,
+        "planned_arrival": arr,
+        "platform": f"Platform {platform}" if platform else "Platform tba",
+        "coach": "Coach 12",
+        "seat": "Seat 42, window",
+        "travel_class": 2,
+        "price_eur": journey.get("price_eur"),
+        "purpose": purpose or "Booked connection",
+        # Real itinerary from the live search — the trip-detail screen renders
+        # these instead of the simulated legs.
+        "legs": [
+            {
+                "train": leg.get("train"),
+                "direction": leg.get("direction"),
+                "origin": leg.get("origin"),
+                "destination": leg.get("destination"),
+                "planned_departure": (leg.get("planned_departure") or leg.get("departure") or "")[:19],
+                "planned_arrival": (leg.get("planned_arrival") or leg.get("arrival") or "")[:19],
+                "platform": leg.get("planned_platform") or leg.get("platform"),
+                "arrival_platform": leg.get("planned_arrival_platform") or leg.get("arrival_platform"),
+            }
+            for leg in legs
+            if leg.get("train")
+        ],
+    }
+
+
+@app.get("/api/journeys")
+def search_journeys(
+    from_id: str,
+    to_id: str,
+    departure: str | None = None,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Live journey search between two stations (EVA ids) via the db_service sidecar."""
+    _user_id(authorization)
+    try:
+        payload = db_api.journeys(from_id, to_id, departure=departure, results=6)
+    except db_api.DBServiceError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Journey search needs the db_service sidecar (see db_service/README.md). {exc}",
+        )
+    return {"journeys": db_api.normalize_journeys(payload)}
+
+
+@app.post("/api/trips")
+def book_trip(body: BookTripRequest, authorization: str | None = Header(default=None)) -> dict:
+    """Add a searched journey to the monitored trips (simulated booking)."""
+    user_id = _user_id(authorization)
+    trip = _journey_to_trip(body.journey, body.purpose)
+    store.save_trips(user_id, [trip])
+    return {"trip": trip, "trips": store.get_trips(user_id)}
+
+
+@app.delete("/api/trips/{trip_id}")
+def delete_trip(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """Remove a single imported/added trip (does not touch the rest of the profile)."""
+    user_id = _user_id(authorization)
+    store.delete_trip(user_id, trip_id)
+    return {"deleted": True, "trips": store.get_trips(user_id)}
+
+
+def _live_leg_delays(trip: dict) -> dict[str, int]:
+    """Best-effort live arrival delay per train from the db_service sidecar.
+
+    Trips booked via the journey search (``BK-…`` ids) are not in the simulated
+    ``LIVE_TRIP_STATUS``, so their live delay has to come from real DB data.
+    Re-runs the connection search, matches the trip's exact itinerary (full
+    train sequence + planned departure, see ``db_ops.match_booked_journey``),
+    and returns ``{train_name: delay_minutes}``. Returns ``{}`` on any sidecar
+    miss or when the exact booked connection is not found — never the delays
+    of a different journey.
+    """
+    origin, destination = trip.get("origin"), trip.get("destination")
+    if not origin or not destination:
+        return {}
+    try:
+        from_eva = db_api_stations.resolve_eva(origin)
+        to_eva = db_api_stations.resolve_eva(destination)
+        if from_eva is None or to_eva is None:
+            return {}
+        payload = db_api.journeys(
+            from_eva, to_eva, departure=trip.get("planned_departure"), results=5
+        )
+        option = db_api.match_booked_journey(trip, db_api.normalize_journeys(payload))
+        if not option:
+            return {}
+        delays: dict[str, int] = {}
+        for leg in option.get("legs") or []:
+            name = leg.get("train")
+            if not name:
+                continue
+            delay = leg.get("arrival_delay_minutes")
+            if delay is None:
+                delay = leg.get("departure_delay_minutes")
+            delays[name] = round(delay or 0)
+        return delays
+    except db_api.DBServiceError:
+        return {}
+    except Exception:
+        return {}
+
+
+@app.get("/api/trips/{trip_id}/details")
+def trip_details(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """Journey details for one booked trip: legs, live delay, and risk forecast.
+
+    The itinerary is simulated (ADR 0005), but the live delay is real: for trips
+    booked via the journey search it is fetched from the db_service sidecar
+    (``_live_leg_delays``); the demo trips fall back to the simulated
+    ``LIVE_TRIP_STATUS``. The expected delay comes from ``journey_autopilot.risk``,
+    scored from real historical DB punctuality data (see ``risk/delay_reference.py``).
+    """
+    user_id = _user_id(authorization)
+    trip = next((t for t in store.get_trips(user_id) if t["trip_id"] == trip_id), None)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found.")
+
+    legs = accounts.trip_journey(trip)
+    live = mock_data.LIVE_TRIP_STATUS.get(trip_id)
+    live_delays = _live_leg_delays(trip)
+    for leg in legs:
+        if live and live.get("train") == leg["train"]:
+            leg["current_delay_minutes"] = live["current_delay_minutes"]
+        else:
+            leg["current_delay_minutes"] = live_delays.get(leg["train"], 0)
+    for leg, forecast in zip(legs, risk.forecast_trip(trip, legs)):
+        leg["forecast"] = forecast
+    connection_warnings = risk.connection_risks(legs)
+
+    return {
+        "trip_id": trip_id,
+        "legs": legs,
+        "incidents": (live or {}).get("incidents", []),
+        "connection_risk": " ".join(connection_warnings) or (live or {}).get("connection_risk"),
+    }
+
+
 # --- Mobile number: SMS verification (simulated) ------------------------------------------
 
 
@@ -195,9 +419,13 @@ def phone_start(body: PhoneStartRequest, authorization: str | None = Header(defa
 
     code = f"{random.randint(0, 9999):04d}"
     _PENDING_PHONE[user_id] = (phone, code)
-    # Simulated sending: in the real system the code would go out via an SMS
-    # gateway. In demo mode we return it directly so the flow stays demoable.
-    return {"sent": True, "phone": phone, "demo_code": code}
+    # Deliver the code to the actual number via Twilio WhatsApp (degrades to a
+    # demo no-op if Twilio isn't configured), AND still return it so the on-screen
+    # demo display keeps working.
+    from journey_autopilot.integrations import whatsapp
+
+    delivery = whatsapp.send_verification_code(phone, code)
+    return {"sent": True, "phone": phone, "demo_code": code, "delivery": delivery}
 
 
 @app.post("/api/verify/phone/confirm")
@@ -232,11 +460,14 @@ def phone_remove(authorization: str | None = Header(default=None)) -> dict:
 
 
 def _outlook_preview_dates() -> list[str]:
-    """Dates to fetch for the post-connect preview — pinned to the demo scenario.
-    """
+    """Date range for the post-connect preview.
 
-    d3 = date.today() + timedelta(days=12)
-    return [date.today().isoformat(), d3.isoformat()]
+    Spans the next two weeks of the user's REAL connected calendar (the
+    range start/end are what ``_fetch_outlook_preview`` queries), so the
+    preview reflects the actual signed-in account rather than pinned demo days.
+    """
+    today = date.today()
+    return [today.isoformat(), (today + timedelta(days=14)).isoformat()]
 
 
 @app.post("/api/connect/outlook/start")
@@ -275,13 +506,43 @@ def outlook_start(authorization: str | None = Header(default=None)) -> dict:
             "expires_at": expires_on.isoformat() if hasattr(expires_on, "isoformat") else str(expires_on),
         }
 
-    from journey_autopilot.integrations.outlook.auth import SCOPES
+    from journey_autopilot.integrations.outlook.auth import (
+        MAIL_SCOPES,
+        SCOPES,
+        save_authentication_record,
+    )
+
+    # AADSTS codes that mean the Mail.Send scope could not be consented (app
+    # registration lacks the permission / admin consent withheld). Calendar
+    # connect must not break on those — fall back to the calendar-only scopes.
+    _CONSENT_ERROR_CODES = ("AADSTS65001", "AADSTS70011", "AADSTS650053")
 
     def _run_device_flow() -> None:
         try:
             cred = create_device_credential(prompt_callback)
+            # authenticate() runs the device flow AND returns the
+            # AuthenticationRecord — the account metadata a fresh credential
+            # needs to find the cached token later. Persisting it is what lets
+            # the agent tools (acquire_credential) read the calendar silently
+            # instead of falling back to mock with AuthenticationRequiredError.
+            # MAIL_SCOPES (calendar + Mail.Send) so one consent covers both
+            # reading the calendar and sending the approved notice email.
+            try:
+                record = cred.authenticate(scopes=MAIL_SCOPES)
+            except Exception as exc:
+                if not any(code in str(exc) for code in _CONSENT_ERROR_CODES):
+                    raise
+                _outlog.warning(
+                    "Mail.Send consent unavailable (%s) — retrying with "
+                    "calendar-only scopes; the notice-email send will stay "
+                    "disabled until the app registration adds Mail.Send.",
+                    exc,
+                )
+                record = cred.authenticate(scopes=SCOPES)
+            save_authentication_record(record)
+            # Same instance, record in memory -> silent; token for the preview.
             auth_state["result"] = cred.get_token(*SCOPES)
-            _outlog.info("device flow completed — token acquired")
+            _outlog.info("device flow completed — token acquired, auth record saved")
         except Exception as exc:
             _outlog.error("device flow failed: %s", exc, exc_info=True)
             auth_state["error"] = str(exc)
@@ -339,14 +600,46 @@ async def outlook_status(authorization: str | None = Header(default=None)) -> di
         # interactive flow that hangs the request.
         access_token = auth_state["result"]
         _OUTLOOK_AUTH.pop(user_id, None)
-        profile = store.update_profile(user_id, {"connections": {"outlook": True}})
-        from journey_autopilot.integrations.outlook import StaticTokenCredential
-
-        events = await _fetch_outlook_preview(
-            user_id, credential=StaticTokenCredential(access_token)
+        from journey_autopilot.integrations.outlook import (
+            StaticTokenCredential,
+            get_signed_in_user,
         )
-        _outlog.info("outlook connected — %d preview events", len(events) if events else 0)
-        return {"status": "complete", "profile": profile, "events": events}
+
+        credential = StaticTokenCredential(access_token)
+
+        # Identify the ACTUAL signed-in Microsoft account (not the demo email)
+        # and persist it, so the UI and later calendar reads use the real one.
+        identity = {"email": None, "name": None}
+        try:
+            identity = await get_signed_in_user(credential=credential)
+        except Exception as exc:
+            _outlog.warning(
+                "could not read signed-in user (%s: %s)", type(exc).__name__, exc
+            )
+
+        profile = store.update_profile(
+            user_id,
+            {
+                "connections": {
+                    "outlook": True,
+                    "outlook_email": identity.get("email"),
+                    "outlook_name": identity.get("name"),
+                }
+            },
+        )
+
+        events = await _fetch_outlook_preview(user_id, credential=credential)
+        _outlog.info(
+            "outlook connected as %s — %d preview events",
+            identity.get("email") or "<unknown>",
+            len(events) if events else 0,
+        )
+        return {
+            "status": "complete",
+            "profile": profile,
+            "events": events,
+            "account": identity,
+        }
 
     _outlog.warning("device flow ended without a token — status=expired")
     _OUTLOOK_AUTH.pop(user_id, None)
@@ -396,7 +689,10 @@ def disconnect_outlook(authorization: str | None = Header(default=None)) -> dict
     """Disconnect Outlook: flip the profile flag and best-effort clear the token cache."""
     user_id = _user_id(authorization)
     _OUTLOOK_AUTH.pop(user_id, None)
-    profile = store.update_profile(user_id, {"connections": {"outlook": False}})
+    profile = store.update_profile(
+        user_id,
+        {"connections": {"outlook": False, "outlook_email": None, "outlook_name": None}},
+    )
 
     cleared = False
     try:
@@ -467,6 +763,73 @@ def stations(query: str = "") -> dict:
         return {"stations": hits[:6], "source": "fallback"}
 
 
+# --- Journey search (live DB data via sidecar) --------------------------------
+# NOTE: intentionally live-only — no mock fallback. Unlike the station lookup
+# above (which falls back to a static list) and the agent tools (which fall
+# back to mock_data and tag every result with `source`), there is no realistic
+# mock for an arbitrary origin/destination journey search. When the sidecar is
+# down we return an empty result set with source "unavailable" (HTTP 200) so
+# the UI shows "Search unavailable" instead of crashing. This is a deliberate,
+# documented exception to the AGENTS.md live-then-mock-fallback contract: the
+# search endpoint is UI-only (not an LLM tool), so the Orchestrator's "disclose
+# mock_* sources" rule doesn't apply.
+
+
+@app.get("/api/journeys/search")
+def journeys_search(
+    origin: str = "",
+    destination: str = "",
+    date: str = "",
+    time: str = "08:00",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Search live DB journeys between two stations.
+
+    ``origin`` / ``destination`` accept either a station name or an EVA (all-digit
+    id, passed straight through from the autocomplete). ``date`` is ``YYYY-MM-DD``;
+    ``time`` defaults to 08:00 and is combined into the ISO datetime db_api wants.
+
+    Returns ``{"results": [...], "source": "db-live"}`` on success, or
+    ``{"results": [], "source": "unavailable", "message": ...}`` (HTTP 200)
+    when a station can't be resolved, the sidecar is down, or DB temporarily
+    rejects the upstream request.
+    """
+    _user_id(authorization)
+
+    origin = (origin or "").strip()
+    destination = (destination or "").strip()
+    date = (date or "").strip()
+    time = (time or "08:00").strip()
+    if not origin or not destination or not date:
+        return {
+            "results": [],
+            "source": "unavailable",
+            "message": "Please fill in origin, destination and date.",
+        }
+
+    from_eva = resolve_eva_or_id(origin)
+    to_eva = resolve_eva_or_id(destination)
+    if from_eva is None or to_eva is None:
+        return {
+            "results": [],
+            "source": "unavailable",
+            "message": "Station lookup failed. Pick a station from the suggestions or try a major Hbf.",
+        }
+
+    try:
+        payload = db_api.journeys(
+            from_eva,
+            to_eva,
+            departure=f"{date}T{time}:00",
+            results=6,
+            tickets=True,
+        )
+        results = db_api.normalize_journeys(payload)
+        return {"results": results, "source": "db-live"}
+    except db_api.DBServiceError:
+        return {"results": [], "source": "unavailable"}
+
+
 # --- Chat (runs the ReAct orchestrator, like scenarios/happy_path.py) --------------------------------
 
 
@@ -484,10 +847,16 @@ async def chat_endpoint(
     ADK + a configured Uni-GPT backend (.env) are required here; errors are
     returned as ``error`` (HTTP 200) so the chat UI can show them inline.
     """
-    user_id = _user_id(authorization)
+    user_id = _user_id(authorization)  # chat is behind the login like the rest of the API
+    # The traveler's saved number — used for the proactive HIGH-risk WhatsApp
+    # alert. May be None if the phone step was skipped during onboarding.
+    profile = store.get_profile(user_id) or {}
+    notify_phone = (profile.get("notifications") or {}).get("phone")
     try:
         account = store.get_account(user_id)
-        result = await chat.chat_turn(body.session_id, body.message, body.trip, account)
+        result = await chat.chat_turn(
+            body.session_id, body.message, body.trip, account, notify_phone=notify_phone
+        )
         created = complaints.maybe_create_from_last_rights(user_id, body.trip)
         if created:
             result["complaint_created"] = created
