@@ -1283,36 +1283,6 @@ const renderers = {
             <span id="book-to-sug"></span>
           </span>
         </label>
-
-        <div class="switch-row">
-          <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
-          <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <div class="switch-row">
-          <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
-          <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
-      </div>
-
-      <div class="section-title"><h2>Travel preferences</h2><button id="edit-prefs" type="button">Edit</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
-        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
-        <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
-        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
-      </div>
-
-      <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
-        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
-        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? (p.connections.outlook_email ? "✓ " + p.connections.outlook_email : "✓ connected") : "not connected"}</span></div>
-      </div>
-
-      <div class="card">
-        <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
-        <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
         <label class="field">Departure
           <input type="datetime-local" id="book-depart" value="${b.departure}">
         </label>
@@ -1405,16 +1375,6 @@ const renderers = {
       </div>
 
       <div class="card">
-        <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
-        ${outlookConnected ? `
-          <div class="success-banner">✓ Connected${state.profile?.connections?.outlook_email ? ` as ${state.profile.connections.outlook_email}` : " — Outlook calendar"}</div>
-          ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
-          <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
-        ` : `
-          <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
-          <div id="outlook-device-flow"></div>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
-        `}
         <h2>Per-action overrides</h2>
         <p class="muted" style="margin-top:0">"Default (by level)" follows the choice above. Pin a specific action to always run or always ask.</p>
         ${toolRow("📲 Notify me", "You are the recipient — always automatic", '<span class="v muted">Always auto</span>')}
@@ -1439,29 +1399,6 @@ const renderers = {
     $("#tabbar").hidden = false;
     setActiveTab("profile");
 
-    // --- Phone handlers ---
-    if (phoneVerified) {
-      $("#phone-disconnect").addEventListener("click", async () => {
-        const data = await api("/api/verify/phone", { method: "DELETE" });
-        state.profile = data.profile;
-        toast("Phone number removed");
-        renderers.connections();
-      });
-    } else {
-      $("#phone-send").addEventListener("click", async () => {
-        $("#phone-error").textContent = "";
-        try {
-          const data = await api("/api/verify/phone/start", {
-            method: "POST", body: { phone: $("#phone-input").value },
-          });
-          $("#phone-confirm-area").hidden = false;
-          $("#phone-code").focus();
-          toast(data.delivery?.sent
-            ? `📲 Code sent to ${data.phone} on WhatsApp — code: ${data.demo_code}`
-            : `📱 Demo (Twilio off) — your code is ${data.demo_code}`, 10000);
-        } catch (err) {
-          $("#phone-error").textContent = err.message;
-        }
     const box = screen.querySelector('[data-group="alevel"]');
     box.querySelectorAll(".choice").forEach((btn) => {
       if (btn.dataset.value === level) btn.classList.add("selected");
@@ -1531,18 +1468,8 @@ const renderers = {
     const trip = state.chat.trip;
     const headInner = trip
       ? `<div class="chat-trip">
-          <span class="chat-route">${trip.origin} → ${trip.destination}</span>
-          <span class="chat-sub">${trip.train} · ${fmtDate(trip.planned_departure)} · ${fmtTime(trip.planned_departure)}</span>
-    const chatRoute = `${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}`;
-    const chatTrain = escapeHtml(trip.train || "Connection");
-    const chatDate = escapeHtml(fmtDate(trip.planned_departure));
-    const chatTime = escapeHtml(fmtTime(trip.planned_departure));
-    screen.replaceChildren(el(`
-      <div class="chat-head">
-        <button class="chat-back" id="chat-back" type="button" aria-label="Back">‹</button>
-        <div class="chat-trip">
-          <span class="chat-route">${chatRoute}</span>
-          <span class="chat-sub">${chatTrain} · ${chatDate} · ${chatTime}</span>
+          <span class="chat-route">${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}</span>
+          <span class="chat-sub">${escapeHtml(trip.train || "Connection")} · ${escapeHtml(fmtDate(trip.planned_departure))} · ${escapeHtml(fmtTime(trip.planned_departure))}</span>
         </div>
         <span class="chat-live">● live</span>`
       : `<div class="chat-trip">
@@ -1590,6 +1517,20 @@ function openChat(trip = null) {
     : `Hi ${state.account.first_name}! I'm your monitoring assistant. Describe any trip — e.g. `
       + `"risk for an ICE from Cologne Hbf to Hamburg Hbf on 2026-06-30 at 09:00" — and I'll check the `
       + `delay risk, reroute options, and your calendar deadlines. No booking needed.`;
+  if (state.chat && state.chat.trip && trip && state.chat.trip.trip_id === trip.trip_id) {
+    go("chat");
+    return;
+  }
+  state.chat = {
+    sessionId: null,
+    trip,
+    busy: false,
+    messages: [{ role: "assistant", text: greeting }],
+  };
+  persistChat();
+  go("chat");
+}
+
 // ---------------------------------------------------------------------------
 // Book: station autocomplete + journey search results
 // ---------------------------------------------------------------------------
@@ -1856,27 +1797,6 @@ function restoreChatState() {
 // Reopening the trip you were already chatting about resumes that
 // conversation instead of starting over; opening a different trip still
 // starts fresh (only one conversation is kept active at a time).
-function openChat(trip) {
-  if (state.chat && state.chat.trip && state.chat.trip.trip_id === trip.trip_id) {
-    go("chat");
-    return;
-  }
-  state.chat = {
-    sessionId: null,
-    trip,
-    busy: false,
-    messages: [{
-      role: "assistant",
-      text: `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip. `
-        + `Say "monitor my trip" for a live check. If your appointment is no longer reachable you can ask me to act — `
-        + `e.g. "rebook me, move the clashing meeting and let the participants know" — and I'll only do what your `
-        + `automation settings allow without asking first.`,
-    }],
-  };
-  persistChat();
-  go("chat");
-}
-
 function renderTrace(trace) {
   const lines = trace.map((t) => {
     if (t.kind === "call") return `<div class="trace-line"><span class="ag">${escapeHtml(t.author)}</span> → calls <b>${escapeHtml(t.name)}()</b></div>`;
