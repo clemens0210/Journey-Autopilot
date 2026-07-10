@@ -13,7 +13,7 @@
 import tls from 'tls'
 import Fastify from 'fastify'
 import { createClient } from 'db-vendo-client'
-import { profile } from 'db-vendo-client/p/db/index.js'
+import { profile } from 'db-vendo-client/p/dbnav/index.js'
 
 // --- TLS fingerprint workaround (the real cause of HTTP 452 "OPS_BLOCKED") ---
 //
@@ -80,7 +80,7 @@ const parseOpt = (query = {}) => {
 // --- Routes (one per db-vendo-client method) --------------------------------
 
 // Liveness probe — Python uses this to detect whether the sidecar is up.
-app.get('/health', async () => ({ ok: true, profile: 'db', engine: 'db-vendo-client' }))
+app.get('/health', async () => ({ ok: true, profile: 'db-nav', engine: 'db-vendo-client' }))
 
 // Name -> station list (each result carries the EVA number as `id`).
 app.get('/locations', async (req) => {

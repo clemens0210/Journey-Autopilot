@@ -17,6 +17,8 @@ const state = {
   account: null,
   profile: null,
   trips: [],
+  complaints: [],
+  complaintId: null, // active detail view
   outlookEvents: [],
   step: "welcome",
   editReturn: null, // "dashboard" / "profile" = return target after editing
@@ -291,6 +293,79 @@ function setActiveTab(tab) {
   if (el) el.classList.add("active");
 }
 
+function showMainTabBar(activeTab) {
+  $("#navbar").hidden = true;
+  $("#progress").hidden = true;
+  $("#tabbar").hidden = false;
+  setActiveTab(activeTab);
+}
+
+const fmtEur = (n) => `€${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const COMPLAINT_STATUS = {
+  draft: "Draft — review & submit",
+  submitted: "Submitted",
+  rejected: "Dismissed",
+};
+
+function draftComplaintsCount() {
+  return state.complaints.filter((c) => c.status === "draft").length;
+}
+
+function profileComplaintsNavRow() {
+  const drafts = draftComplaintsCount();
+  return `
+    <button type="button" class="profile-nav-row" id="open-complaints">
+      <span class="profile-nav-icon">
+        <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M8 4h8l2 4h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h3l2-4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 12v4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+      <span class="profile-nav-body">
+        <span class="profile-nav-title">Complaints</span>
+        <span class="profile-nav-sub">Review and submit passenger-rights claims</span>
+      </span>
+      ${drafts ? `<span class="profile-nav-badge">${drafts}</span>` : ""}
+      <span class="profile-nav-chevron" aria-hidden="true">›</span>
+    </button>`;
+}
+
+function complaintCardHTML(c) {
+  const statusClass = `complaint-status-${c.status}`;
+  const dateLabel = c.travel_date
+    ? new Date(`${c.travel_date}T12:00:00`).toLocaleDateString("en-US", {
+      weekday: "short", day: "2-digit", month: "short", year: "numeric",
+    })
+    : "—";
+  return `
+    <div class="complaint-card clickable" data-complaint-id="${escapeHtml(c.complaint_id)}">
+      <div class="complaint-card-head">
+        <span class="complaint-route">${escapeHtml(c.origin)} → ${escapeHtml(c.destination)}</span>
+        <span class="complaint-badge ${statusClass}">${COMPLAINT_STATUS[c.status] || c.status}</span>
+      </div>
+      <div class="complaint-meta">${escapeHtml(c.train || "Train")} · ${dateLabel}</div>
+      <div class="complaint-meta">Delay ${c.delay_minutes} min · est. ${fmtEur(c.compensation_eur)}</div>
+      ${c.status === "draft"
+    ? '<div class="complaint-foot">Tap to review and submit</div>'
+    : ""}
+    </div>`;
+}
+
+function handleComplaintCreated(complaint) {
+  state.complaints = [
+    complaint,
+    ...state.complaints.filter((c) => c.complaint_id !== complaint.complaint_id),
+  ];
+  toast(
+    `Draft complaint ready — est. ${fmtEur(complaint.compensation_eur)} compensation. `
+    + "Open Profile → Complaints to review and submit.",
+    6500,
+  );
+}
+
+function wireOpenComplaints() {
+  const btn = $("#open-complaints");
+  if (btn) btn.addEventListener("click", () => go("complaints"));
+}
+
 // ---------------------------------------------------------------------------
 // Screens
 // ---------------------------------------------------------------------------
@@ -350,6 +425,7 @@ const renderers = {
         state.account = data.account;
         state.profile = data.profile;
         state.trips = data.trips;
+        state.complaints = data.complaints || [];
         updateTopbarAccount();
         toast(`Welcome, ${data.account.first_name}! ${data.trips.length} trips imported.`);
         // Anyone who already finished onboarding lands straight in the dashboard.
@@ -820,7 +896,7 @@ const renderers = {
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
       sessionStorage.removeItem(CHAT_STORAGE_KEY);
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null, chat: null });
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], complaints: [], complaintId: null, outlookEvents: [], editReturn: null, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -845,6 +921,8 @@ const renderers = {
         <div class="summary-row"><span class="k">BahnCard</span><span class="v">${state.account.bahncard}</span></div>
         <div class="summary-row"><span class="k">BahnBonus</span><span class="v">${state.account.bahnbonus_status} · ${state.account.bahnbonus_points.toLocaleString("en-US")} points</span></div>
       </div>
+
+      ${profileComplaintsNavRow()}
 
       <div class="section-title"><h2>Home station</h2></div>
       <div class="card">
@@ -912,6 +990,7 @@ const renderers = {
     $("#tabbar").hidden = false;
     setActiveTab("profile");
 
+    wireOpenComplaints();
     setupHomeStationAutocomplete(h);
 
     $("#save-home").addEventListener("click", async () => {
@@ -942,11 +1021,125 @@ const renderers = {
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
       sessionStorage.removeItem(CHAT_STORAGE_KEY);
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], outlookEvents: [], editReturn: null, chat: null });
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], complaints: [], complaintId: null, outlookEvents: [], editReturn: null, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
     });
+  },
+
+  // -- Complaints (Profile → overview of passenger-rights drafts) ----------------
+  complaints() {
+    const drafts = draftComplaintsCount();
+    const cards = state.complaints.map((c) => complaintCardHTML(c)).join("");
+
+    screen.replaceChildren(el(`
+      <button type="button" class="screen-back" id="complaints-back">‹ Profile</button>
+      <div class="dash-greeting">
+        <h1>Complaints</h1>
+        <p class="muted">${drafts
+    ? `${drafts} draft${drafts === 1 ? "" : "s"} waiting for your review — you submit each claim yourself.`
+    : "When the autopilot detects passenger-rights eligibility, a draft appears here for you to submit."}</p>
+      </div>
+      ${cards || `
+        <div class="card">
+          <p class="muted" style="margin:0">No complaints yet. Ask the autopilot to monitor a trip in the chat — if compensation applies, you'll get a notification and a draft will show up here.</p>
+        </div>`}
+    `));
+
+    showMainTabBar("profile");
+
+    $("#complaints-back").addEventListener("click", () => go("profile"));
+    screen.querySelectorAll(".complaint-card.clickable").forEach((node) => {
+      node.addEventListener("click", () => {
+        state.complaintId = node.dataset.complaintId;
+        go("complaint_detail");
+      });
+    });
+  },
+
+  // -- Complaint detail (review draft, submit or dismiss) ------------------------
+  complaint_detail() {
+    const c = state.complaints.find((item) => item.complaint_id === state.complaintId);
+    if (!c) {
+      go("complaints");
+      return;
+    }
+
+    const dateLabel = c.travel_date
+      ? new Date(`${c.travel_date}T12:00:00`).toLocaleDateString("en-US", {
+        weekday: "long", day: "2-digit", month: "long", year: "numeric",
+      })
+      : "—";
+
+    screen.replaceChildren(el(`
+      <button type="button" class="screen-back" id="complaint-back">‹ Complaints</button>
+      <div class="dash-greeting">
+        <h1>Claim details</h1>
+        <span class="complaint-badge complaint-status-${c.status}">${COMPLAINT_STATUS[c.status] || c.status}</span>
+      </div>
+
+      <div class="card" style="padding: 12px 16px">
+        <div class="summary-row"><span class="k">Route</span><span class="v">${escapeHtml(c.origin)} → ${escapeHtml(c.destination)}</span></div>
+        <div class="summary-row"><span class="k">Train</span><span class="v">${escapeHtml(c.train || "—")}</span></div>
+        <div class="summary-row"><span class="k">Travel date</span><span class="v">${dateLabel}</span></div>
+        <div class="summary-row"><span class="k">Delay</span><span class="v">${c.delay_minutes} min</span></div>
+        <div class="summary-row"><span class="k">Est. compensation</span><span class="v">${fmtEur(c.compensation_eur)}</span></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;font-size:15px">Why this claim applies</h2>
+        <p class="muted" style="margin-bottom:0">${escapeHtml(c.reason)}</p>
+        ${(c.notes || []).length ? `<ul class="complaint-notes">${c.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>` : ""}
+      </div>
+
+      ${c.status === "draft" ? `
+        <p class="muted" style="padding: 0 6px">This is a draft prepared by the autopilot. Nothing is filed until you tap Submit below.</p>
+        <button class="btn primary block" id="complaint-submit" type="button">Submit complaint</button>
+        <button class="btn ghost block" id="complaint-dismiss" type="button" style="margin-top:8px">Dismiss draft</button>
+      ` : c.status === "submitted" ? `
+        <div class="success-banner">✓ Complaint submitted${c.submitted_at ? ` on ${fmtDate(c.submitted_at)}` : ""} (simulated)</div>
+      ` : `
+        <p class="muted" style="padding: 0 6px">This draft was dismissed and will not be submitted.</p>
+      `}
+    `));
+
+    showMainTabBar("profile");
+
+    $("#complaint-back").addEventListener("click", () => go("complaints"));
+
+    if (c.status === "draft") {
+      $("#complaint-submit").addEventListener("click", async () => {
+        try {
+          const data = await api(`/api/complaints/${encodeURIComponent(c.complaint_id)}`, {
+            method: "PATCH",
+            body: { status: "submitted" },
+          });
+          const idx = state.complaints.findIndex((item) => item.complaint_id === c.complaint_id);
+          if (idx >= 0) state.complaints[idx] = data.complaint;
+          toast("✓ Complaint submitted (simulated)");
+          go("complaint_detail");
+        } catch (err) {
+          toast(`⚠️ ${err.message}`);
+        }
+      });
+
+      $("#complaint-dismiss").addEventListener("click", async () => {
+        if (!confirm("Dismiss this draft? It will not be submitted.")) return;
+        try {
+          const data = await api(`/api/complaints/${encodeURIComponent(c.complaint_id)}`, {
+            method: "PATCH",
+            body: { status: "rejected" },
+          });
+          const idx = state.complaints.findIndex((item) => item.complaint_id === c.complaint_id);
+          if (idx >= 0) state.complaints[idx] = data.complaint;
+          toast("Draft dismissed");
+          go("complaints");
+        } catch (err) {
+          toast(`⚠️ ${err.message}`);
+        }
+      });
+    }
   },
 
   // -- Connections (reachable via "Manage" on the profile/dashboard) ---------------
@@ -1090,36 +1283,6 @@ const renderers = {
             <span id="book-to-sug"></span>
           </span>
         </label>
-
-        <div class="switch-row">
-          <span>Hotel stay okay<span class="sub">A hotel may be suggested if you're stranded</span></span>
-          <label class="switch"><input type="checkbox" id="hotel-ok" ${h.hotel_ok ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <div class="switch-row">
-          <span>Taxi for the last mile okay<span class="sub">If the last connection falls through</span></span>
-          <label class="switch"><input type="checkbox" id="taxi-ok" ${h.taxi_ok ? "checked" : ""}><span class="track"></span></label>
-        </div>
-        <button class="btn primary block" id="save-home" type="button" style="margin-top:14px">Save home settings</button>
-      </div>
-
-      <div class="section-title"><h2>Travel preferences</h2><button id="edit-prefs" type="button">Edit</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
-        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
-        <div class="summary-row"><span class="k">Max. transfers</span><span class="v">${pref.max_transfers >= 9 ? "no preference" : pref.max_transfers}</span></div>
-        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
-      </div>
-
-      <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
-        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
-        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? (p.connections.outlook_email ? "✓ " + p.connections.outlook_email : "✓ connected") : "not connected"}</span></div>
-      </div>
-
-      <div class="card">
-        <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
-        <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
         <label class="field">Departure
           <input type="datetime-local" id="book-depart" value="${b.departure}">
         </label>
@@ -1212,16 +1375,6 @@ const renderers = {
       </div>
 
       <div class="card">
-        <p class="muted">The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar.</p>
-        ${outlookConnected ? `
-          <div class="success-banner">✓ Connected${state.profile?.connections?.outlook_email ? ` as ${state.profile.connections.outlook_email}` : " — Outlook calendar"}</div>
-          ${events ? `<h2 style="font-size:14px">Detected events</h2>${events}` : ""}
-          <button class="btn danger block" id="outlook-disconnect" type="button" style="margin-top:12px">Disconnect</button>
-        ` : `
-          <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
-          <div id="outlook-device-flow"></div>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
-        `}
         <h2>Per-action overrides</h2>
         <p class="muted" style="margin-top:0">"Default (by level)" follows the choice above. Pin a specific action to always run or always ask.</p>
         ${toolRow("📲 Notify me", "You are the recipient — always automatic", '<span class="v muted">Always auto</span>')}
@@ -1246,29 +1399,6 @@ const renderers = {
     $("#tabbar").hidden = false;
     setActiveTab("profile");
 
-    // --- Phone handlers ---
-    if (phoneVerified) {
-      $("#phone-disconnect").addEventListener("click", async () => {
-        const data = await api("/api/verify/phone", { method: "DELETE" });
-        state.profile = data.profile;
-        toast("Phone number removed");
-        renderers.connections();
-      });
-    } else {
-      $("#phone-send").addEventListener("click", async () => {
-        $("#phone-error").textContent = "";
-        try {
-          const data = await api("/api/verify/phone/start", {
-            method: "POST", body: { phone: $("#phone-input").value },
-          });
-          $("#phone-confirm-area").hidden = false;
-          $("#phone-code").focus();
-          toast(data.delivery?.sent
-            ? `📲 Code sent to ${data.phone} on WhatsApp — code: ${data.demo_code}`
-            : `📱 Demo (Twilio off) — your code is ${data.demo_code}`, 10000);
-        } catch (err) {
-          $("#phone-error").textContent = err.message;
-        }
     const box = screen.querySelector('[data-group="alevel"]');
     box.querySelectorAll(".choice").forEach((btn) => {
       if (btn.dataset.value === level) btn.classList.add("selected");
@@ -1338,18 +1468,8 @@ const renderers = {
     const trip = state.chat.trip;
     const headInner = trip
       ? `<div class="chat-trip">
-          <span class="chat-route">${trip.origin} → ${trip.destination}</span>
-          <span class="chat-sub">${trip.train} · ${fmtDate(trip.planned_departure)} · ${fmtTime(trip.planned_departure)}</span>
-    const chatRoute = `${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}`;
-    const chatTrain = escapeHtml(trip.train || "Connection");
-    const chatDate = escapeHtml(fmtDate(trip.planned_departure));
-    const chatTime = escapeHtml(fmtTime(trip.planned_departure));
-    screen.replaceChildren(el(`
-      <div class="chat-head">
-        <button class="chat-back" id="chat-back" type="button" aria-label="Back">‹</button>
-        <div class="chat-trip">
-          <span class="chat-route">${chatRoute}</span>
-          <span class="chat-sub">${chatTrain} · ${chatDate} · ${chatTime}</span>
+          <span class="chat-route">${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}</span>
+          <span class="chat-sub">${escapeHtml(trip.train || "Connection")} · ${escapeHtml(fmtDate(trip.planned_departure))} · ${escapeHtml(fmtTime(trip.planned_departure))}</span>
         </div>
         <span class="chat-live">● live</span>`
       : `<div class="chat-trip">
@@ -1397,6 +1517,20 @@ function openChat(trip = null) {
     : `Hi ${state.account.first_name}! I'm your monitoring assistant. Describe any trip — e.g. `
       + `"risk for an ICE from Cologne Hbf to Hamburg Hbf on 2026-06-30 at 09:00" — and I'll check the `
       + `delay risk, reroute options, and your calendar deadlines. No booking needed.`;
+  if (state.chat && state.chat.trip && trip && state.chat.trip.trip_id === trip.trip_id) {
+    go("chat");
+    return;
+  }
+  state.chat = {
+    sessionId: null,
+    trip,
+    busy: false,
+    messages: [{ role: "assistant", text: greeting }],
+  };
+  persistChat();
+  go("chat");
+}
+
 // ---------------------------------------------------------------------------
 // Book: station autocomplete + journey search results
 // ---------------------------------------------------------------------------
@@ -1663,27 +1797,6 @@ function restoreChatState() {
 // Reopening the trip you were already chatting about resumes that
 // conversation instead of starting over; opening a different trip still
 // starts fresh (only one conversation is kept active at a time).
-function openChat(trip) {
-  if (state.chat && state.chat.trip && state.chat.trip.trip_id === trip.trip_id) {
-    go("chat");
-    return;
-  }
-  state.chat = {
-    sessionId: null,
-    trip,
-    busy: false,
-    messages: [{
-      role: "assistant",
-      text: `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip. `
-        + `Say "monitor my trip" for a live check. If your appointment is no longer reachable you can ask me to act — `
-        + `e.g. "rebook me, move the clashing meeting and let the participants know" — and I'll only do what your `
-        + `automation settings allow without asking first.`,
-    }],
-  };
-  persistChat();
-  go("chat");
-}
-
 function renderTrace(trace) {
   const lines = trace.map((t) => {
     if (t.kind === "call") return `<div class="trace-line"><span class="ag">${escapeHtml(t.author)}</span> → calls <b>${escapeHtml(t.name)}()</b></div>`;
@@ -1784,12 +1897,24 @@ function renderChatLog() {
   const parts = state.chat.messages.map((m) => {
     if (m.role === "user") return `<div class="bubble user">${escapeHtml(m.text)}</div>`;
     if (m.role === "error") return `<div class="bubble error">⚠️ ${escapeHtml(m.text)}</div>`;
+    if (m.role === "notice") {
+      return `<div class="bubble notice">
+        <div>${escapeHtml(m.text)}</div>
+        <button type="button" class="notice-link" data-complaint-id="${escapeHtml(m.complaintId)}">Review complaint →</button>
+      </div>`;
+    }
     const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
     const cards = m.options && m.options.length ? renderOptionCards(m.options, m.optionsSource, m) : "";
     return `<div class="bubble assistant"><div class="md">${renderMarkdown(m.text)}</div>${cards}${trace}</div>`;
   });
   if (state.chat.busy) parts.push(`<div class="bubble assistant typing"><i></i><i></i><i></i></div>`);
   log.innerHTML = parts.join("");
+  log.querySelectorAll(".notice-link").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.complaintId = btn.dataset.complaintId;
+      go("complaint_detail");
+    });
+  });
   log.scrollTop = log.scrollHeight;
 }
 
@@ -1930,7 +2055,6 @@ async function onChatSubmit(ev) {
     if (data.error) {
       chat.messages.push({ role: "error", text: data.error });
     } else {
-      chat.messages.push({ role: "assistant", text: data.reply, trace: data.trace });
       // A proactive WhatsApp notice is sent on every monitoring turn; the band
       // (when detected) only shapes the message. Surface the send result.
       if (data.alert) {
@@ -1953,6 +2077,14 @@ async function onChatSubmit(ev) {
         options: data.options || null,
         optionsSource: data.options_source || null,
       });
+      if (data.complaint_created) {
+        handleComplaintCreated(data.complaint_created);
+        chat.messages.push({
+          role: "notice",
+          text: `Drafted a complaint for this trip — est. ${fmtEur(data.complaint_created.compensation_eur)} compensation.`,
+          complaintId: data.complaint_created.complaint_id,
+        });
+      }
     }
   } catch (err) {
     chat.messages.push({ role: "error", text: err.message });
@@ -2229,7 +2361,10 @@ $("#ms-accept").addEventListener("click", async () => {
 // Tab bar: Book / Trips / Profile navigation
 $("#tab-book").addEventListener("click", () => go("book"));
 $("#tab-trips").addEventListener("click", () => go("dashboard"));
-$("#tab-profile").addEventListener("click", () => go("profile"));
+$("#tab-profile").addEventListener("click", () => {
+  state.complaintId = null;
+  go("profile");
+});
 
 async function boot() {
   if (state.token) {
@@ -2238,6 +2373,7 @@ async function boot() {
       state.account = data.account;
       state.profile = data.profile;
       state.trips = data.trips;
+      state.complaints = data.complaints || [];
       updateTopbarAccount();
       // Active session: users who finished onboarding land in the dashboard,
       // everyone else continues after the login step. A chat in progress

@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -28,7 +29,6 @@ from ..integrations import hotels as hotels_api
 from ..integrations import stations
 
 logger = logging.getLogger(__name__)
-
 
 
 def _calendar_configured() -> bool:
@@ -60,6 +60,17 @@ def _outlook_connected() -> bool:
     successful web-based device-code login.
     """
     return bool(_profile_connections().get("outlook"))
+
+
+def calendar_connected() -> bool:
+    """True when a real calendar is available (Entra creds + Outlook connected).
+
+    The Planner's instruction provider reads this at call time: without a
+    connected calendar the calendar steps are dropped from the prompt entirely,
+    so no LLM round-trip (and no mock-calendar check) is spent on appointments
+    the user never provided.
+    """
+    return _calendar_configured() and _outlook_connected()
 
 
 # Internal alias Microsoft consumer accounts report as the organizer address
@@ -280,6 +291,24 @@ def _board_warnings(board: Any) -> list[dict]:
 # --- Monitoring tools ---------------------------------------------------------
 
 
+def _arrival_in_past(arrival_iso: str | None) -> bool:
+    """True if the (estimated) arrival lies in the past — i.e. the trip is over.
+
+    The live DB feed has no explicit "arrived" flag (unlike the mock fixture,
+    where scripts/simulate_arrival.py sets one), so it is derived from the
+    arrival timestamp. Complaint drafting and the Monitoring agent's
+    EN ROUTE/ARRIVED status both depend on this field being present.
+    """
+    arrival = _parse_datetime(arrival_iso)
+    if arrival is None:
+        return False
+    # Offset-aware timestamps (the live sidecar's format, including a trailing
+    # "Z") compare as instants; genuinely naive ones are German-local wall clock
+    # (see _minutes_between) and compare against the local clock.
+    now = datetime.now(arrival.tzinfo) if arrival.tzinfo else datetime.now()
+    return arrival <= now
+
+
 def _overall_level(forecasts: list[dict]) -> str:
     """Worst per-leg forecast level as the trip's risk band (LOW/MEDIUM/HIGH).
 
@@ -412,6 +441,10 @@ def get_live_trip_status(trip_id: str) -> dict:
                     "planned_departure": option.get("planned_departure") or trip.get("planned_departure"),
                     "planned_arrival": option.get("planned_arrival") or trip.get("planned_arrival"),
                     "estimated_arrival": option.get("arrival") or option.get("planned_arrival"),
+                    # Only the *estimated* arrival confirms the trip is over; a
+                    # scheduled planned_arrival passing while a train is delayed
+                    # must NOT read as "arrived" (would draft a premature claim).
+                    "arrived": _arrival_in_past(option.get("arrival")),
                     "platform_changes": option.get("platform_changes", []),
                     "data_timestamp": datetime.now(timezone.utc).isoformat(),
                     "source": "db_service_live",
@@ -783,6 +816,54 @@ def _parse_trip_time(date: str, value: str | None) -> datetime | None:
     return dt.replace(tzinfo=None) if dt is not None else None
 
 
+def _classify_window_conflicts(
+    events: list[dict],
+    date: str,
+    planned_departure: str = "",
+    expected_arrival: str = "",
+    latest_arrival: str = "",
+) -> dict | None:
+    """Classify calendar events against one trip window (shared core).
+
+    Returns ``None`` when no usable arrival estimate was given; otherwise a
+    dict with ``conflicts`` (events tagged ``during_trip`` /
+    ``at_risk_if_delayed``), ``hard_conflicts``, ``unparsed_events``, and
+    ``departure_known``. Used by ``get_calendar_conflicts`` (one window) and
+    ``check_options_against_calendar`` (one window per reroute option).
+    """
+    departure = _parse_trip_time(date, planned_departure)
+    expected = _parse_trip_time(date, expected_arrival)
+    latest = _parse_trip_time(date, latest_arrival)
+    if expected is None and latest is None:
+        return None
+    expected = expected or latest
+    latest = max(latest, expected) if latest else expected  # invariant: latest >= expected
+
+    buffer = timedelta(minutes=CALENDAR_TRAVEL_BUFFER_MINUTES)
+    conflicts: list[dict] = []
+    unparsed = 0
+    for event in events:
+        start = _parse_trip_time(date, event.get("start"))
+        if start is None:
+            unparsed += 1
+            continue
+        if departure is not None and start < departure:
+            continue  # before the trip — unaffected
+        if start < expected + buffer:
+            clash = "during_trip"
+        elif start < latest + buffer:
+            clash = "at_risk_if_delayed"
+        else:
+            continue  # reachable even in the unfavorable case
+        conflicts.append({**event, "clash": clash})
+    return {
+        "conflicts": conflicts,
+        "hard_conflicts": sum(1 for c in conflicts if c.get("hard_constraint")),
+        "unparsed_events": unparsed,
+        "departure_known": departure is not None,
+    }
+
+
 async def get_calendar_conflicts(
     date: str,
     planned_departure: str = "",
@@ -827,10 +908,10 @@ async def get_calendar_conflicts(
     calendar = await get_user_calendar(date, user_email)
     events = calendar.get("events", [])
 
-    departure = _parse_trip_time(date, planned_departure)
-    expected = _parse_trip_time(date, expected_arrival)
-    latest = _parse_trip_time(date, latest_arrival)
-    if expected is None and latest is None:
+    classified = _classify_window_conflicts(
+        events, date, planned_departure, expected_arrival, latest_arrival
+    )
+    if classified is None:
         return {
             "date": date,
             "events_checked": len(events),
@@ -840,26 +921,8 @@ async def get_calendar_conflicts(
             ),
             "source": calendar.get("source"),
         }
-    expected = expected or latest
-    latest = max(latest, expected) if latest else expected  # invariant: latest >= expected
-
-    buffer = timedelta(minutes=CALENDAR_TRAVEL_BUFFER_MINUTES)
-    conflicts: list[dict] = []
-    unparsed = 0
-    for event in events:
-        start = _parse_trip_time(date, event.get("start"))
-        if start is None:
-            unparsed += 1
-            continue
-        if departure is not None and start < departure:
-            continue  # before the trip — unaffected
-        if start < expected + buffer:
-            clash = "during_trip"
-        elif start < latest + buffer:
-            clash = "at_risk_if_delayed"
-        else:
-            continue  # reachable even in the unfavorable case
-        conflicts.append({**event, "clash": clash})
+    conflicts = classified["conflicts"]
+    unparsed = classified["unparsed_events"]
 
     result = {
         "date": date,
@@ -871,18 +934,119 @@ async def get_calendar_conflicts(
         "buffer_minutes": CALENDAR_TRAVEL_BUFFER_MINUTES,
         "events_checked": len(events),
         "conflicts": conflicts,
-        "hard_conflicts": sum(1 for c in conflicts if c.get("hard_constraint")),
+        "hard_conflicts": classified["hard_conflicts"],
         "clear_events": len(events) - len(conflicts) - unparsed,
         "source": calendar.get("source"),
     }
     if unparsed:
         result["unparsed_events"] = unparsed
-    if departure is None and events:
+    if not classified["departure_known"] and events:
         result["warning"] = (
             "planned_departure was not provided — appointments before the "
             "trip could not be excluded and may be misclassified as "
             "during_trip. Pass the departure time for a reliable result."
         )
+    if calendar.get("error"):
+        result["calendar_error"] = calendar["error"]
+    return result
+
+
+async def check_options_against_calendar(
+    date: str,
+    planned_departure: str = "",
+    user_email: str | None = None,
+) -> dict:
+    """Checks ALL reroute options found this turn against the calendar at once.
+
+    Call this ONCE after ``find_reroute_options`` (and any ecosystem tools)
+    instead of checking options one by one with ``get_calendar_conflicts``.
+    It reads the options gathered in this planning turn, fetches the calendar
+    a single time, and returns a per-option verdict.
+
+    Args:
+        date: Travel date in "YYYY-MM-DD" format, e.g. "2026-06-19".
+        planned_departure: The trip's planned departure (ISO datetime or
+            "HH:MM") — used for options that carry no departure of their own,
+            so appointments before the trip are not misclassified.
+        user_email: Optional email of another user whose calendar to query.
+
+    Returns:
+        A dict with ``option_verdicts`` — one entry per option:
+        ``option_id``, ``mode``, ``viable`` (True = no hard-constraint clash),
+        ``hard_conflicts``, and the clashing appointments (incl. their
+        ``hard_constraint`` flag and organizer/attendee contacts). Options
+        without a same-day arrival (e.g. hotels) return ``viable: null`` with
+        a note. Also contains ``hard_constraint_appointments`` (all
+        non-negotiable appointments that day), ``events_checked``,
+        ``buffer_minutes``, and the calendar ``source``.
+    """
+    if not calendar_connected():
+        return {
+            "calendar_connected": False,
+            "checked": False,
+            "note": (
+                "No calendar is connected — appointment deadlines cannot be "
+                "checked. Treat options as free of calendar conflicts."
+            ),
+        }
+
+    stashed = last_reroute_options()
+    options = (stashed or {}).get("options") or []
+    if not options:
+        return {
+            "date": date,
+            "error": (
+                "No reroute options were gathered this turn — call "
+                "find_reroute_options first, then this check."
+            ),
+        }
+
+    calendar = await get_user_calendar(date, user_email)
+    events = calendar.get("events", [])
+
+    verdicts: list[dict] = []
+    for option in options:
+        entry: dict = {
+            "option_id": option.get("option_id"),
+            "mode": option.get("mode", "train"),
+        }
+        arrival = option.get("new_arrival")
+        if not arrival:
+            entry.update(
+                viable=None,
+                note=(
+                    "No same-day arrival time (e.g. overnight hotel) — not "
+                    "checkable against the travel day's appointments."
+                ),
+            )
+            verdicts.append(entry)
+            continue
+        classified = _classify_window_conflicts(
+            events,
+            date,
+            planned_departure=option.get("departure") or planned_departure,
+            expected_arrival=arrival,
+        )
+        # classified can't be None here: arrival is a non-empty expected_arrival.
+        entry.update(
+            new_arrival=arrival,
+            viable=classified["hard_conflicts"] == 0,
+            hard_conflicts=classified["hard_conflicts"],
+            conflicts=classified["conflicts"],
+        )
+        verdicts.append(entry)
+
+    result = {
+        "calendar_connected": True,
+        "date": date,
+        "buffer_minutes": CALENDAR_TRAVEL_BUFFER_MINUTES,
+        "events_checked": len(events),
+        "hard_constraint_appointments": [
+            e for e in events if e.get("hard_constraint")
+        ],
+        "option_verdicts": verdicts,
+        "source": calendar.get("source"),
+    }
     if calendar.get("error"):
         result["calendar_error"] = calendar["error"]
     return result
@@ -932,6 +1096,34 @@ def get_upcoming_trips() -> dict:
     return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
 
 
+# get_passenger_rights is a Planner tool, and the Planner is only reachable
+# through an AgentTool (the orchestrator calls it as a nested agent). ADK's
+# AgentTool runs the wrapped agent in its own internal Runner and forwards
+# only the agent's final merged *text* to the parent — the Planner's own
+# tool-call results (get_passenger_rights included) never reach the
+# top-level event stream that ui.chat iterates. Scanning that trace for a
+# "get_passenger_rights" entry therefore never matches.
+#
+# Workaround (same pattern as find_reroute_options' _LAST_REROUTE stash on
+# the rerouting branch): the tool stashes its result here while it runs
+# (same process), and the caller reads it after the run instead of the
+# trace. Safe for the single-user prototype (the chat UI's busy guard
+# prevents concurrent turns). ui.chat.chat_turn clears the slot at the start
+# of each turn so a stale result from a previous turn is never reused.
+_LAST_RIGHTS: dict | None = None
+
+
+def last_passenger_rights() -> dict | None:
+    """Returns the most recent get_passenger_rights result, or None."""
+    return _LAST_RIGHTS
+
+
+def clear_passenger_rights() -> None:
+    """Reset the in-process slot — called at the start of each chat turn."""
+    global _LAST_RIGHTS
+    _LAST_RIGHTS = None
+
+
 def get_passenger_rights(
     delay_minutes: int,
     ticket_type: str = "einzelticket",
@@ -967,12 +1159,7 @@ def get_passenger_rights(
 
     # 2. RAG context for the agent — semantically matching chunks
     try:
-        from ..integrations.rights_rag.rag_store import FahrgastrechteRAG
-
-        rag = getattr(get_passenger_rights, "_rag", None)
-        if rag is None:
-            rag = FahrgastrechteRAG()
-            setattr(get_passenger_rights, "_rag", rag)
+        rag = _get_or_build_rag()
         chunks = rag.retrieve_for_case(
             delay_minutes=delay_minutes,
             ticket_type=ticket_type,
@@ -982,10 +1169,51 @@ def get_passenger_rights(
     except Exception:
         legal_context = "Knowledge base temporarily unavailable."
 
-    return {
+    result = {
+        "delay_minutes": delay_minutes,
         **compensation,
         "legal_context": legal_context,
     }
+    global _LAST_RIGHTS
+    _LAST_RIGHTS = result
+    return result
+
+
+# Constructing FahrgastrechteRAG imports sentence_transformers + torch, which
+# takes ~20-40s the first time in a fresh process — almost entirely Python
+# import overhead (proven by timing it directly), not model download or
+# inference. Left to happen on the first real get_passenger_rights() call,
+# that cost lands squarely in the middle of a chat turn. Instead, kick it off
+# in the background as soon as this module loads (i.e. as soon as a chat turn
+# starts building the agent graph) so it runs concurrently with the ReAct
+# loop's own LLM latency — by the time the Planner actually calls
+# get_passenger_rights, the model is very likely already warm.
+_RAG_LOCK = threading.Lock()
+
+
+def _get_or_build_rag():
+    """Returns the cached FahrgastrechteRAG singleton, building it if needed."""
+    rag = getattr(get_passenger_rights, "_rag", None)
+    if rag is not None:
+        return rag
+    with _RAG_LOCK:
+        rag = getattr(get_passenger_rights, "_rag", None)
+        if rag is None:
+            from ..integrations.rights_rag.rag_store import FahrgastrechteRAG
+
+            rag = FahrgastrechteRAG()
+            setattr(get_passenger_rights, "_rag", rag)
+        return rag
+
+
+def _warm_rag_in_background() -> None:
+    try:
+        _get_or_build_rag()
+    except Exception:
+        pass  # get_passenger_rights() retries synchronously and surfaces the real error
+
+
+threading.Thread(target=_warm_rag_in_background, daemon=True).start()
 
 
 # --- Risk tools (pre-trip delay assessment) -----------------------------------

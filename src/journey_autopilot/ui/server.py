@@ -41,7 +41,7 @@ from pydantic import BaseModel
 # Onboarding logic ("the functions") lives in a separate package; the UI only
 # imports it. The chat module is local to this UI package.
 from journey_autopilot import mock_data, risk
-from journey_autopilot.onboarding import accounts
+from journey_autopilot.onboarding import accounts, complaints
 from journey_autopilot.persistence import store
 from journey_autopilot.integrations import db_ops as db_api
 from journey_autopilot.integrations.stations import resolve_eva_or_id
@@ -139,6 +139,10 @@ class ChatRequest(BaseModel):
     trip: dict | None = None
 
 
+class ComplaintPatchRequest(BaseModel):
+    status: str
+
+
 class BookTripRequest(BaseModel):
     journey: dict
     purpose: str | None = None
@@ -193,7 +197,7 @@ def db_login(body: LoginRequest) -> dict:
 
     token = secrets.token_urlsafe(24)
     _SESSIONS[token] = account["user_id"]
-    return {"token": token, "account": account, "trips": trips, "profile": profile}
+    return {"token": token, "account": account, "trips": trips, "profile": profile, "complaints": store.get_complaints(account["user_id"])}
 
 
 @app.get("/api/me")
@@ -203,6 +207,7 @@ def me(authorization: str | None = Header(default=None)) -> dict:
         "account": store.get_account(user_id),
         "profile": store.get_profile(user_id),
         "trips": store.get_trips(user_id),
+        "complaints": store.get_complaints(user_id),
     }
 
 
@@ -210,6 +215,30 @@ def me(authorization: str | None = Header(default=None)) -> dict:
 def trips(authorization: str | None = Header(default=None)) -> dict:
     user_id = _user_id(authorization)
     return {"trips": store.get_trips(user_id)}
+
+
+@app.get("/api/complaints")
+def list_complaints(authorization: str | None = Header(default=None)) -> dict:
+    user_id = _user_id(authorization)
+    return {"complaints": store.get_complaints(user_id)}
+
+
+@app.patch("/api/complaints/{complaint_id}")
+def patch_complaint(
+    complaint_id: str,
+    body: ComplaintPatchRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    user_id = _user_id(authorization)
+    if body.status == "submitted":
+        updated = complaints.submit_complaint(user_id, complaint_id)
+    elif body.status == "rejected":
+        updated = complaints.reject_complaint(user_id, complaint_id)
+    else:
+        raise HTTPException(status_code=422, detail="Unsupported status change.")
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Complaint not found.")
+    return {"complaint": updated}
 
 
 # --- Booking (simple journey search via db_service, adds to monitored trips) ---
@@ -824,9 +853,14 @@ async def chat_endpoint(
     profile = store.get_profile(user_id) or {}
     notify_phone = (profile.get("notifications") or {}).get("phone")
     try:
-        return await chat.chat_turn(
-            body.session_id, body.message, body.trip, notify_phone=notify_phone
+        account = store.get_account(user_id)
+        result = await chat.chat_turn(
+            body.session_id, body.message, body.trip, account, notify_phone=notify_phone
         )
+        created = complaints.maybe_create_from_last_rights(user_id, body.trip)
+        if created:
+            result["complaint_created"] = created
+        return result
     except Exception as exc:  # surfaced inline in the chat instead of a 500
         return {
             "session_id": body.session_id,

@@ -18,6 +18,8 @@ import logging
 import re
 from typing import Any
 
+from ..onboarding.complaints import bahncard_type
+
 logger = logging.getLogger(__name__)
 
 APP_NAME = "journey_autopilot"
@@ -116,12 +118,14 @@ def _get_runner() -> Any:
     return _runner
 
 
-def _seed_prompt(trip: dict | None, message: str) -> str:
+def _seed_prompt(trip: dict | None, message: str, account: dict | None = None) -> str:
     """First message of a chat: prepend the selected trip as context.
 
     The orchestrator expects a trip_id (and route/date) to call the monitoring
     agent — exactly what ``scenarios/happy_path.py`` passes in its hard-coded prompt. Here
-    the values come from the trip the user clicked.
+    the values come from the trip the user clicked. The account's BahnCard is
+    included so a passenger-rights check uses the real discount instead of
+    defaulting to "keine".
     """
     if not trip:
         return message
@@ -145,6 +149,11 @@ def _seed_prompt(trip: dict | None, message: str) -> str:
         context += f", ticket price {trip.get('price_eur')} EUR"
     if trip.get("travel_class"):
         context += f", {trip.get('travel_class')}. class"
+    if account and account.get("bahncard"):
+        context += (
+            f". My BahnCard: {account['bahncard']}"
+            f" (bahncard_type: {bahncard_type(account)})"
+        )
     context += "."
     return f"{context}\n\n{message}"
 
@@ -180,6 +189,7 @@ async def chat_turn(
     session_id: str | None,
     message: str,
     trip: dict | None = None,
+    account: dict | None = None,
     notify_phone: str | None = None,
 ) -> dict:
     """Run one chat turn through the orchestrator.
@@ -189,6 +199,8 @@ async def chat_turn(
             new conversation.
         message: The user's chat message.
         trip: The selected trip (added as context on the first turn only).
+        account: The logged-in account — its BahnCard is added to the first-turn
+            context for accurate passenger-rights checks.
         notify_phone: The traveler's saved number. When monitoring comes back
             HIGH risk, a proactive WhatsApp disruption alert is sent here.
 
@@ -199,15 +211,28 @@ async def chat_turn(
         ``None`` when no alert was attempted).
     """
     from google.genai import types
+    from journey_autopilot.tools.read_tools import clear_passenger_rights
 
     runner = _get_runner()
+    clear_passenger_rights()  # a stale rights result from a prior turn must not leak in
+
+    # Reset the in-process reroute slot so options from a previous turn are
+    # never shown. The Planner's find_reroute_options tool repopulates it when
+    # it runs; read after the loop. (Base AgentTool runs the sub-agent in its
+    # own runner, so the tool payload doesn't surface in the event stream —
+    # see tools/read_tools.py.)
+    try:
+        from ..tools import read_tools
+        read_tools.clear_reroute_options()
+    except Exception:
+        read_tools = None  # type: ignore[assignment]
 
     if not session_id:
         session = await runner.session_service.create_session(
             app_name=APP_NAME, user_id=USER_ID
         )
         session_id = session.id
-        text = _seed_prompt(trip, message)
+        text = _seed_prompt(trip, message, account)
     else:
         # The session already carries the trip context from the first turn.
         text = message
@@ -286,27 +311,6 @@ async def chat_turn(
         notify_phone or "(none)",
         alert,
     )
-    # Reset the in-process reroute slot so options from a previous turn are
-    # never shown. The Planner's find_reroute_options tool repopulates it when
-    # it runs; read after the loop. (Base AgentTool runs the sub-agent in its
-    # own runner, so the tool payload doesn't surface in the event stream —
-    # see tools/read_tools.py.)
-    try:
-        from ..tools import read_tools
-        read_tools.clear_reroute_options()
-    except Exception:
-        read_tools = None  # type: ignore[assignment]
-
-    async for event in runner.run_async(
-        user_id=USER_ID, session_id=session_id, new_message=new_message
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            reply = "".join(
-                p.text for p in event.content.parts if getattr(p, "text", None)
-            )
-            continue
-        trace.extend(_describe(event))
-
     # Pick up the structured option list the Planner's tool stashed, if any.
     options: list[dict] | None = None
     options_source: str | None = None
