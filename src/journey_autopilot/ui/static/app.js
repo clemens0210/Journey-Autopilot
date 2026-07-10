@@ -2055,7 +2055,6 @@ async function onChatSubmit(ev) {
     if (data.error) {
       chat.messages.push({ role: "error", text: data.error });
     } else {
-      chat.messages.push({ role: "assistant", text: data.reply, trace: data.trace });
       // A proactive WhatsApp notice is sent on every monitoring turn; the band
       // (when detected) only shapes the message. Surface the send result.
       if (data.alert) {
