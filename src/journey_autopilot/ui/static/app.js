@@ -1433,7 +1433,7 @@ const renderers = {
 
     let body;
     if (error) {
-      body = `<div class="jd-error">⚠️ ${escapeHtml(error)}</div>`;
+      body = `<div class="jd-error">${escapeHtml(error)}</div>`;
     } else if (!data) {
       body = `<div class="device-waiting"><span class="spinner"></span>Loading live journey data…</div>`;
     } else {
@@ -1511,11 +1511,12 @@ const renderers = {
 // ---------------------------------------------------------------------------
 
 function openChat(trip = null) {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   const greeting = trip
-    ? `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip. `
-      + `Ask me anything — or just say "monitor my trip" to run a live check.`
+    ? `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip — `
+      + `running a live check for you now. Ask me anything in the meantime.`
     : `Hi ${state.account.first_name}! I'm your monitoring assistant. Describe any trip — e.g. `
-      + `"risk for an ICE from Cologne Hbf to Hamburg Hbf on 2026-06-30 at 09:00" — and I'll check the `
+      + `"risk for an ICE from Cologne Hbf to Hamburg Hbf on ${tomorrow} at 09:00" — and I'll check the `
       + `delay risk, reroute options, and your calendar deadlines. No booking needed.`;
   if (state.chat && state.chat.trip && trip && state.chat.trip.trip_id === trip.trip_id) {
     go("chat");
@@ -1529,6 +1530,17 @@ function openChat(trip = null) {
   };
   persistChat();
   go("chat");
+  // Trip chats start with an automatic monitoring turn: opening the chat IS
+  // the "monitor my trip" intent, so the live status/risk check (and, on a
+  // detected risk band, the proactive WhatsApp notice) runs without the user
+  // having to type anything. Only once per freshly opened chat — reopening or
+  // restoring a conversation never re-triggers it.
+  if (trip) {
+    runChatTurn(
+      "Monitor my trip: check the live status and current disruption risk, and tell me if I need to do anything.",
+      { display: { role: "notice", text: "Automatic check — the autopilot is monitoring this trip (live status, risk, calendar)." } },
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1697,7 +1709,7 @@ function stopHTML(stop, delayMinutes, { arrival = false } = {}) {
 // delay next to the expected delay from the risk forecast (historical DB data).
 function journeyHTML(data) {
   const incidents = (data.incidents || []).map((inc) => `
-    <div class="jd-notice">⚠️ <b>${escapeHtml(inc.type)}</b> (${escapeHtml(inc.location)}): ${escapeHtml(inc.impact)}</div>
+    <div class="jd-notice"><b>${escapeHtml(inc.type)}</b> (${escapeHtml(inc.location)}): ${escapeHtml(inc.impact)}</div>
   `).join("");
 
   const parts = data.legs.map((leg, i) => {
@@ -1721,13 +1733,13 @@ function journeyHTML(data) {
         <div class="jd-legdur">${fmtDuration(legMinutes)}</div>
         <div class="jd-line"></div>
         <div class="jd-leginfo">
-          <span class="jd-train">🚄 ${escapeHtml(leg.train)}</span>
+          <span class="jd-train">${escapeHtml(leg.train)}</span>
           <div class="jd-dir">to ${escapeHtml(leg.direction)}</div>
           <div class="jd-delays">
             <span class="jd-chip real ${delay > 0 ? "late" : "ok"}">${delay > 0 ? `+${delay} min delay` : "On time"}</span>
             <span class="jd-chip expected ${fc.level || "low"}">Expected: ${expected > 0 ? `+${expected} min` : "on time"}</span>
           </div>
-          ${fc.factors && fc.factors.length ? `<div class="jd-forecast-note">🔮 Autopilot forecast (${Math.round((fc.confidence || 0) * 100)}%): ${escapeHtml(fc.factors[0])}</div>` : ""}
+          ${fc.factors && fc.factors.length ? `<div class="jd-forecast-note">Autopilot forecast (${Math.round((fc.confidence || 0) * 100)}% confidence): ${escapeHtml(fc.factors[0])}</div>` : ""}
         </div>
       </div>
       ${stopHTML(leg.destination, delay, { arrival: true })}`;
@@ -1735,7 +1747,7 @@ function journeyHTML(data) {
 
   return `
     ${incidents}
-    ${data.connection_risk ? `<div class="jd-notice">⚠️ ${escapeHtml(data.connection_risk)}</div>` : ""}
+    ${data.connection_risk ? `<div class="jd-notice">${escapeHtml(data.connection_risk)}</div>` : ""}
     <div class="jd-timeline">${parts}</div>
     <p class="muted" style="margin-top:14px">Expected delay is the autopilot's risk forecast, based on historical DB punctuality data for this route — not a live prediction.</p>`;
 }
@@ -1828,6 +1840,14 @@ function renderInlineMd(text) {
 // escapeHtml, so no unescaped model output ever reaches innerHTML.
 function renderMarkdown(src) {
   const lines = String(src ?? "").replace(/\r\n?/g, "\n").split("\n");
+  // A table starts at line idx when it contains pipes and the NEXT line is a
+  // |---|---| separator row. Checked by index (not per-line) because both the
+  // block dispatcher and the paragraph accumulator must stop there — models
+  // often emit "Here are your options:" directly followed by the table, and
+  // without this check the whole table was swallowed into the paragraph.
+  const isTableStart = (idx) =>
+    lines[idx].includes("|") && idx + 1 < lines.length &&
+    /^\s*\|?[\s:|-]*-[\s:|-]*$/.test(lines[idx + 1]) && lines[idx + 1].includes("|");
   const isBlockStart = (l) =>
     !l.trim() || /^```/.test(l.trim()) || /^#{1,6}\s/.test(l) || /^\s*>/.test(l) ||
     /^\s*[-*+]\s+/.test(l) || /^\s*\d+[.)]\s+/.test(l);
@@ -1853,8 +1873,7 @@ function renderMarkdown(src) {
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { out.push("<hr>"); i++; continue; }
 
     // Table: a row with pipes followed by a |---|---| separator row.
-    if (line.includes("|") && i + 1 < lines.length &&
-        /^\s*\|?[\s:|-]*-[\s:|-]*$/.test(lines[i + 1]) && lines[i + 1].includes("|")) {
+    if (isTableStart(i)) {
       const cells = (r) => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
       const head = cells(line);
       i += 2;
@@ -1884,7 +1903,7 @@ function renderMarkdown(src) {
       continue;
     }
     const buf = [];
-    for (; i < lines.length && lines[i].trim() && !isBlockStart(lines[i]); i++) buf.push(lines[i]);
+    for (; i < lines.length && lines[i].trim() && !isBlockStart(lines[i]) && !isTableStart(i); i++) buf.push(lines[i]);
     out.push(`<p>${renderInlineMd(buf.join("\n")).replace(/\n/g, "<br>")}</p>`);
   }
   return out.join("");
@@ -1898,9 +1917,12 @@ function renderChatLog() {
     if (m.role === "user") return `<div class="bubble user">${escapeHtml(m.text)}</div>`;
     if (m.role === "error") return `<div class="bubble error">⚠️ ${escapeHtml(m.text)}</div>`;
     if (m.role === "notice") {
+      const link = m.complaintId
+        ? `<button type="button" class="notice-link" data-complaint-id="${escapeHtml(m.complaintId)}">Review complaint →</button>`
+        : "";
       return `<div class="bubble notice">
         <div>${escapeHtml(m.text)}</div>
-        <button type="button" class="notice-link" data-complaint-id="${escapeHtml(m.complaintId)}">Review complaint →</button>
+        ${link}
       </div>`;
     }
     const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
@@ -1948,6 +1970,30 @@ const _MODE_META = {
   bike_sharing: { icon: "🚲", label: "Call-a-Bike",  cls: "bike"  },
   hotel:        { icon: "🏨", label: "Hotel",         cls: "hotel" },
 };
+
+// Itinerary for a train option: every stop with its time, the train of each
+// leg, and the connection (transfer) time at every change station.
+function optionStopsHTML(legs) {
+  if (!Array.isArray(legs) || legs.length === 0) return "";
+  const rows = [];
+  legs.forEach((leg, i) => {
+    if (i === 0) {
+      rows.push(`<div class="os-row"><span class="os-time">${leg.departure ? fmtTime(leg.departure) : "—"}</span><span class="os-station">${escapeHtml(leg.origin || "")}</span></div>`);
+    }
+    rows.push(`<div class="os-leg">${escapeHtml(leg.train || "")}</div>`);
+    const next = legs[i + 1];
+    if (next) {
+      const transferMin = leg.arrival && next.departure ? minutesBetween(leg.arrival, next.departure) : null;
+      const transfer = transferMin != null
+        ? `<span class="os-transfer">${transferMin} min transfer · dep ${fmtTime(next.departure)}</span>`
+        : "";
+      rows.push(`<div class="os-row"><span class="os-time">${leg.arrival ? fmtTime(leg.arrival) : "—"}</span><span class="os-station">${escapeHtml(leg.destination || "")}</span>${transfer}</div>`);
+    } else {
+      rows.push(`<div class="os-row"><span class="os-time">${leg.arrival ? fmtTime(leg.arrival) : "—"}</span><span class="os-station">${escapeHtml(leg.destination || "")}</span></div>`);
+    }
+  });
+  return `<div class="option-stops">${rows.join("")}</div>`;
+}
 
 function renderOptionCards(options, optionsSource, message) {
   const chosen = message.chosenOption || null;
@@ -2003,6 +2049,8 @@ function renderOptionCards(options, optionsSource, message) {
         transfers: o.transfers, added_delay_minutes: o.added_delay_minutes,
         price_eur: o.price_eur, remarks: o.remarks,
       });
+      // Full itinerary (stops, per-leg trains, transfer times) when available.
+      body += optionStopsHTML(o.legs);
     }
 
     return `
@@ -2038,11 +2086,18 @@ async function onChatSubmit(ev) {
   const input = $("#chat-text");
   const text = input.value.trim();
   if (!text || state.chat.busy) return;
-
   input.value = "";
-  state.chat.messages.push({ role: "user", text });
+  await runChatTurn(text);
+}
+
+// One chat turn against the orchestrator. ``display`` overrides the bubble
+// shown for this turn (the auto-monitor turn shows a notice instead of a
+// fake user message); the ``text`` is what the agent actually receives.
+async function runChatTurn(text, { display = null } = {}) {
+  if (state.chat.busy) return;
+  state.chat.messages.push(display || { role: "user", text });
   state.chat.busy = true;
-  $("#chat-send").disabled = true;
+  if ($("#chat-send")) $("#chat-send").disabled = true;
   renderChatLog();
 
   const chat = state.chat; // keep a handle in case the user navigates away

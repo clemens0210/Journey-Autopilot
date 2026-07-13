@@ -185,7 +185,10 @@ Answer in structured form:
   option_id (R# train / C# car / B# bike / H# hotel), mode, key facts
   (trains or name, departure/arrival or est. duration; price only for non-hotel
   modes when known), and a
-  one-line calendar + profile verdict. Lead with the recommended option.
+  one-line calendar + profile verdict. For train options use the ``legs``
+  data to name the change station(s) and the connection time at each one
+  (e.g. "change in Leipzig Hbf, 14 min transfer") — never invent stops that
+  are not in the legs. Lead with the recommended option.
   DO NOT collapse to a single option — the user must be able to choose.
   Keep non-viable options only as a brief "rejected" note.
   For ecosystem options (C#/B#/H#) note they are NOT same-day alternatives

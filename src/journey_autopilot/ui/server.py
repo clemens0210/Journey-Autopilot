@@ -397,7 +397,12 @@ def trip_details(trip_id: str, authorization: str | None = Header(default=None))
             leg["current_delay_minutes"] = live_delays.get(leg["train"], 0)
     for leg, forecast in zip(legs, risk.forecast_trip(trip, legs)):
         leg["forecast"] = forecast
-    connection_warnings = risk.connection_risks(legs)
+    # Warnings on this screen must reflect what is ACTUALLY happening: only
+    # live delays can put a transfer at risk here. The historical variant
+    # (risk.connection_risks) produced speculative "you may miss ..." warnings
+    # on punctual days — those read as wrong warnings and are kept out of the
+    # trip view (the per-leg "Expected" chip still shows the forecast).
+    connection_warnings = risk.live_connection_risks(legs)
 
     return {
         "trip_id": trip_id,

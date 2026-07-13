@@ -183,9 +183,6 @@ async def send_approved_notice_email(approval_id: str) -> dict:
         "to_address": to_address,
         "subject": pending["subject"],
     }
-from datetime import datetime, timezone
-
-from .. import policy
 
 
 def _profile() -> dict | None:

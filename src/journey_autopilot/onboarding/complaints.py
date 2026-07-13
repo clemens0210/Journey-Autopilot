@@ -80,10 +80,12 @@ def is_trip_completed(trip: dict | None) -> bool:
 
     A complaint may only be drafted once the trip is over, not while it's
     still en route (e.g. compensation figures the Planner cites for a
-    candidate reroute mid-disruption are estimates, not a filed claim). Only
-    an explicit ``arrived: true`` in live status (see
-    ``scripts/simulate_arrival.py``) counts as completed; absent that flag
-    the trip is treated as still ongoing.
+    candidate reroute mid-disruption are estimates, not a filed claim).
+    ``arrived: true`` in the live status counts as completed — set explicitly
+    by the fixture (``scripts/simulate_arrival.py``), derived from the live
+    arrival time, or derived from the scripted delay's ETA having passed (see
+    ``read_tools.get_live_trip_status``). Absent that flag the trip is
+    treated as still ongoing.
     """
     trip_id = (trip or {}).get("trip_id")
     if not trip_id:

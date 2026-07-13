@@ -22,6 +22,7 @@ from typing import Any
 
 
 from .. import mock_data, risk
+from . import risk_model
 from ..errors import with_resilience, with_resilience_async
 from ..integrations.rights_rag.rights_service import calculate_compensation
 from ..integrations import db_ops as db_api
@@ -370,7 +371,15 @@ def get_live_trip_status(trip_id: str) -> dict:
         "error" only if the trip is entirely unknown.
     """
     trip = _find_trip_context(trip_id)
-    if trip is not None:
+
+    # A scripted status in the fixture wins over the live search: the demo
+    # trip's dates are rebased to "today", so a live lookup could otherwise
+    # find the real train and silently replace the scripted disruption —
+    # making the canonical demo non-deterministic. Trips without a scripted
+    # status (e.g. self-booked BK-… connections) stay live-first.
+    scripted = mock_data.LIVE_TRIP_STATUS.get(trip_id)
+
+    if trip is not None and scripted is None:
         try:
             option = _journey_for_trip(trip)
             if option:
@@ -454,9 +463,30 @@ def get_live_trip_status(trip_id: str) -> dict:
         except Exception:
             pass
 
-    status = mock_data.LIVE_TRIP_STATUS.get(trip_id)
-    if status is not None:
-        return {**status, "source": "mock_live_status"}
+    if scripted is not None:
+        result = {**scripted, "source": "mock_live_status"}
+        # The fixture's en-route state carries neither the planned times nor a
+        # risk band — fill both so the agent has a real ETA anchor (planned
+        # arrival + delay) instead of guessing, and a deterministic band.
+        if trip is not None:
+            result.setdefault("planned_departure", trip.get("planned_departure"))
+            result.setdefault("planned_arrival", trip.get("planned_arrival"))
+        delay = result.get("current_delay_minutes") or 0
+        result.setdefault(
+            "risk_level", "HIGH" if delay >= 30 else "MEDIUM" if delay >= 10 else "LOW"
+        )
+        if "arrived" not in result:
+            # Derive arrival from the delayed ETA (planned arrival + current
+            # delay, both German-local wall clock). Once that instant has
+            # passed, the delay is final — a scripted en-route status must not
+            # keep a long-finished trip "running" forever. An explicit
+            # ``arrived`` in the fixture (scripts/simulate_arrival.py) wins.
+            eta = _parse_datetime(result.get("planned_arrival"))
+            if eta is not None:
+                result["arrived"] = _arrival_in_past(
+                    (eta + timedelta(minutes=delay)).isoformat()
+                )
+        return result
 
     # Trip is known but the exact booked connection had no live match (and no
     # simulated status exists): answer from the booked legs' historical
@@ -468,6 +498,28 @@ def get_live_trip_status(trip_id: str) -> dict:
             for leg, forecast in zip(risk_legs, forecasts):
                 leg["forecast"] = forecast
             connection_warnings = risk.connection_risks(risk_legs)
+            # No live data exists for this trip. If its planned arrival lies
+            # comfortably in the past (3h margin covers even heavy delays),
+            # the trip is over — report ARRIVED so past trips are never
+            # monitored/rerouted as if they were still running. The final
+            # delay stays unknown (None): a compensation claim needs a
+            # confirmed delay, which this path cannot provide.
+            planned_arrival = _parse_datetime(trip.get("planned_arrival"))
+            long_past = planned_arrival is not None and _arrival_in_past(
+                (planned_arrival + timedelta(hours=3)).isoformat()
+            )
+            note = (
+                "Live status for the exact booked connection is currently "
+                "unavailable; this assessment is the historical forecast for "
+                "the booked legs only."
+            )
+            if long_past:
+                note = (
+                    "This trip's planned arrival lies well in the past — the "
+                    "trip has concluded. No live data is available anymore, so "
+                    "the actually experienced final delay is UNKNOWN (a "
+                    "compensation claim cannot be assessed from this result)."
+                )
             return {
                 "trip_id": trip_id,
                 "train": trip.get("train"),
@@ -477,16 +529,13 @@ def get_live_trip_status(trip_id: str) -> dict:
                 "incidents": [],
                 "connection_risk": " ".join(connection_warnings)
                 or "No live data — no connection risk visible from the historical forecast.",
-                "risk_level": _overall_level(forecasts),
+                "risk_level": "LOW" if long_past else _overall_level(forecasts),
                 "forecasts": forecasts,
                 "legs": risk_legs,
                 "planned_departure": trip.get("planned_departure"),
                 "planned_arrival": trip.get("planned_arrival"),
-                "note": (
-                    "Live status for the exact booked connection is currently "
-                    "unavailable; this assessment is the historical forecast for "
-                    "the booked legs only."
-                ),
+                "arrived": long_past,
+                "note": note,
                 "data_timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "db_history_forecast",
             }
@@ -547,7 +596,9 @@ def find_reroute_options(
 
     Returns:
         A dict with the list of possible reroutes including new arrival time,
-        number of transfers, added delay, price if available, and ``source``.
+        number of transfers, added delay, price if available, per-leg ``legs``
+        (train, change stations, departure/arrival times — cite the change
+        stations and transfer times when presenting an option), and ``source``.
     """
     try:
         from_eva = stations.resolve_eva(origin)
@@ -574,6 +625,19 @@ def find_reroute_options(
                 comfort_parts.append(f"Price: {option['price_eur']} EUR")
             if option.get("platform_changes"):
                 comfort_parts.append("Platform change reported")
+            # Compact per-leg itinerary so the UI (and the Planner's answer)
+            # can show the change stations and the transfer time at each stop.
+            legs = [
+                {
+                    "train": leg.get("train"),
+                    "origin": leg.get("origin"),
+                    "destination": leg.get("destination"),
+                    "departure": leg.get("departure") or leg.get("planned_departure"),
+                    "arrival": leg.get("arrival") or leg.get("planned_arrival"),
+                }
+                for leg in option.get("legs") or []
+                if leg.get("train")
+            ]
             live_options.append(
                 {
                     "option_id": option.get("option_id"),
@@ -586,6 +650,7 @@ def find_reroute_options(
                     "comfort": "; ".join(comfort_parts) or "Live DB connection",
                     "price_eur": option.get("price_eur"),
                     "trains": option.get("trains", []),
+                    "legs": legs,
                     "remarks": option.get("remarks", []),
                     "source": "db_service_live",
                 }

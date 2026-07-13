@@ -6,6 +6,9 @@ endpoint for date-range calendar queries that expands recurring events.
 
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from azure.core.credentials import AccessToken, TokenCredential
 from msgraph import GraphRequestAdapter, GraphServiceClient
 from msgraph.generated.users.item.calendar_view.calendar_view_request_builder import (
@@ -18,6 +21,17 @@ from kiota_authentication_azure.azure_identity_authentication_provider import (
 )
 
 from .auth import MAIL_SCOPES, SCOPES, acquire_credential
+
+# Calendar windows are meant in German local time (the app's wall clock).
+# Graph interprets naive startDateTime/endDateTime values as UTC, which shifts
+# the queried day by the UTC offset — so the boundaries are sent with an
+# explicit Europe/Berlin offset instead.
+_APP_TZ = ZoneInfo("Europe/Berlin")
+
+
+def _local_iso(naive_iso: str) -> str:
+    """'2026-07-14T00:00:00' -> '2026-07-14T00:00:00+02:00' (Europe/Berlin)."""
+    return datetime.fromisoformat(naive_iso).replace(tzinfo=_APP_TZ).isoformat()
 
 
 class StaticTokenCredential:
@@ -157,7 +171,7 @@ async def get_events(
     client = _build_client(credential)
 
     return await _fetch_calendar_view(
-        client, f"{date}T00:00:00", f"{date}T23:59:59", user_email
+        client, _local_iso(f"{date}T00:00:00"), _local_iso(f"{date}T23:59:59"), user_email
     )
 
 
@@ -190,7 +204,7 @@ async def get_events_range(
     client = _build_client(credential)
 
     return await _fetch_calendar_view(
-        client, f"{start_date}T00:00:00", f"{end_date}T23:59:59", user_email
+        client, _local_iso(f"{start_date}T00:00:00"), _local_iso(f"{end_date}T23:59:59"), user_email
     )
 
 

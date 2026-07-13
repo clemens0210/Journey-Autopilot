@@ -51,17 +51,67 @@
         {
           "option_id": "R1",
           "description": "Detour via Würzburg and Hannover — ICE 596 + ICE 894",
+          "departure": "2026-06-19T09:31:00",
           "new_arrival": "2026-06-19T15:28:00",
           "transfers": 2,
           "added_delay_minutes": 204,
+          "trains": ["ICE 596", "ICE 786", "ICE 894"],
+          "legs": [
+            {
+              "train": "ICE 596",
+              "origin": "Munich Hbf",
+              "destination": "Würzburg Hbf",
+              "departure": "2026-06-19T09:31:00",
+              "arrival": "2026-06-19T11:35:00"
+            },
+            {
+              "train": "ICE 786",
+              "origin": "Würzburg Hbf",
+              "destination": "Hannover Hbf",
+              "departure": "2026-06-19T11:52:00",
+              "arrival": "2026-06-19T13:50:00"
+            },
+            {
+              "train": "ICE 894",
+              "origin": "Hannover Hbf",
+              "destination": "Berlin Hbf",
+              "departure": "2026-06-19T14:05:00",
+              "arrival": "2026-06-19T15:28:00"
+            }
+          ],
           "comfort": "No seat reservation; very long detour"
         },
         {
           "option_id": "R2",
           "description": "Detour via Stuttgart and Hannover — ICE 694 + ICE 1084",
+          "departure": "2026-06-19T09:12:00",
           "new_arrival": "2026-06-19T16:13:00",
           "transfers": 2,
           "added_delay_minutes": 249,
+          "trains": ["ICE 694", "ICE 992", "ICE 1084"],
+          "legs": [
+            {
+              "train": "ICE 694",
+              "origin": "Munich Hbf",
+              "destination": "Stuttgart Hbf",
+              "departure": "2026-06-19T09:12:00",
+              "arrival": "2026-06-19T11:28:00"
+            },
+            {
+              "train": "ICE 992",
+              "origin": "Stuttgart Hbf",
+              "destination": "Hannover Hbf",
+              "departure": "2026-06-19T11:51:00",
+              "arrival": "2026-06-19T14:41:00"
+            },
+            {
+              "train": "ICE 1084",
+              "origin": "Hannover Hbf",
+              "destination": "Berlin Hbf",
+              "departure": "2026-06-19T14:53:00",
+              "arrival": "2026-06-19T16:13:00"
+            }
+          ],
           "comfort": "Extremely long journey; not recommended"
         }
       ]
