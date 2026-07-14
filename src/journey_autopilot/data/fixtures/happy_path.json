@@ -51,19 +51,62 @@
         {
           "option_id": "R1",
           "description": "Detour via Leipzig (ICE 1612), then ICE towards Berlin",
+          "departure": "2026-06-19T09:55:00",
           "new_arrival": "2026-06-19T14:42:00",
           "transfers": 1,
           "added_delay_minutes": 158,
           "added_cost_eur": 0.0,
+          "trains": ["ICE 1612", "ICE 502"],
+          "legs": [
+            {
+              "train": "ICE 1612",
+              "origin": "Munich Hbf",
+              "destination": "Leipzig Hbf",
+              "departure": "2026-06-19T09:55:00",
+              "arrival": "2026-06-19T13:16:00"
+            },
+            {
+              "train": "ICE 502",
+              "origin": "Leipzig Hbf",
+              "destination": "Berlin Hbf",
+              "departure": "2026-06-19T13:30:00",
+              "arrival": "2026-06-19T14:42:00"
+            }
+          ],
           "comfort": "Earliest realistic arrival; free rebooking (delay). Misses the 14:00 meeting."
         },
         {
           "option_id": "R2",
           "description": "Via Frankfurt and Kassel-Wilhelmshöhe to Berlin",
+          "departure": "2026-06-19T09:28:00",
           "new_arrival": "2026-06-19T15:25:00",
           "transfers": 2,
           "added_delay_minutes": 201,
           "added_cost_eur": 59.0,
+          "trains": ["ICE 624", "ICE 26", "ICE 1537"],
+          "legs": [
+            {
+              "train": "ICE 624",
+              "origin": "Munich Hbf",
+              "destination": "Frankfurt (Main) Hbf",
+              "departure": "2026-06-19T09:28:00",
+              "arrival": "2026-06-19T12:40:00"
+            },
+            {
+              "train": "ICE 26",
+              "origin": "Frankfurt (Main) Hbf",
+              "destination": "Kassel-Wilhelmshöhe",
+              "departure": "2026-06-19T12:58:00",
+              "arrival": "2026-06-19T13:45:00"
+            },
+            {
+              "train": "ICE 1537",
+              "origin": "Kassel-Wilhelmshöhe",
+              "destination": "Berlin Hbf",
+              "departure": "2026-06-19T14:00:00",
+              "arrival": "2026-06-19T15:25:00"
+            }
+          ],
           "comfort": "More transfers; +59 EUR fare difference. Misses the 14:00 meeting."
         }
       ]

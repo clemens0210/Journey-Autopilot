@@ -17,9 +17,11 @@ from datetime import date, datetime, time, timedelta
 # Lucas' first booked trip is the canonical demo scenario (Munich → Berlin).
 # Its fields are kept identical to ``journey_autopilot.mock_data.DEMO_TRIP``
 # (same trip_id, route, date) so the dashboard chat drives the very same
-# monitoring/reroute/calendar flow as ``scenarios/happy_path.py``: the orchestrator's live
-# status, reroute options, and calendar mock are all pinned to this date.
-DEMO_DATE = date(2026, 6, 19)
+# monitoring/reroute/calendar flow as ``scenarios/happy_path.py``. The date
+# comes from the rebased fixture (mock_data shifts the authored anchor day to
+# "today"), so the demo trip, live status, reroutes, and calendar always agree.
+from journey_autopilot.mock_data import DEMO_DAY as DEMO_DATE
+
 DEMO_TRIP_ID = "DB-2026-0619-MUC-BLN"
 
 # --- Demo accounts ---------------------------------------------------------------

@@ -43,8 +43,7 @@ def forecast_leg(trip: dict, leg: dict, leg_index: int) -> dict:
 
     factor = (
         f"{round(stats['on_time_rate'] * 100)}% on-time historically at {destination} "
-        f"for {train_type or 'this'} trains (mean delay {stats['mean_delay']} min, "
-        f"n={stats['samples']})."
+        f"for {train_type or 'this'} trains (mean delay {stats['mean_delay']} min)."
     )
     return {
         "expected_delay_minutes": expected,
@@ -93,5 +92,32 @@ def connection_risks(legs: list[dict]) -> list[str]:
             warnings.append(
                 f"A {expected} min delay on {prev_leg.get('train')} may cause you to miss the "
                 f"{leg.get('train')} connection at {station} (only {buffer_minutes} min transfer)."
+            )
+    return warnings
+
+
+def live_connection_risks(legs: list[dict]) -> list[str]:
+    """Transfer warnings based ONLY on the current live delay per leg.
+
+    Unlike ``connection_risks`` (which folds the historical mean into the
+    check and therefore flags transfers on a perfectly punctual day), this
+    variant warns only when a train is ACTUALLY running late enough to eat the
+    transfer buffer — the right signal for the trip-detail screen, where a
+    speculative "you may miss your connection" reads as a wrong warning.
+    """
+    warnings: list[str] = []
+    for prev_leg, leg in zip(legs, legs[1:]):
+        prev_arrival = _planned(prev_leg.get("destination"))
+        next_departure = _planned(leg.get("origin"))
+        if prev_arrival is None or next_departure is None:
+            continue
+        buffer_minutes = round((next_departure - prev_arrival).total_seconds() / 60)
+        delay = int(prev_leg.get("current_delay_minutes") or 0)
+        if delay > 0 and delay >= buffer_minutes:
+            station = (prev_leg.get("destination") or {}).get("name", "the transfer station")
+            warnings.append(
+                f"{prev_leg.get('train')} is currently {delay} min late — the "
+                f"{leg.get('train')} connection at {station} ({buffer_minutes} min "
+                f"transfer) is at risk."
             )
     return warnings

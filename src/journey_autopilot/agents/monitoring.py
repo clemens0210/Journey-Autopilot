@@ -67,6 +67,11 @@ B) EN ROUTE (a trip is already running; you are given a trip_id):
         FINAL, CONFIRMED delay — not a forecast, and there is nothing left to
         reroute. State clearly: "Status: ARRIVED — confirmed final delay of
         <N> minutes."
+      - `arrived: true` but `current_delay_minutes` is null -> the trip is
+        over, but no live data confirmed the final delay (see the `note`).
+        State clearly: "Status: ARRIVED — final delay unknown (no live
+        confirmation)." Never invent a delay figure; a compensation claim
+        cannot be assessed from this result.
       - Otherwise -> the trip is still EN ROUTE. Its delay is a live forecast
         that can still change. State clearly: "Status: EN ROUTE — current
         delay <N> minutes (forecast, not final)."

@@ -17,10 +17,62 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from datetime import date, timedelta
 from pathlib import Path
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "data" / "fixtures"
 _ACTIVE = os.getenv("JA_FIXTURES", "happy_path")
+
+# The fixtures are authored against one fixed anchor day (the demo trip's
+# departure date). At load time every date in the fixture is shifted so that
+# the anchor lands on today + JA_DEMO_OFFSET_DAYS (default 0 = today). This
+# keeps the demo evergreen: the canonical trip is never silently "three weeks
+# in the past", the calendar clash sits on the actual travel day, and the
+# reroute arrivals stay consistent with the live status. Wall-clock TIMES are
+# deliberately left untouched — only the date part moves.
+_DEMO_OFFSET_DAYS = int(os.getenv("JA_DEMO_OFFSET_DAYS", "0"))
+
+_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+
+
+def _shift_dates(node, delta: timedelta):
+    """Recursively shift every ISO date (YYYY-MM-DD) in strings/keys by delta.
+
+    Handles bare dates, ISO datetimes, and date-keyed maps (user_calendar).
+    Ids like "DB-2026-0619-MUC-BLN" don't match the pattern and stay stable.
+    """
+
+    def _shift_str(s: str) -> str:
+        def repl(m: re.Match) -> str:
+            try:
+                shifted = date(int(m[1]), int(m[2]), int(m[3])) + delta
+            except ValueError:
+                return m[0]
+            return shifted.isoformat()
+
+        return _DATE_RE.sub(repl, s)
+
+    if isinstance(node, str):
+        return _shift_str(node)
+    if isinstance(node, list):
+        return [_shift_dates(item, delta) for item in node]
+    if isinstance(node, dict):
+        return {_shift_str(k) if isinstance(k, str) else k: _shift_dates(v, delta) for k, v in node.items()}
+    return node
+
+
+def _rebase_fixture(fx: dict) -> dict:
+    """Shift the whole fixture so the demo trip departs today (+ offset)."""
+    anchor_iso = (fx.get("demo_trip", {}).get("planned_departure") or "")[:10]
+    try:
+        anchor = date.fromisoformat(anchor_iso)
+    except ValueError:
+        return fx  # no parseable anchor — leave the fixture as authored
+    delta = (date.today() + timedelta(days=_DEMO_OFFSET_DAYS)) - anchor
+    if not delta:
+        return fx
+    return _shift_dates(fx, delta)
 
 
 def _load_fixtures(name: str) -> dict:
@@ -118,10 +170,14 @@ def lookup_location(table: dict, location: str) -> list:
     return []
 
 
-_FX = _load_fixtures(_ACTIVE)
+_FX = _rebase_fixture(_load_fixtures(_ACTIVE))
 
 # --- Demo trip + live ops (Monitoring) ----------------------------------------
 DEMO_TRIP: dict = _FX["demo_trip"]
+
+# The (rebased) demo travel day — single source of truth for everything that
+# must sit on the same day as the demo trip (simulated bookings, calendar).
+DEMO_DAY: date = date.fromisoformat(DEMO_TRIP["planned_departure"][:10])
 LIVE_TRIP_STATUS: dict = _FX["live_trip_status"]
 NETWORK_DISRUPTIONS: dict = _FX["network_disruptions"]
 

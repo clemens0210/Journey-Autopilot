@@ -27,10 +27,59 @@ connected account's real email.
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from msgraph.generated.models.event import Event
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_LOCATION = "No location"
 HARD_CONSTRAINT_CATEGORY = "Journey-Autopilot/Hard"
+
+# The whole app speaks naive Europe/Berlin wall time (DB times, mock calendar,
+# the conflict checks in read_tools). Graph, however, returns event times in
+# whatever timezone applies to the request — UTC by default, or the timezone
+# from the ``Prefer: outlook.timezone`` header when it is honored. Trusting the
+# header alone shifted events by the UTC offset (2h in summer) whenever it was
+# dropped, so the conversion is done explicitly here from the ``time_zone``
+# Graph reports alongside each timestamp.
+_APP_TZ = ZoneInfo("Europe/Berlin")
+
+# Windows timezone ids Graph commonly reports -> IANA names zoneinfo knows.
+_WINDOWS_TZ = {
+    "utc": "UTC",
+    "w. europe standard time": "Europe/Berlin",
+    "central europe standard time": "Europe/Berlin",
+    "central european standard time": "Europe/Berlin",
+    "romance standard time": "Europe/Paris",
+    "gmt standard time": "Europe/London",
+}
+
+
+def _to_app_wall_time(date_time: str, time_zone: str | None) -> str:
+    """Convert a Graph timestamp to naive Europe/Berlin, minute precision.
+
+    ``date_time`` is Graph's naive string (e.g. "2026-07-14T12:00:00.0000000"),
+    ``time_zone`` the timezone it is expressed in ("UTC", "Europe/Berlin",
+    "W. Europe Standard Time", ...). Unknown zones are assumed to already be
+    app-local — better a correct no-op than a wrong double shift.
+    """
+    raw = (date_time or "")[:19]
+    tz_name = (time_zone or "").strip()
+    key = _WINDOWS_TZ.get(tz_name.lower(), tz_name)
+    try:
+        source = ZoneInfo(key) if key else _APP_TZ
+    except Exception:
+        logger.warning("unknown Graph timezone %r — assuming Europe/Berlin", time_zone)
+        source = _APP_TZ
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return raw[:16]
+    local = dt.replace(tzinfo=source).astimezone(_APP_TZ)
+    return local.strftime("%Y-%m-%dT%H:%M")
 
 
 def graph_events_to_internal(graph_events: list[Event]) -> list[dict]:
@@ -54,8 +103,7 @@ def graph_events_to_internal(graph_events: list[Event]) -> list[dict]:
 
         start = ""
         if event.start and event.start.date_time:
-            dt = event.start.date_time
-            start = dt[:16] if len(dt) >= 16 else dt
+            start = _to_app_wall_time(event.start.date_time, event.start.time_zone)
 
         categories: list[str] = event.categories or []
         is_hard = HARD_CONSTRAINT_CATEGORY in categories

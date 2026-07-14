@@ -171,6 +171,28 @@ python run_onboarding.py        # -> http://127.0.0.1:8000
 
 Or fully containerized — see the next section.
 
+### Demo notes (evergreen dates & flows)
+
+- **Dates are rebased at startup**: the fixtures are authored against one
+  anchor day, and `mock_data` shifts every date so the canonical demo trip
+  (Munich → Berlin, ICE 1006) departs **today**. Set `JA_DEMO_OFFSET_DAYS=1`
+  to move the whole scenario to tomorrow (times stay as authored). The
+  calendar clash (14:00 client meeting), live status, and reroute options all
+  move together, so the scenario stays internally consistent.
+- **Two demoable flows from the same trip**: while `planned arrival + delay`
+  (12:04 + 95 min ≈ 13:39) is still in the future, monitoring reports
+  EN ROUTE + HIGH risk → reroute options → notice email → veto gate. After
+  that time the trip counts as ARRIVED with a confirmed 95-min delay → the
+  passenger-rights check → an automatic draft complaint (Profile →
+  Complaints). `scripts/simulate_arrival.py` still forces either state
+  explicitly.
+- **Auto-monitoring**: opening a trip chat runs the "monitor my trip" check
+  automatically (live status, risk band, calendar). If the reply carries a
+  risk band and a phone number is verified, the proactive WhatsApp notice is
+  sent in the same turn.
+- How the risk score/band is computed and when a reroute is proposed:
+  [`docs/risk-and-rerouting.md`](docs/risk-and-rerouting.md).
+
 ### Running with Docker (web app + DB sidecar)
 
 `docker compose up` starts both services wired together: **app** (FastAPI web
