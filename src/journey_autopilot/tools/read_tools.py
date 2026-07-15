@@ -760,8 +760,10 @@ def find_partner_hotels(
     partner-hotel list when the live lookup fails or finds nothing.
 
     Args:
-        location: Station or city near which to search (typically the destination
-            or the stranded intermediate stop), e.g. "Berlin Hbf".
+        location: Station or city near which to search — pass where the traveler
+            ACTUALLY IS: the origin/start city before departure, the current
+            stranded station en route, or the destination only when they can
+            still arrive today (just too late), e.g. "Munich Hbf".
         check_in_date: Planned check-in date in "YYYY-MM-DD" format.
         max_results: Maximum number of hotels to return.
 

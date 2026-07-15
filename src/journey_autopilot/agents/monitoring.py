@@ -80,6 +80,9 @@ Answer briefly and structured:
 - Status: EN ROUTE or ARRIVED (see B.4) — pre-trip has no such status.
 - Risk: <LOW|MEDIUM|HIGH> (pre-trip: also the 0-100 score if available)
 - Current/expected/final delay and trend
+- Current position (en route only): where the trip currently is, from the live
+  status `current_position` (e.g. "between Munich Hbf and Augsburg Hbf"), when
+  reported — the reroute step needs it to place an overnight hotel correctly.
 - ETA (pre-trip): planned <HH:MM> -> expected <HH:MM>, at the latest ~<HH:MM>
 - Key incidents / endangered connections (cite connection_risk from live data)
 - One- to two-sentence justification based on the forecast and current conditions

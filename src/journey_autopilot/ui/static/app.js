@@ -1943,20 +1943,28 @@ function renderChatLog() {
 // Shared inner body for a train journey/reroute option. The helper speaks one
 // vocabulary — the arrival field is always `arrival` — so each caller maps its
 // source field at the call site: a reroute option passes `new_arrival`, a live
-// search result passes `planned_arrival || arrival`. Centralises the null-price
-// guard too. Used by renderOptionCards (chat reroutes) and the search screen.
+// search result passes `planned_arrival || arrival`. Cost labels distinguish a
+// reroute's added cost from a quoted fare so the two values are never conflated.
 function journeyBodyHTML(j) {
   const trains = (j.trains || []).map(escapeHtml).join(" → ") || escapeHtml(j.description || "Connection");
   const dep = j.departure ? fmtTime(j.departure) : "—";
   const arr = j.arrival ? fmtTime(j.arrival) : "—";
   const transfers = j.transfers != null ? `${j.transfers} change${j.transfers === 1 ? "" : "s"}` : "—";
   const delay = j.added_delay_minutes != null ? `<span class="option-delay">+${j.added_delay_minutes} min</span>` : "";
-  const price = j.price_eur != null ? `<span>${Number(j.price_eur).toFixed(2)} €</span>` : "";
+  let cost = "";
+  if (j.added_cost_eur != null) {
+    const addedCost = Number(j.added_cost_eur);
+    cost = addedCost === 0
+      ? '<span class="option-price">No added cost</span>'
+      : `<span class="option-price">+${addedCost.toFixed(2)} € added</span>`;
+  } else if (j.price_eur != null) {
+    cost = `<span class="option-price">Fare ${Number(j.price_eur).toFixed(2)} €</span>`;
+  }
   const remarks = (j.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
   return `
     <div class="option-trains">${trains}</div>
     <div class="option-times">${dep} → ${arr}</div>
-    <div class="option-meta"><span>${transfers}</span>${delay}${price}</div>
+    <div class="option-meta"><span>${transfers}</span>${delay}${cost}</div>
     ${remarks}`;
 }
 
@@ -2031,7 +2039,7 @@ function renderOptionCards(options, optionsSource, message) {
       const dist = o.distance_km != null ? `${o.distance_km} km` : "";
       const dur = o.est_duration_minutes != null ? `~${o.est_duration_minutes} min` : "";
       const arr = o.new_arrival ? `→ ${fmtTime(o.new_arrival)}` : "";
-      const price = o.price_eur != null ? `${Number(o.price_eur).toFixed(2)} €` : "";
+      const price = o.price_eur != null ? `Price ${Number(o.price_eur).toFixed(2)} €` : "";
       const remarks = (o.remarks || []).slice(0, 1).map((r) => `<span class="option-remark">${escapeHtml(r)}</span>`).join("");
       body = `
         <div class="option-trains">${desc}</div>
@@ -2047,7 +2055,8 @@ function renderOptionCards(options, optionsSource, message) {
         departure: o.departure,
         arrival: o.new_arrival,            // reroute-specific field
         transfers: o.transfers, added_delay_minutes: o.added_delay_minutes,
-        price_eur: o.price_eur, remarks: o.remarks,
+        added_cost_eur: o.added_cost_eur, price_eur: o.price_eur,
+        remarks: o.remarks,
       });
       // Full itinerary (stops, per-leg trains, transfer times) when available.
       body += optionStopsHTML(o.legs);

@@ -121,10 +121,22 @@ _STEP4_WIDENING = """\
      `find_mobility_alternatives(location=<origin>, destination=<destination>)`
      for Flinkster (car, option_ids C#) and Call-a-Bike (bike, option_ids B#)
      options at the origin station.
-   - If `home.hotel_ok` is True: call
-     `find_partner_hotels(location=<destination>, check_in_date=<travel date>)`
-     for partner hotels near the destination (option_ids H#). This covers the
-     overnight case — the traveler stays and travels the next day.
+   - If `home.hotel_ok` is True: call `find_partner_hotels` for partner hotels
+     (option_ids H#, `check_in_date=<travel date>`). This covers the overnight
+     case — the traveler stays and continues the next day. Search the city
+     where the traveler ACTUALLY IS, NOT automatically the destination:
+       - Trip NOT YET STARTED (the Orchestrator says pre-trip, or the planned
+         departure still lies in the future): search the ORIGIN/start city —
+         `find_partner_hotels(location=<origin>, ...)`. A large delay before
+         departure strands the traveler at the start, so a destination hotel
+         would be useless (and, when the destination is home, absurd).
+       - EN ROUTE: search the traveler's CURRENT position that the Orchestrator
+         gives you (the station they are stranded at); fall back to the origin
+         when no current position was provided.
+       - Search the DESTINATION only when the traveler can still reach it today
+         but too late for the onward plan / an appointment the next morning.
+       - If you genuinely cannot tell where the traveler is (no phase and no
+         position given), ASK the user which city to search rather than guessing.
    Do NOT call these tools when a good train option already clears the deadline.
 """
 
@@ -177,6 +189,10 @@ _ANSWER_FORMAT_NO_CALENDAR_BULLET = """\
 
 _ANSWER_FORMAT = """\
 Answer in structured form:
+The chat is displayed in a narrow mobile viewport. Never use Markdown tables.
+Keep the prose focused on why the leading option is
+recommended. The UI renders every structured reroute as a separate selectable
+card, so do not duplicate every option field in the prose.
 {calendar_bullet}\
 - **Profile Fit**: How options match speed-vs-comfort, max transfers, latest
   arrival home, and the ecosystem flags (hotel_ok, car/bike sharing ok). Note
@@ -184,8 +200,8 @@ Answer in structured form:
 - **Options**: Present EVERY viable option across ALL modes, each with its
   option_id (R# train / C# car / B# bike / H# hotel), mode, key facts
   (trains or name, departure/arrival or est. duration; price only for non-hotel
-  modes when known), and a
-  one-line calendar + profile verdict. For train options use the ``legs``
+  modes when known), and a concise one-line calendar + profile verdict. For
+  train options use the ``legs``
   data to name the change station(s) and the connection time at each one
   (e.g. "change in Leipzig Hbf, 14 min transfer") — never invent stops that
   are not in the legs. Lead with the recommended option.
