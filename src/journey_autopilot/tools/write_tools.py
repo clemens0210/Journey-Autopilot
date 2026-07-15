@@ -25,6 +25,7 @@ See docs/journey-autopilot-build-spec.md §5/§8 and docs/adr/0004-veto-gate.md.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 from datetime import datetime, timezone
@@ -36,7 +37,7 @@ from .read_tools import (
     _arrives_after_home_limit,
     _calendar_configured,
     _classify_window_conflicts,
-    _minimum_transfer_buffer,
+    _mode_eligibility_violations,
     _outlook_connected,
     _parse_datetime,
     calendar_connected,
@@ -250,14 +251,26 @@ def _revalidation_error(message: str, **details) -> dict:
 
 
 def _selected_proposal_option(proposal_id: str, option_id: str) -> tuple[dict, dict, dict] | dict:
-    """Load an owned, unexpired, explicitly selected finalized option."""
-    from journey_autopilot.persistence import store
-    from journey_autopilot.request_context import current_session_id
+    """Load an owned, unexpired, explicitly selected finalized option.
 
-    profile = _profile()
-    user_id = (profile or {}).get("user_id")
+    Booking authority requires a genuinely bound request identity — unlike the
+    general-purpose ``_profile()`` accessor, this never falls back to an
+    arbitrary "most recently onboarded" profile, since that fallback would let
+    an unbound request execute against whichever profile happens to be picked.
+    """
+    from journey_autopilot.persistence import store
+    from journey_autopilot.request_context import current_session_id, current_user_id
+
+    user_id = current_user_id.get()
     if not user_id:
+        return _revalidation_error("No authenticated identity bound to this request.")
+    session_id = current_session_id.get()
+    if not session_id:
+        return _revalidation_error("No authenticated chat session bound to this request.")
+    stored_profile = store.get_profile(user_id)
+    if stored_profile is None:
         return _revalidation_error("No authenticated profile owns this proposal.")
+    profile = {**stored_profile, "user_id": user_id}
     proposal = store.get_reroute_proposal(user_id, proposal_id)
     if proposal is None:
         return _revalidation_error("Reroute proposal not found.", proposal_id=proposal_id)
@@ -265,8 +278,7 @@ def _selected_proposal_option(proposal_id: str, option_id: str) -> tuple[dict, d
         return _revalidation_error(
             "Reroute proposal expired or is no longer active.", proposal_id=proposal_id
         )
-    session_id = current_session_id.get()
-    if session_id and proposal.get("session_id") != session_id:
+    if proposal.get("session_id") != session_id:
         return _revalidation_error(
             "Reroute proposal belongs to a different chat session.", proposal_id=proposal_id
         )
@@ -298,12 +310,17 @@ def _selected_proposal_option(proposal_id: str, option_id: str) -> tuple[dict, d
 
 def _profile_constraint_violations(option: dict, profile: dict) -> list[str]:
     """Reapply time, cancellation, transfer, mobility, and home constraints."""
-    reasons: list[str] = []
     preferences = profile.get("preferences") or {}
-    mode = option.get("mode", "train")
-    if mode == "train":
-        if option.get("cancelled"):
-            reasons.append("cancelled")
+    mobility = profile.get("mobility") or {}
+    home = profile.get("home") or {}
+    reasons = _mode_eligibility_violations(
+        option,
+        preferences=preferences,
+        mobility=mobility,
+        home=home,
+        recompute_transfer_buffer=True,
+    )
+    if option.get("mode", "train") == "train":
         departure = _parse_datetime(option.get("departure"))
         if departure is None:
             reasons.append("missing_departure")
@@ -311,27 +328,6 @@ def _profile_constraint_violations(option: dict, profile: dict) -> list[str]:
             now = datetime.now(departure.tzinfo) if departure.tzinfo else datetime.now()
             if departure <= now:
                 reasons.append("already_departed")
-        try:
-            max_transfers = max(0, int(preferences.get("max_transfers", 2)))
-            min_transfer = max(0, int(preferences.get("min_transfer_minutes", 8)))
-        except (TypeError, ValueError):
-            max_transfers, min_transfer = 2, 8
-        if (option.get("transfers") or 0) > max_transfers:
-            reasons.append("too_many_transfers")
-        buffer = _minimum_transfer_buffer(option)
-        option["minimum_transfer_minutes"] = buffer
-        if buffer is not None and buffer < min_transfer:
-            reasons.append("transfer_too_short")
-    elif mode == "car_sharing" and not (profile.get("mobility") or {}).get(
-        "car_sharing_ok", True
-    ):
-        reasons.append("car_sharing_disabled")
-    elif mode == "bike_sharing" and not (profile.get("mobility") or {}).get(
-        "bike_sharing_ok", True
-    ):
-        reasons.append("bike_sharing_disabled")
-    elif mode == "hotel" and not (profile.get("home") or {}).get("hotel_ok", True):
-        reasons.append("hotel_disabled")
     if _arrives_after_home_limit(option, profile):
         reasons.append("after_latest_arrival_home")
     return reasons
@@ -373,7 +369,12 @@ async def _revalidate_selected_option(
                 "The live journey has no provider refresh token.", proposal_id=proposal_id
             )
         try:
-            refreshed_payload = db_api.refresh_journey(refresh_token, tickets=True)
+            # db_api.refresh_journey is a synchronous requests call; run it off
+            # the event loop so a slow DB sidecar round-trip doesn't block every
+            # other concurrent chat turn/tool call in this process.
+            refreshed_payload = await asyncio.to_thread(
+                db_api.refresh_journey, refresh_token, tickets=True
+            )
             raw_journey = (
                 refreshed_payload.get("journey")
                 if isinstance(refreshed_payload, dict)
@@ -572,10 +573,11 @@ async def book_hotel(
         )
     name_of_hotel = option.get("name") or option.get("description") or option_id
     nights = max(1, int(option.get("nights") or 1))
-    cost_status, cost_eur, _policy_cost_eur, cost_label = _booking_cost(option)
+    cost_status, cost_eur, policy_cost_eur, cost_label = _booking_cost(option)
     name = "book_hotel"
     summary = f"Book {nights} night(s) at {name_of_hotel} — cost {cost_label}"
-    if not user_approved:
+    resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
+    if (cost_status != "known" or resolution == "ask") and not user_approved:
         return _veto(
             name,
             summary,

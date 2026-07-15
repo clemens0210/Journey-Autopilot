@@ -187,12 +187,22 @@ def _trip_position(option: dict) -> str | None:
     return None
 
 
-def _next_boardable_station(option: dict) -> str | None:
-    """Best station from which an en-route traveler can start a new search.
+def _locate_next_leg(option: dict) -> tuple[dict, str, datetime] | None:
+    """Find the first not-yet-completed leg and how the traveler relates to it.
 
-    If the traveler is currently on a leg, its destination is the next place
-    they can change trains. If the next leg has not started, its origin is still
-    boardable. Live times win over planned times.
+    Shared walk used by ``_next_boardable_station`` and
+    ``_earliest_reroute_departure`` so the "where/when is the traveler" state
+    machine lives in one place. Returns ``(leg, phase, now)`` where ``phase``
+    is one of:
+
+    - ``"cancelled"``: the leg never ran (regardless of its scheduled window
+      being in the past or future) — the traveler is still at its origin.
+    - ``"in_transit"``: the traveler is currently riding this leg.
+    - ``"not_started"``: the leg hasn't departed yet — the traveler is still
+      at its origin.
+
+    Returns ``None`` if every leg is already completed or none carry a usable
+    time. Live times win over planned times.
     """
     for leg in option.get("legs") or []:
         departure = _parse_datetime(leg.get("departure") or leg.get("planned_departure"))
@@ -201,46 +211,53 @@ def _next_boardable_station(option: dict) -> str | None:
         if anchor is None:
             continue
         now = datetime.now(anchor.tzinfo) if anchor.tzinfo else datetime.now()
-        # A cancelled leg was never boardable. If it is the next unfinished
-        # leg, the traveler is still at its origin rather than magically at its
-        # destination. Earlier completed legs are skipped as usual.
+        # A cancelled leg was never boardable, no matter how far in the past its
+        # scheduled arrival now is — the traveler could not have ridden it, so
+        # it is always the next unfinished leg once reached in this order
+        # (earlier, uncancelled legs are skipped as usual by falling through
+        # below once their own arrival/departure are in the past).
         if leg.get("cancelled"):
-            if arrival is None or arrival >= now:
-                return leg.get("origin")
-            continue
+            return leg, "cancelled", now
         if arrival is not None and arrival >= now:
             if departure is not None and departure <= now:
-                return leg.get("destination")
-            return leg.get("origin")
+                return leg, "in_transit", now
+            return leg, "not_started", now
         if departure is not None and departure >= now:
-            return leg.get("origin")
+            return leg, "not_started", now
     return None
+
+
+def _next_boardable_station(option: dict) -> str | None:
+    """Best station from which an en-route traveler can start a new search.
+
+    If the traveler is currently on a leg, its destination is the next place
+    they can change trains. If the next leg has not started (or was
+    cancelled), its origin is still boardable.
+    """
+    located = _locate_next_leg(option)
+    if located is None:
+        return None
+    leg, phase, _now = located
+    return leg.get("destination") if phase == "in_transit" else leg.get("origin")
 
 
 def _earliest_reroute_departure(option: dict) -> str | None:
     """Live time paired with ``_next_boardable_station`` for a new search."""
-    for leg in option.get("legs") or []:
-        departure_raw = leg.get("departure") or leg.get("planned_departure")
-        arrival_raw = leg.get("arrival") or leg.get("planned_arrival")
+    located = _locate_next_leg(option)
+    if located is None:
+        return None
+    leg, phase, now = located
+    departure_raw = leg.get("departure") or leg.get("planned_departure")
+    if phase == "cancelled":
+        # Before its planned start, keep that intended start time; once that
+        # time has passed, search from the current time.
         departure = _parse_datetime(departure_raw)
-        arrival = _parse_datetime(arrival_raw)
-        anchor = arrival or departure
-        if anchor is None:
-            continue
-        now = datetime.now(anchor.tzinfo) if anchor.tzinfo else datetime.now()
-        if leg.get("cancelled"):
-            if arrival is None or arrival >= now:
-                # Before the planned journey starts, keep its intended start
-                # time; once that time has passed, search from the current time.
-                if departure is not None and departure > now:
-                    return departure_raw
-                return now.replace(microsecond=0).isoformat()
-            continue
-        if arrival is not None and arrival >= now:
-            return arrival_raw if departure is not None and departure <= now else departure_raw
-        if departure is not None and departure >= now:
+        if departure is not None and departure > now:
             return departure_raw
-    return None
+        return now.replace(microsecond=0).isoformat()
+    if phase == "in_transit":
+        return leg.get("arrival") or leg.get("planned_arrival")
+    return departure_raw
 
 
 def _region_anchor(region: str) -> str | None:
@@ -284,6 +301,15 @@ def _reroute_scope(user_id: str | None = None, session_id: str | None = None) ->
             return context_user, context_session
     except Exception:
         pass
+    # Only direct scenario/demo calls (which never bind request_context) are
+    # expected to land here. A real chat turn always binds both vars before
+    # any tool runs (see ui.chat._run_turn), so reaching this fallback there
+    # would mean two real requests share one in-process discovery workspace —
+    # log it so that regression is observable instead of silently mixing state.
+    logger.warning(
+        "reroute discovery workspace fell back to the shared prototype scope "
+        "(no request identity bound) — expected only for direct scenario calls"
+    )
     return _DEFAULT_REROUTE_SCOPE
 
 
@@ -719,24 +745,57 @@ def get_network_disruptions(region: str) -> dict:
 # --- Planner tools ------------------------------------------------------------
 
 
-def _profile_reroute_preferences() -> dict:
-    """Read and sanitize the deterministic reroute preferences."""
-    defaults = {"max_transfers": 2, "min_transfer_minutes": 8, "speed_vs_comfort": 50}
-    try:
-        from journey_autopilot.persistence import store
+_REROUTE_PREFERENCE_DEFAULTS = {"max_transfers": 2, "min_transfer_minutes": 8, "speed_vs_comfort": 50}
 
-        prefs = ((store.any_profile() or {}).get("preferences")) or {}
+
+def _sanitize_reroute_preferences(raw_prefs: dict | None) -> dict:
+    """Clamp a raw ``profile.preferences`` blob to safe deterministic bounds.
+
+    Pure function over an already-fetched preferences dict, so a caller that
+    already has the profile in hand (e.g. ``finalize_reroute_options``) can
+    sanitize it without a second store round-trip.
+    """
+    prefs = raw_prefs or {}
+    try:
         return {
-            "max_transfers": max(0, int(prefs.get("max_transfers", defaults["max_transfers"]))),
+            "max_transfers": max(
+                0, int(prefs.get("max_transfers", _REROUTE_PREFERENCE_DEFAULTS["max_transfers"]))
+            ),
             "min_transfer_minutes": max(
-                0, int(prefs.get("min_transfer_minutes", defaults["min_transfer_minutes"]))
+                0,
+                int(
+                    prefs.get(
+                        "min_transfer_minutes", _REROUTE_PREFERENCE_DEFAULTS["min_transfer_minutes"]
+                    )
+                ),
             ),
             "speed_vs_comfort": min(
-                100, max(0, int(prefs.get("speed_vs_comfort", defaults["speed_vs_comfort"])))
+                100,
+                max(
+                    0,
+                    int(
+                        prefs.get(
+                            "speed_vs_comfort", _REROUTE_PREFERENCE_DEFAULTS["speed_vs_comfort"]
+                        )
+                    ),
+                ),
             ),
         }
+    except (TypeError, ValueError):
+        return dict(_REROUTE_PREFERENCE_DEFAULTS)
+
+
+def _profile_reroute_preferences() -> dict:
+    """Read and sanitize the current request's deterministic reroute preferences."""
+    try:
+        from journey_autopilot.persistence import store
+        from journey_autopilot.request_context import current_user_id
+
+        user_id = current_user_id.get()
+        profile = store.get_profile(user_id) if user_id else store.any_profile()
+        return _sanitize_reroute_preferences((profile or {}).get("preferences"))
     except Exception:
-        return defaults
+        return dict(_REROUTE_PREFERENCE_DEFAULTS)
 
 
 def _profile_max_transfers(default: int = 2) -> int:
@@ -915,16 +974,20 @@ def _prune_reroute_options(
             constraint_reasons.append("transfer_too_short")
 
         # A current ETA is the decision baseline: a reroute that arrives later is
-        # not useful. Without it, fall back to the schedule-relative safety bound.
+        # not useful. Without it, fall back to the schedule-relative safety bound —
+        # and if that too is unknown (no original_arrival to compare against),
+        # fall back further to the option's own live-reported delay so an option
+        # with no delay information at all is never silently treated as safe.
         saved = option.get("minutes_saved_vs_current_plan")
         if current_arrival and saved is not None:
             if saved < 0:
                 constraint_reasons.append("slower_than_current_plan")
-        elif (
-            option.get("added_delay_minutes") is not None
-            and option["added_delay_minutes"] > max_added_delay_minutes
-        ):
-            constraint_reasons.append("excessive_added_delay")
+        else:
+            effective_added_delay = option.get("added_delay_minutes")
+            if effective_added_delay is None:
+                effective_added_delay = option.get("live_delay_minutes")
+            if effective_added_delay is not None and effective_added_delay > max_added_delay_minutes:
+                constraint_reasons.append("excessive_added_delay")
 
         if fatal_reasons:
             reject(option, fatal_reasons + constraint_reasons, fallback=False)
@@ -1057,9 +1120,6 @@ def find_reroute_options(
                     "new_arrival": arrival,
                     "transfers": option.get("transfers", 0),
                     "added_delay_minutes": round(added_delay) if added_delay is not None else None,
-                    "arrival_delta_vs_original_schedule_minutes": (
-                        round(added_delay) if added_delay is not None else None
-                    ),
                     "live_delay_minutes": option.get("arrival_delay_minutes"),
                     "minutes_saved_vs_current_plan": (
                         round(minutes_saved) if minutes_saved is not None else None
@@ -1694,6 +1754,48 @@ def _arrives_after_home_limit(option: dict, profile: dict) -> bool:
     return arrival.hour * 60 + arrival.minute > limit_hour * 60 + limit_minute
 
 
+def _mode_eligibility_violations(
+    option: dict,
+    *,
+    preferences: dict,
+    mobility: dict,
+    home: dict,
+    recompute_transfer_buffer: bool,
+) -> list[str]:
+    """Shared per-mode transfer/cancellation/mobility/hotel eligibility rules.
+
+    Used by both ``finalize_reroute_options`` (discovery-time) and
+    ``write_tools._profile_constraint_violations`` (execution-time
+    revalidation) so the two can't silently diverge on what counts as an
+    eligible option. Calendar verdicts and live-freshness checks (e.g.
+    already-departed) are caller-specific and stay out of this function.
+    """
+    reasons: list[str] = []
+    mode = option.get("mode", "train")
+    if mode == "train":
+        if option.get("cancelled"):
+            reasons.append("cancelled")
+        try:
+            max_transfers = max(0, int(preferences.get("max_transfers", 2)))
+            min_transfer = max(0, int(preferences.get("min_transfer_minutes", 8)))
+        except (TypeError, ValueError):
+            max_transfers, min_transfer = 2, 8
+        if (option.get("transfers") or 0) > max_transfers:
+            reasons.append("too_many_transfers")
+        if recompute_transfer_buffer or option.get("minimum_transfer_minutes") is None:
+            option["minimum_transfer_minutes"] = _minimum_transfer_buffer(option)
+        buffer = option.get("minimum_transfer_minutes")
+        if buffer is not None and buffer < min_transfer:
+            reasons.append("transfer_too_short")
+    elif mode == "car_sharing" and not mobility.get("car_sharing_ok", True):
+        reasons.append("car_sharing_disabled")
+    elif mode == "bike_sharing" and not mobility.get("bike_sharing_ok", True):
+        reasons.append("bike_sharing_disabled")
+    elif mode == "hotel" and not home.get("hotel_ok", True):
+        reasons.append("hotel_disabled")
+    return reasons
+
+
 def _profile_rank_score(option: dict, *, earliest_arrival: datetime | None, preferences: dict) -> float:
     """Deterministic profile score; lower is better."""
     speed = preferences.get("speed_vs_comfort", 50) / 100.0
@@ -1785,13 +1887,14 @@ def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
     profile = get_user_profile()
     if profile.get("error"):
         profile = {
-            "preferences": _profile_reroute_preferences(),
+            "preferences": dict(_REROUTE_PREFERENCE_DEFAULTS),
             "home": {},
             "mobility": {"car_sharing_ok": True, "bike_sharing_ok": True},
         }
-    # This accessor reads the same persisted profile but also clamps malformed
-    # or out-of-range values. Do not overwrite it with the raw profile blob.
-    preferences = _profile_reroute_preferences()
+    # Sanitize/clamp the preferences already fetched above (malformed or
+    # out-of-range values) instead of re-reading the profile from the store a
+    # second time — do not overwrite `profile` with the raw sanitized blob.
+    preferences = _sanitize_reroute_preferences(profile.get("preferences"))
     mobility = profile.get("mobility") or {}
     home = profile.get("home") or {}
     verdicts = stashed.get("calendar_verdicts") or {}
@@ -1805,24 +1908,13 @@ def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
 
     for option in candidates:
         _apply_cost_contract(option)
-        reasons: list[str] = []
-        mode = option.get("mode", "train")
-        if mode == "train":
-            if option.get("minimum_transfer_minutes") is None:
-                option["minimum_transfer_minutes"] = _minimum_transfer_buffer(option)
-            if (option.get("transfers") or 0) > int(preferences.get("max_transfers", 2)):
-                reasons.append("too_many_transfers")
-            buffer = option.get("minimum_transfer_minutes")
-            if buffer is not None and buffer < int(preferences.get("min_transfer_minutes", 8)):
-                reasons.append("transfer_too_short")
-            if option.get("cancelled"):
-                reasons.append("cancelled")
-        elif mode == "car_sharing" and not mobility.get("car_sharing_ok", True):
-            reasons.append("car_sharing_disabled")
-        elif mode == "bike_sharing" and not mobility.get("bike_sharing_ok", True):
-            reasons.append("bike_sharing_disabled")
-        elif mode == "hotel" and not home.get("hotel_ok", True):
-            reasons.append("hotel_disabled")
+        reasons = _mode_eligibility_violations(
+            option,
+            preferences=preferences,
+            mobility=mobility,
+            home=home,
+            recompute_transfer_buffer=False,
+        )
 
         verdict = verdicts.get(option.get("option_id"))
         if verdict and verdict.get("viable") is False:
@@ -1917,8 +2009,10 @@ def get_user_profile() -> dict:
         # Lazy import: keeps the ADK package independent of the persistence
         # layer (SQLite store) as long as the tool is not called.
         from journey_autopilot.persistence import store
+        from journey_autopilot.request_context import current_user_id
 
-        profile = store.any_profile()
+        user_id = current_user_id.get()
+        profile = store.get_profile(user_id) if user_id else store.any_profile()
     except Exception as exc:  # persistence layer / DB not available
         return {"error": f"Profile not readable: {exc}"}
     if profile is None:

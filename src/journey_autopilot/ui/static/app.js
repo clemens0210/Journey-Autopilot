@@ -1913,7 +1913,7 @@ function renderChatLog() {
   persistChat();
   const log = $("#chat-log");
   if (!log) return;
-  const parts = state.chat.messages.map((m) => {
+  const parts = state.chat.messages.map((m, messageIndex) => {
     if (m.role === "user") return `<div class="bubble user">${escapeHtml(m.text)}</div>`;
     if (m.role === "error") return `<div class="bubble error">⚠️ ${escapeHtml(m.text)}</div>`;
     if (m.role === "notice") {
@@ -1926,9 +1926,9 @@ function renderChatLog() {
       </div>`;
     }
     const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
-    const cards = m.options && m.options.length ? renderOptionCards(m.options, m.optionsSource, m) : "";
+    const cards = m.options && m.options.length ? renderOptionCards(m.options, m.optionsSource, m, { messageIndex }) : "";
     const fallbacks = m.fallbackOptions && m.fallbackOptions.length
-      ? `<div class="option-fallback-title">Outside your current limits</div>${renderOptionCards(m.fallbackOptions, m.optionsSource, m, { fallback: true })}`
+      ? `<div class="option-fallback-title">Outside your current limits</div>${renderOptionCards(m.fallbackOptions, m.optionsSource, m, { fallback: true, messageIndex })}`
       : "";
     return `<div class="bubble assistant"><div class="md">${renderMarkdown(m.text)}</div>${cards}${fallbacks}${trace}</div>`;
   });
@@ -2010,7 +2010,7 @@ function optionStopsHTML(legs) {
   return `<div class="option-stops">${rows.join("")}</div>`;
 }
 
-function renderOptionCards(options, optionsSource, message, { fallback = false } = {}) {
+function renderOptionCards(options, optionsSource, message, { fallback = false, messageIndex } = {}) {
   const chosen = message.chosenOption || null;
   const proposalExpired = message.proposalExpiresAt
     ? Date.parse(message.proposalExpiresAt) <= Date.now()
@@ -2084,7 +2084,7 @@ function renderOptionCards(options, optionsSource, message, { fallback = false }
     }
 
     return `
-      <button type="button" class="option-card${stateCls}" data-option-id="${id}"${chosen || !selectable ? " disabled" : ""}>
+      <button type="button" class="option-card${stateCls}" data-option-id="${id}" data-message-index="${messageIndex}"${chosen || !selectable ? " disabled" : ""}>
         <div class="option-head"><span class="option-badge">${id}</span>${modeBadge}${recommended}${liveBadge}</div>
         ${body}
         ${violations ? `<span class="option-violation">Not selectable: ${violations}</span>` : ""}
@@ -2099,21 +2099,18 @@ function onOptionCardClick(ev) {
   if (state.chat.busy) return;
   const optionId = card.dataset.optionId;
   if (!optionId) return;
-  // Mark the originating assistant message so its batch greys out on re-render,
-  // and carry its server-issued proposal id separately from the visible text.
-  let proposalId = null;
-  for (let i = state.chat.messages.length - 1; i >= 0; i--) {
-    const m = state.chat.messages[i];
-    if (m.options && m.options.some((o) => (o.option_id || "?") === optionId)) {
-      m.chosenOption = optionId;
-      proposalId = m.proposalId || null;
-      break;
-    }
-  }
-  if (!proposalId) {
+  // Resolve the originating message by its render-time index (embedded on the
+  // card itself), not by scanning history for a matching option_id — option
+  // ids like "R1" are reused across separate proposals, so a text-based
+  // search here could attach an older card's click to a newer proposal.
+  const messageIndex = Number(card.dataset.messageIndex);
+  const m = state.chat.messages[messageIndex];
+  const proposalId = m ? m.proposalId || null : null;
+  if (!m || !proposalId) {
     toast("This reroute proposal is no longer active. Please run a fresh search.", 6000);
     return;
   }
+  m.chosenOption = optionId;
   runChatTurn(`Take option ${optionId}`, {
     display: { role: "user", text: `Take option ${optionId}` },
     selection: { proposalId, optionId },

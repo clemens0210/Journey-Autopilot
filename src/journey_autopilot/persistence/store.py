@@ -241,22 +241,35 @@ def delete_trip(user_id: str, trip_id: str) -> None:
 # --- Finalized reroute proposals -------------------------------------------------
 
 
+# Single source of truth for the reroute_proposals column order: every SELECT
+# against this table is built from this tuple, and _proposal_row unpacks rows
+# by zipping against the same tuple — so a future column reorder can never
+# silently desync the SQL from the row-to-dict marshalling (unlike a bare
+# positional tuple-unpack living in a different function from the SELECT).
+_PROPOSAL_COLUMNS = (
+    "proposal_id", "user_id", "session_id", "trip_id", "proposal",
+    "selected_option_id", "status", "created_at", "expires_at", "updated_at",
+)
+_PROPOSAL_SELECT = f"SELECT {', '.join(_PROPOSAL_COLUMNS)} FROM reroute_proposals"
+
+
 def _proposal_row(row: tuple) -> dict:
-    proposal_id, user_id, session_id, trip_id, blob, selected, status, created, expires, updated = row
-    payload = json.loads(blob)
-    expires_dt = datetime.fromisoformat(expires)
+    data = dict(zip(_PROPOSAL_COLUMNS, row))
+    payload = json.loads(data["proposal"])
+    expires_dt = datetime.fromisoformat(data["expires_at"])
     expired = expires_dt <= datetime.now(timezone.utc)
+    status = data["status"]
     return {
-        "proposal_id": proposal_id,
-        "user_id": user_id,
-        "session_id": session_id,
-        "trip_id": trip_id,
+        "proposal_id": data["proposal_id"],
+        "user_id": data["user_id"],
+        "session_id": data["session_id"],
+        "trip_id": data["trip_id"],
         "proposal": payload,
-        "selected_option_id": selected,
+        "selected_option_id": data["selected_option_id"],
         "status": "expired" if expired and status in ("active", "selected") else status,
-        "created_at": created,
-        "expires_at": expires,
-        "updated_at": updated,
+        "created_at": data["created_at"],
+        "expires_at": data["expires_at"],
+        "updated_at": data["updated_at"],
         "expired": expired,
     }
 
@@ -306,18 +319,16 @@ def get_reroute_proposal(user_id: str, proposal_id: str) -> dict | None:
     """Return a proposal owned by the user, including its computed expiry state."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT proposal_id, user_id, session_id, trip_id, proposal, "
-            "selected_option_id, status, created_at, expires_at, updated_at "
-            "FROM reroute_proposals WHERE user_id = ? AND proposal_id = ?",
+            f"{_PROPOSAL_SELECT} WHERE user_id = ? AND proposal_id = ?",
             (user_id, proposal_id),
         ).fetchone()
         if row is None:
             return None
         item = _proposal_row(row)
-        if item["expired"] and row[6] in ("active", "selected"):
+        if item["expired"]:
             conn.execute(
                 "UPDATE reroute_proposals SET status = 'expired', updated_at = ? "
-                "WHERE user_id = ? AND proposal_id = ?",
+                "WHERE user_id = ? AND proposal_id = ? AND status IN ('active', 'selected')",
                 (_now(), user_id, proposal_id),
             )
     return item
@@ -328,21 +339,33 @@ def get_active_reroute_proposal(
 ) -> dict | None:
     """Return the newest unexpired active/selected proposal for this chat."""
     query = (
-        "SELECT proposal_id FROM reroute_proposals "
-        "WHERE user_id = ? AND session_id = ? AND status IN ('active', 'selected')"
+        f"{_PROPOSAL_SELECT} WHERE user_id = ? AND session_id = ? "
+        "AND status IN ('active', 'selected')"
     )
     params: list[str] = [user_id, session_id]
     if trip_id is not None:
         query += " AND trip_id = ?"
         params.append(str(trip_id or ""))
     query += " ORDER BY updated_at DESC"
+    result: dict | None = None
+    expired_ids: list[str] = []
     with _connect() as conn:
         rows = conn.execute(query, params).fetchall()
-    for (proposal_id,) in rows:
-        item = get_reroute_proposal(user_id, proposal_id)
-        if item and not item["expired"] and item["status"] in ("active", "selected"):
-            return item
-    return None
+        for row in rows:
+            item = _proposal_row(row)
+            if item["expired"]:
+                expired_ids.append(item["proposal_id"])
+                continue
+            if result is None:
+                result = item
+        if expired_ids:
+            now = _now()
+            conn.executemany(
+                "UPDATE reroute_proposals SET status = 'expired', updated_at = ? "
+                "WHERE user_id = ? AND proposal_id = ? AND status IN ('active', 'selected')",
+                [(now, user_id, proposal_id) for proposal_id in expired_ids],
+            )
+    return result
 
 
 def select_reroute_option(
