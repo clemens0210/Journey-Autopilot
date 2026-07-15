@@ -71,7 +71,7 @@ const parseOpt = (query = {}) => {
   for (const [key, value] of Object.entries(query)) {
     if (DATE_KEYS.has(key)) opt[key] = new Date(value)
     else if (NUMBER_KEYS.has(key)) opt[key] = Number(value)
-    else if (BOOL_KEYS.has(key)) opt[key] = value === 'true'
+    else if (BOOL_KEYS.has(key)) opt[key] = String(value).toLowerCase() === 'true'
     else opt[key] = value
   }
   return opt
@@ -98,6 +98,14 @@ app.get('/arrivals/:id', async (req) => client.arrivals(req.params.id, parseOpt(
 app.get('/journeys', async (req) => {
   const { from, to, ...opt } = req.query
   return client.journeys(from, to, parseOpt(opt))
+})
+
+// Refresh one previously discovered journey using its opaque provider token.
+// This is the execution-time source of truth; the token is kept server-side.
+app.get('/journeys/refresh/:token', async (req) => {
+  // Fastify has already URL-decoded path parameters. Decoding a second time
+  // corrupts opaque tokens that legitimately contain percent characters.
+  return client.refreshJourney(req.params.token, parseOpt(req.query))
 })
 
 // Follow a single trip (all stops + realtime). `id` must be URL-encoded.

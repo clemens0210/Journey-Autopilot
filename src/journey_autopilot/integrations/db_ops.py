@@ -166,6 +166,7 @@ def normalize_journey(journey: dict, option_id: str | None = None) -> dict:
                 "planned_arrival_platform": planned_arrival_platform,
                 "trip_id": leg.get("tripId"),
                 "direction": leg.get("direction"),
+                "cancelled": bool(leg.get("cancelled") or leg.get("canceled")),
                 "remarks": _collect_remarks(leg),
             }
         )
@@ -183,6 +184,7 @@ def normalize_journey(journey: dict, option_id: str | None = None) -> dict:
 
     return {
         "option_id": option_id,
+        "refresh_token": journey.get("refreshToken"),
         "description": description,
         "train": trains[0] if trains else None,
         "trains": trains,
@@ -196,6 +198,11 @@ def normalize_journey(journey: dict, option_id: str | None = None) -> dict:
         "departure_delay_minutes": _minutes(first.get("departureDelay")),
         "arrival_delay_minutes": _minutes(last.get("arrivalDelay")),
         "transfers": max(len(ride_legs) - 1, 0),
+        "cancelled": bool(
+            journey.get("cancelled")
+            or journey.get("canceled")
+            or any(leg.get("cancelled") for leg in normalized_legs)
+        ),
         "price_eur": price_amount,
         "legs": normalized_legs,
         "remarks": remarks,
@@ -308,6 +315,14 @@ def journeys(
         **opt,
     }
     return _get("/journeys", params)
+
+
+def refresh_journey(refresh_token: str, tickets: bool = True) -> dict:
+    """Refresh one exact journey before execution using its opaque DB token."""
+    return _get(
+        f"/journeys/refresh/{quote(refresh_token, safe='')}",
+        {"tickets": tickets, "remarks": True, "stopovers": True},
+    )
 
 
 def trip(trip_id: str) -> dict:

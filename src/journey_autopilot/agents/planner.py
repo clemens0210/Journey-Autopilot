@@ -8,7 +8,8 @@ single pick) so the user can choose in the chat — the ranking only
 determines the order and the recommendation hint.
 
 Important (Human-in-the-loop): The Planner PROPOSES, it does not book. The
-veto control stays with the user — booking is deliberately (still) not a tool.
+veto control stays with the user. Booking tools belong exclusively to the
+Executor Agent; they are deliberately unavailable to this read-only Planner.
 
 The instruction is an ADK instruction *provider* (a callable), resolved per
 call: when no calendar is connected (``read_tools.calendar_connected()``),
@@ -29,6 +30,7 @@ from ..config import PLANNER_MODEL
 from ..tools.read_tools import (
     calendar_connected,
     check_options_against_calendar,
+    finalize_reroute_options,
     find_mobility_alternatives,
     find_partner_hotels,
     find_reroute_options,
@@ -78,7 +80,22 @@ Procedure — follow all steps in order:
    an "error"), say so and fall back to "fastest arrival, fewest transfers" and
    assume all ecosystem alternatives are acceptable.
 
-2. Fetch train alternatives with `find_reroute_options` (origin, destination).
+2. Fetch train alternatives with `find_reroute_options`. Pass the concrete
+   routing state the Orchestrator gave you:
+   - `origin` = the trip origin before departure; EN ROUTE, use the
+     `next_boardable_station` from Monitoring (never search again from a station
+     the traveler has already left).
+   - `destination` = the trip destination.
+   - `departure` = the planned departure before the trip; EN ROUTE, use the
+     exact `earliest_reroute_departure` from Monitoring.
+   - `original_arrival` = the trip's planned arrival.
+   - `current_arrival` = Monitoring's current `estimated_arrival` for staying on
+     the disrupted itinerary, when available. This lets the tool reject a
+     reroute that is slower than doing nothing and report minutes saved.
+   The tool returns eligible ``options`` separately from non-selectable
+   ``fallback_options`` plus rejection reasons. Only ``options`` count as viable
+   train choices; fallbacks exist solely to explain which limit would need to be
+   relaxed.
 """
 
 _STEP3_CALENDAR = """\
@@ -121,11 +138,35 @@ _STEP4_WIDENING = """\
      `find_mobility_alternatives(location=<origin>, destination=<destination>)`
      for Flinkster (car, option_ids C#) and Call-a-Bike (bike, option_ids B#)
      options at the origin station.
-   - If `home.hotel_ok` is True: call
-     `find_partner_hotels(location=<destination>, check_in_date=<travel date>)`
-     for partner hotels near the destination (option_ids H#). This covers the
-     overnight case — the traveler stays and travels the next day.
+   - If `home.hotel_ok` is True: call `find_partner_hotels` for partner hotels
+     (option_ids H#, `check_in_date=<travel date>`). This covers the overnight
+     case — the traveler stays and continues the next day. Search the city
+     where the traveler ACTUALLY IS, NOT automatically the destination:
+       - Trip NOT YET STARTED (the Orchestrator says pre-trip, or the planned
+         departure still lies in the future): search the ORIGIN/start city —
+         `find_partner_hotels(location=<origin>, ...)`. A large delay before
+         departure strands the traveler at the start, so a destination hotel
+         would be useless (and, when the destination is home, absurd).
+       - EN ROUTE: search the traveler's CURRENT position that the Orchestrator
+         gives you (the station they are stranded at); fall back to the origin
+         when no current position was provided.
+       - Search the DESTINATION only when the traveler can still reach it today
+         but too late for the onward plan / an appointment the next morning.
+       - If you genuinely cannot tell where the traveler is (no phase and no
+         position given), ASK the user which city to search rather than guessing.
    Do NOT call these tools when a good train option already clears the deadline.
+"""
+
+_STEP5_FINALIZE = """\
+5. After ALL discovery calls are complete, call `finalize_reroute_options` ONCE.
+   If a calendar is connected and step 4 added mobility/hotel candidates, first
+   repeat the single batched `check_options_against_calendar` call so it covers
+   the corrected complete candidate batch. The finalizer is the sole source of
+   selectable UI cards: present only its `options`, lead with its
+   `recommended_option_id`, and never invite the user to choose a
+   `fallback_options` entry (those cards are disabled because they violate a
+   hard limit). If finalization returns an error, fix the missing calendar check
+   and call it again rather than presenting raw discovery results.
 """
 
 _RANKING_CALENDAR = """\
@@ -149,11 +190,12 @@ profile fit:
 - State for each option whether it meets the hard deadline or not.
 - Justify the recommendation with calendar compatibility AND profile.
 
-If NO option can reach a hard-constraint appointment in time, do not stop at the
-travel plan. Recommend the fallback: book the earliest realistic connection to
-still get there, AND propose rescheduling that appointment (give the event id and
-its tentative/confirmed status) and informing its participants by email (name
-them). This hands the downstream step everything it needs to act.
+If NO option can reach a hard-constraint appointment in time, do not present a
+constraint-breaking fallback as bookable. Explain the earliest realistic disabled
+fallback and the limit it violates, then propose relaxing that limit and/or
+rescheduling the appointment (give the event id and its tentative/confirmed
+status) and informing its participants by email (name them). This hands the
+downstream step everything it needs to act while preserving the user's veto.
 """
 
 _RANKING_NO_CALENDAR = """\
@@ -177,25 +219,34 @@ _ANSWER_FORMAT_NO_CALENDAR_BULLET = """\
 
 _ANSWER_FORMAT = """\
 Answer in structured form:
+The chat is displayed in a narrow mobile viewport. Never use Markdown tables.
+Keep the prose focused on why the leading option is
+recommended. The UI renders every structured reroute as a separate selectable
+card, so do not duplicate every option field in the prose.
 {calendar_bullet}\
 - **Profile Fit**: How options match speed-vs-comfort, max transfers, latest
   arrival home, and the ecosystem flags (hotel_ok, car/bike sharing ok). Note
   if the profile was unavailable.
-- **Options**: Present EVERY viable option across ALL modes, each with its
+- **Options**: Present EVERY selectable option returned by
+  `finalize_reroute_options` across ALL modes, each with its
   option_id (R# train / C# car / B# bike / H# hotel), mode, key facts
   (trains or name, departure/arrival or est. duration; price only for non-hotel
-  modes when known), and a
-  one-line calendar + profile verdict. For train options use the ``legs``
+  modes when known), and a concise one-line calendar + profile verdict. For
+  train options use the ``legs``
   data to name the change station(s) and the connection time at each one
   (e.g. "change in Leipzig Hbf, 14 min transfer") — never invent stops that
   are not in the legs. Lead with the recommended option.
   DO NOT collapse to a single option — the user must be able to choose.
-  Keep non-viable options only as a brief "rejected" note.
+  Keep non-viable options only as a brief "rejected" note. If the finalizer
+  returned a disabled fallback, explain which limits it violates but do not ask
+  the user to select it.
   For ecosystem options (C#/B#/H#) note they are NOT same-day alternatives
   unless their new_arrival clears the deadline.
 - For every non-hotel option, state its **added cost** in EUR (the
-  ``added_cost_eur`` field; 0 means a free rebooking). Do not quote or invent
-  prices for hotel options; the live hotel source cannot check rates.
+  ``added_cost_eur`` field; 0 means a free rebooking). When ``cost_status`` is
+  ``unknown`` or ``estimate``, say that explicitly and never turn it into zero.
+  Do not quote or invent prices for hotel options when the source cannot check
+  rates.
 - **Passenger Rights/Compensation**: not checked yet — briefly say that a
   compensation claim can only be assessed once the trip has actually
   concluded, and that the app will automatically prepare a draft for the user
@@ -220,6 +271,8 @@ def _build_instruction(has_calendar: bool) -> str:
         _STEP4_WIDENING.format(
             extra_trigger=_STEP4_WIDENING_TRIGGER_CALENDAR if has_calendar else ""
         ),
+        "\n",
+        _STEP5_FINALIZE,
         "\n",
         _RANKING_CALENDAR if has_calendar else _RANKING_NO_CALENDAR,
         "\n",
@@ -258,6 +311,7 @@ def build_planner_agent() -> LlmAgent:
             find_mobility_alternatives,
             find_partner_hotels,
             check_options_against_calendar,
+            finalize_reroute_options,
             get_passenger_rights,
         ],
     )

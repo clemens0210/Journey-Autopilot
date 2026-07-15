@@ -25,3 +25,14 @@ thresholds:
 
 monitoring:
   poll_interval_seconds: 300   # how often the monitoring loop would re-check
+
+reroute:
+  # Deterministic pre-filter for the LIVE journey search (find_reroute_options).
+  # The db-vendo search returns the next N departures verbatim — including the
+  # traveler's own delayed train, later runs hit by the same disruption, and slow
+  # many-transfer routings. These bounds trim that raw list to a few sensible,
+  # non-dominated options so the UI shows real choices, not noise. (The curated
+  # mock fallback is left untouched.)
+  max_options: 6                 # hard cap on discovery and finalized selectable cards
+  max_added_delay_minutes: 120   # schedule-relative fallback when no current trip ETA exists
+  proposal_ttl_seconds: 300      # finalized live cards must be revalidated after five minutes

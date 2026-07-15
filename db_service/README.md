@@ -32,6 +32,7 @@ npm start          # serves on http://127.0.0.1:3000
 | `GET /departures/:id` | `departures()` | Live board; supports `when`, `duration`, `results` |
 | `GET /arrivals/:id` | `arrivals()` | Live board |
 | `GET /journeys?from=&to=` | `journeys()` | Routing; add `tickets=true` for prices |
+| `GET /journeys/refresh/:token` | `refreshJourney()` | Refresh one exact journey before execution |
 | `GET /trips/:id` | `trip()` | Follow one train; `id` URL-encoded |
 | `GET /nearby?latitude=&longitude=` | `nearby()` | Stations near a coordinate |
 

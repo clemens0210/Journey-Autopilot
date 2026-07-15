@@ -25,15 +25,23 @@ See docs/journey-autopilot-build-spec.md §5/§8 and docs/adr/0004-veto-gate.md.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 from datetime import datetime, timezone
 
 from .. import policy
+from ..integrations import db_ops as db_api
 from .read_tools import (
     PSEUDO_OUTLOOK_ALIAS_RE,
+    _arrives_after_home_limit,
     _calendar_configured,
+    _classify_window_conflicts,
+    _mode_eligibility_violations,
     _outlook_connected,
+    _parse_datetime,
+    calendar_connected,
+    get_user_calendar,
 )
 
 logger = logging.getLogger(__name__)
@@ -186,10 +194,16 @@ async def send_approved_notice_email(approval_id: str) -> dict:
 
 
 def _profile() -> dict | None:
-    """The single prototype profile (carries the user's policy settings)."""
+    """Authenticated request profile, with single-user fallback for scenarios."""
     try:
         from journey_autopilot.persistence import store
+        from journey_autopilot.request_context import current_user_id
 
+        user_id = current_user_id.get()
+        if user_id:
+            profile = store.get_profile(user_id)
+            if profile is not None:
+                return {**profile, "user_id": user_id}
         return store.any_profile()
     except Exception:
         return None
@@ -220,6 +234,208 @@ def _done(tool_name: str, action_summary: str, **result) -> dict:
         "note": "Simulated effect (prototype) — no real external call was made.",
         **result,
     }
+
+
+def _revalidation_error(message: str, **details) -> dict:
+    """Fail closed when a persisted proposal cannot be executed safely."""
+    return {
+        "status": "revalidation_failed",
+        "tool": "reroute_execution",
+        "error": message,
+        "details": details,
+        "instruction_for_agent": (
+            "Do not execute or claim this option was booked. Tell the user the "
+            "proposal must be refreshed with a new reroute search."
+        ),
+    }
+
+
+def _selected_proposal_option(proposal_id: str, option_id: str) -> tuple[dict, dict, dict] | dict:
+    """Load an owned, unexpired, explicitly selected finalized option.
+
+    Booking authority requires a genuinely bound request identity — unlike the
+    general-purpose ``_profile()`` accessor, this never falls back to an
+    arbitrary "most recently onboarded" profile, since that fallback would let
+    an unbound request execute against whichever profile happens to be picked.
+    """
+    from journey_autopilot.persistence import store
+    from journey_autopilot.request_context import current_session_id, current_user_id
+
+    user_id = current_user_id.get()
+    if not user_id:
+        return _revalidation_error("No authenticated identity bound to this request.")
+    session_id = current_session_id.get()
+    if not session_id:
+        return _revalidation_error("No authenticated chat session bound to this request.")
+    stored_profile = store.get_profile(user_id)
+    if stored_profile is None:
+        return _revalidation_error("No authenticated profile owns this proposal.")
+    profile = {**stored_profile, "user_id": user_id}
+    proposal = store.get_reroute_proposal(user_id, proposal_id)
+    if proposal is None:
+        return _revalidation_error("Reroute proposal not found.", proposal_id=proposal_id)
+    if proposal.get("expired") or proposal.get("status") not in ("active", "selected"):
+        return _revalidation_error(
+            "Reroute proposal expired or is no longer active.", proposal_id=proposal_id
+        )
+    if proposal.get("session_id") != session_id:
+        return _revalidation_error(
+            "Reroute proposal belongs to a different chat session.", proposal_id=proposal_id
+        )
+    if proposal.get("selected_option_id") != option_id:
+        return _revalidation_error(
+            "The requested option was not explicitly selected by the user.",
+            proposal_id=proposal_id,
+            option_id=option_id,
+            selected_option_id=proposal.get("selected_option_id"),
+        )
+    option = next(
+        (
+            candidate
+            for candidate in (proposal.get("proposal") or {}).get("options") or []
+            if candidate.get("option_id") == option_id
+            and candidate.get("eligible") is not False
+            and candidate.get("selectable") is not False
+        ),
+        None,
+    )
+    if option is None:
+        return _revalidation_error(
+            "The selected option is not in the finalized selectable shortlist.",
+            proposal_id=proposal_id,
+            option_id=option_id,
+        )
+    return proposal, dict(option), profile or {}
+
+
+def _profile_constraint_violations(option: dict, profile: dict) -> list[str]:
+    """Reapply time, cancellation, transfer, mobility, and home constraints."""
+    preferences = profile.get("preferences") or {}
+    mobility = profile.get("mobility") or {}
+    home = profile.get("home") or {}
+    reasons = _mode_eligibility_violations(
+        option,
+        preferences=preferences,
+        mobility=mobility,
+        home=home,
+        recompute_transfer_buffer=True,
+    )
+    if option.get("mode", "train") == "train":
+        departure = _parse_datetime(option.get("departure"))
+        if departure is None:
+            reasons.append("missing_departure")
+        else:
+            now = datetime.now(departure.tzinfo) if departure.tzinfo else datetime.now()
+            if departure <= now:
+                reasons.append("already_departed")
+    if _arrives_after_home_limit(option, profile):
+        reasons.append("after_latest_arrival_home")
+    return reasons
+
+
+async def _fresh_calendar_violations(option: dict, proposal: dict) -> list[str]:
+    """Recheck hard calendar conflicts immediately before a booking effect."""
+    if not calendar_connected() or not option.get("new_arrival"):
+        return []
+    payload = proposal.get("proposal") or {}
+    travel_date = payload.get("travel_date") or str(option.get("new_arrival"))[:10]
+    calendar = await get_user_calendar(travel_date)
+    if calendar.get("error"):
+        return ["calendar_revalidation_unavailable"]
+    classified = _classify_window_conflicts(
+        calendar.get("events") or [],
+        travel_date,
+        planned_departure=option.get("departure"),
+        expected_arrival=option.get("new_arrival"),
+    )
+    if classified and classified.get("hard_conflicts", 0) > 0:
+        return ["calendar_hard_conflict"]
+    return []
+
+
+async def _revalidate_selected_option(
+    proposal_id: str, option_id: str
+) -> tuple[dict, dict, dict, dict] | dict:
+    """Refresh live trains and return authoritative execution state."""
+    loaded = _selected_proposal_option(proposal_id, option_id)
+    if isinstance(loaded, dict):
+        return loaded
+    proposal, option, profile = loaded
+    evidence: dict = {"source": option.get("source"), "refreshed": False}
+    if option.get("mode", "train") == "train" and option.get("source") == "db_service_live":
+        refresh_token = option.get("_provider_refresh_token")
+        if not refresh_token:
+            return _revalidation_error(
+                "The live journey has no provider refresh token.", proposal_id=proposal_id
+            )
+        try:
+            # db_api.refresh_journey is a synchronous requests call; run it off
+            # the event loop so a slow DB sidecar round-trip doesn't block every
+            # other concurrent chat turn/tool call in this process.
+            refreshed_payload = await asyncio.to_thread(
+                db_api.refresh_journey, refresh_token, tickets=True
+            )
+            raw_journey = (
+                refreshed_payload.get("journey")
+                if isinstance(refreshed_payload, dict)
+                else None
+            )
+            if not isinstance(raw_journey, dict):
+                return _revalidation_error("DB returned no journey during refresh.")
+            refreshed = db_api.normalize_journey(raw_journey, option_id=option_id)
+        except db_api.DBServiceError as exc:
+            return _revalidation_error(
+                "Live journey revalidation is unavailable.", provider_error=str(exc)
+            )
+        option.update(
+            departure=refreshed.get("departure") or refreshed.get("planned_departure"),
+            new_arrival=refreshed.get("arrival") or refreshed.get("planned_arrival"),
+            transfers=refreshed.get("transfers", option.get("transfers", 0)),
+            cancelled=bool(refreshed.get("cancelled")),
+            legs=refreshed.get("legs") or option.get("legs") or [],
+            trains=refreshed.get("trains") or option.get("trains") or [],
+            remarks=refreshed.get("remarks") or option.get("remarks") or [],
+            price_eur=refreshed.get("price_eur"),
+        )
+        evidence.update(
+            refreshed=True,
+            quoted_fare_eur=refreshed.get("price_eur"),
+            refreshed_departure=option.get("departure"),
+            refreshed_arrival=option.get("new_arrival"),
+        )
+
+    reasons = _profile_constraint_violations(option, profile)
+    reasons.extend(await _fresh_calendar_violations(option, proposal))
+    if reasons:
+        return _revalidation_error(
+            "The selected option no longer satisfies the execution constraints.",
+            proposal_id=proposal_id,
+            option_id=option_id,
+            violations=sorted(set(reasons)),
+            evidence=evidence,
+        )
+    return proposal, option, profile, evidence
+
+
+def _booking_cost(option: dict) -> tuple[str, float | None, float | None, str]:
+    """Return status, displayed amount, policy amount, and safe label."""
+    status = option.get("cost_status", "unknown")
+    amount = option.get("added_cost_eur")
+    if status in ("known", "estimate") and amount is not None:
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            status, amount = "unknown", None
+    else:
+        status, amount = "unknown", None
+    policy_amount = amount if status == "known" else None
+    if status == "known":
+        label = f"{amount:.2f} EUR"
+    elif status == "estimate":
+        label = f"approximately {amount:.2f} EUR (estimate)"
+    else:
+        label = "unknown"
+    return status, amount, policy_amount, label
 
 
 # --- Write tools (each gated by policy.resolve) -------------------------------
@@ -271,72 +487,130 @@ def send_email_to_participants(
     return _done(name, summary, subject=subject, participants=participants)
 
 
-def book_alternative_connection(
+async def book_alternative_connection(
+    proposal_id: str,
     option_id: str,
-    description: str,
-    cost_eur: float = 0.0,
     user_approved: bool = False,
 ) -> dict:
-    """Books an alternative train connection (a reroute the Planner proposed).
+    """Book an explicitly selected option from an authoritative proposal.
 
-    Gated by the policy layer, with a cost threshold: cheap/free rebookings may
-    run autonomously, more expensive ones ask for approval first.
+    Descriptions and prices are loaded from the persisted finalized proposal,
+    never accepted from conversation text. Live trains are refreshed and all
+    current execution constraints are reapplied before the veto policy runs.
 
     Args:
-        option_id: The reroute option id from the Planner.
-        description: Human-readable connection description.
-        cost_eur: Additional cost of the rebooking in EUR (0 if free).
-        user_approved: Set to true ONLY after the user explicitly approved.
-
-    Returns:
-        ``status="executed"`` on booking, or ``status="veto_required"``.
+        proposal_id: Server-issued id of the unexpired finalized shortlist.
+        option_id: Option explicitly selected by the user from that proposal.
+        user_approved: True only after approval of a gated or unknown-cost action.
     """
+    validated = await _revalidate_selected_option(proposal_id, option_id)
+    if isinstance(validated, dict):
+        return validated
+    proposal, option, profile, evidence = validated
+    mode = option.get("mode", "train")
+    if mode == "hotel":
+        return _revalidation_error(
+            "Hotel options must use book_hotel.",
+            proposal_id=proposal_id,
+            option_id=option_id,
+        )
+
+    description = option.get("description") or " / ".join(option.get("trains") or []) or mode
+    cost_status, cost_eur, policy_cost_eur, cost_label = _booking_cost(option)
     name = "book_alternative_connection"
-    summary = f"Book reroute {option_id} ({description}) — extra cost {cost_eur:.2f} EUR"
-    if (
-        policy.resolve(name, profile=_profile(), cost_eur=cost_eur) == "ask"
-        and not user_approved
+    summary = f"Book reroute {option_id} ({description}) — additional cost {cost_label}"
+    resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
+    if (cost_status != "known" or resolution == "ask") and not user_approved:
+        return _veto(
+            name,
+            summary,
+            proposal_id=proposal_id,
+            option_id=option_id,
+            cost_eur=cost_eur,
+            cost_status=cost_status,
+            quoted_fare_eur=option.get("price_eur"),
+            revalidation=evidence,
+        )
+
+    from journey_autopilot.persistence import store
+
+    if not store.claim_reroute_proposal_execution(
+        proposal["user_id"], proposal_id, option_id
     ):
-        return _veto(name, summary, option_id=option_id, cost_eur=cost_eur)
+        return _revalidation_error(
+            "The reroute proposal was already consumed or expired.",
+            proposal_id=proposal_id,
+            option_id=option_id,
+        )
     return _done(
         name,
         summary,
+        proposal_id=proposal_id,
         option_id=option_id,
         cost_eur=cost_eur,
-        booking_ref=f"SIM-{option_id}",
+        cost_status=cost_status,
+        quoted_fare_eur=option.get("price_eur"),
+        revalidation=evidence,
+        booking_ref=f"SIM-{proposal_id}-{option_id}",
     )
 
 
-def book_hotel(
-    name_of_hotel: str,
-    cost_eur: float = 0.0,
-    nights: int = 1,
+async def book_hotel(
+    proposal_id: str,
+    option_id: str,
     user_approved: bool = False,
 ) -> dict:
-    """Books an overnight hotel stay when the traveler is stranded.
-
-    High commitment (cost + overnight) — gated by the policy layer.
-
-    Args:
-        name_of_hotel: Hotel name.
-        cost_eur: Total cost in EUR.
-        nights: Number of nights.
-        user_approved: Set to true ONLY after the user explicitly approved.
-
-    Returns:
-        ``status="executed"`` on booking, or ``status="veto_required"``.
-    """
+    """Book an explicitly selected hotel using authoritative proposal fields."""
+    validated = await _revalidate_selected_option(proposal_id, option_id)
+    if isinstance(validated, dict):
+        return validated
+    proposal, option, profile, evidence = validated
+    if option.get("mode") != "hotel":
+        return _revalidation_error(
+            "The selected option is not a hotel.",
+            proposal_id=proposal_id,
+            option_id=option_id,
+        )
+    name_of_hotel = option.get("name") or option.get("description") or option_id
+    nights = max(1, int(option.get("nights") or 1))
+    cost_status, cost_eur, policy_cost_eur, cost_label = _booking_cost(option)
     name = "book_hotel"
-    summary = f"Book {nights} night(s) at {name_of_hotel} — {cost_eur:.2f} EUR"
-    if policy.resolve(name, profile=_profile(), cost_eur=cost_eur) == "ask" and not user_approved:
-        return _veto(name, summary, hotel=name_of_hotel, cost_eur=cost_eur, nights=nights)
+    summary = f"Book {nights} night(s) at {name_of_hotel} — cost {cost_label}"
+    resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
+    if (cost_status != "known" or resolution == "ask") and not user_approved:
+        return _veto(
+            name,
+            summary,
+            proposal_id=proposal_id,
+            option_id=option_id,
+            hotel=name_of_hotel,
+            cost_eur=cost_eur,
+            cost_status=cost_status,
+            nights=nights,
+            revalidation=evidence,
+        )
+
+    from journey_autopilot.persistence import store
+
+    if not store.claim_reroute_proposal_execution(
+        proposal["user_id"], proposal_id, option_id
+    ):
+        return _revalidation_error(
+            "The reroute proposal was already consumed or expired.",
+            proposal_id=proposal_id,
+            option_id=option_id,
+        )
     return _done(
         name,
         summary,
+        proposal_id=proposal_id,
+        option_id=option_id,
         hotel=name_of_hotel,
         cost_eur=cost_eur,
+        cost_status=cost_status,
         nights=nights,
-        booking_ref="SIM-HOTEL",
+        revalidation=evidence,
+        booking_ref=f"SIM-{proposal_id}-{option_id}",
     )
 
 

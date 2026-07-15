@@ -23,6 +23,7 @@ from typing import Any
 
 from .. import mock_data, risk
 from . import risk_model
+from ..config import REROUTE_MAX_ADDED_DELAY_MINUTES, REROUTE_MAX_OPTIONS
 from ..errors import with_resilience, with_resilience_async
 from ..integrations.rights_rag.rights_service import calculate_compensation
 from ..integrations import db_ops as db_api
@@ -46,8 +47,11 @@ def _profile_connections() -> dict:
     """
     try:
         from journey_autopilot.persistence import store
+        from journey_autopilot.request_context import current_user_id
 
-        return (store.any_profile() or {}).get("connections", {}) or {}
+        user_id = current_user_id.get()
+        profile = store.get_profile(user_id) if user_id else store.any_profile()
+        return (profile or {}).get("connections", {}) or {}
     except Exception:
         return {}
 
@@ -183,6 +187,79 @@ def _trip_position(option: dict) -> str | None:
     return None
 
 
+def _locate_next_leg(option: dict) -> tuple[dict, str, datetime] | None:
+    """Find the first not-yet-completed leg and how the traveler relates to it.
+
+    Shared walk used by ``_next_boardable_station`` and
+    ``_earliest_reroute_departure`` so the "where/when is the traveler" state
+    machine lives in one place. Returns ``(leg, phase, now)`` where ``phase``
+    is one of:
+
+    - ``"cancelled"``: the leg never ran (regardless of its scheduled window
+      being in the past or future) — the traveler is still at its origin.
+    - ``"in_transit"``: the traveler is currently riding this leg.
+    - ``"not_started"``: the leg hasn't departed yet — the traveler is still
+      at its origin.
+
+    Returns ``None`` if every leg is already completed or none carry a usable
+    time. Live times win over planned times.
+    """
+    for leg in option.get("legs") or []:
+        departure = _parse_datetime(leg.get("departure") or leg.get("planned_departure"))
+        arrival = _parse_datetime(leg.get("arrival") or leg.get("planned_arrival"))
+        anchor = arrival or departure
+        if anchor is None:
+            continue
+        now = datetime.now(anchor.tzinfo) if anchor.tzinfo else datetime.now()
+        # A cancelled leg was never boardable, no matter how far in the past its
+        # scheduled arrival now is — the traveler could not have ridden it, so
+        # it is always the next unfinished leg once reached in this order
+        # (earlier, uncancelled legs are skipped as usual by falling through
+        # below once their own arrival/departure are in the past).
+        if leg.get("cancelled"):
+            return leg, "cancelled", now
+        if arrival is not None and arrival >= now:
+            if departure is not None and departure <= now:
+                return leg, "in_transit", now
+            return leg, "not_started", now
+        if departure is not None and departure >= now:
+            return leg, "not_started", now
+    return None
+
+
+def _next_boardable_station(option: dict) -> str | None:
+    """Best station from which an en-route traveler can start a new search.
+
+    If the traveler is currently on a leg, its destination is the next place
+    they can change trains. If the next leg has not started (or was
+    cancelled), its origin is still boardable.
+    """
+    located = _locate_next_leg(option)
+    if located is None:
+        return None
+    leg, phase, _now = located
+    return leg.get("destination") if phase == "in_transit" else leg.get("origin")
+
+
+def _earliest_reroute_departure(option: dict) -> str | None:
+    """Live time paired with ``_next_boardable_station`` for a new search."""
+    located = _locate_next_leg(option)
+    if located is None:
+        return None
+    leg, phase, now = located
+    departure_raw = leg.get("departure") or leg.get("planned_departure")
+    if phase == "cancelled":
+        # Before its planned start, keep that intended start time; once that
+        # time has passed, search from the current time.
+        departure = _parse_datetime(departure_raw)
+        if departure is not None and departure > now:
+            return departure_raw
+        return now.replace(microsecond=0).isoformat()
+    if phase == "in_transit":
+        return leg.get("arrival") or leg.get("planned_arrival")
+    return departure_raw
+
+
 def _region_anchor(region: str) -> str | None:
     anchors = {
         "bavaria": "Munich Hbf",
@@ -203,56 +280,136 @@ def _region_anchor(region: str) -> str | None:
 # top-level event stream that ``ui.chat`` iterates, so the browser can't see
 # the structured option list via ADK events.
 #
-# Workaround: the tool stashes its result here while it runs (same process),
-# and ``ui.chat.chat_turn`` reads it after the run. This is safe for the
-# single-user prototype (the chat UI's ``busy`` guard prevents concurrent
-# turns). ``chat_turn`` clears the slot at the start of each turn so stale
-# options from a previous turn are never shown.
-_LAST_REROUTE: dict | None = None
+# Workaround: the tools stash structured planning state here while they run
+# (same process), and ``ui.chat.chat_turn`` reads only the finalized shortlist
+# after the run. Discovery candidates and constraint-breaking fallbacks remain
+# separate so raw tool results can never become selectable UI cards. Workspaces
+# are request-scoped; direct scenario calls use one prototype fallback scope.
+_REROUTE_WORKSPACES: dict[tuple[str, str], dict] = {}
+_DEFAULT_REROUTE_SCOPE = ("prototype", "default")
 
 
-def last_reroute_options() -> dict | None:
-    """Returns the accumulated option list for this turn, or ``None``.
+def _reroute_scope(user_id: str | None = None, session_id: str | None = None) -> tuple[str, str]:
+    if user_id and session_id:
+        return user_id, session_id
+    try:
+        from journey_autopilot.request_context import current_session_id, current_user_id
 
-    Shape: ``{"origin", "destination", "options", "source"}`` where ``options``
-    may contain train, car-sharing, bike-sharing, and hotel entries from multiple
-    tool calls within the same Planner turn.
+        context_user = current_user_id.get()
+        context_session = current_session_id.get()
+        if context_user and context_session:
+            return context_user, context_session
+    except Exception:
+        pass
+    # Only direct scenario/demo calls (which never bind request_context) are
+    # expected to land here. A real chat turn always binds both vars before
+    # any tool runs (see ui.chat._run_turn), so reaching this fallback there
+    # would mean two real requests share one in-process discovery workspace —
+    # log it so that regression is observable instead of silently mixing state.
+    logger.warning(
+        "reroute discovery workspace fell back to the shared prototype scope "
+        "(no request identity bound) — expected only for direct scenario calls"
+    )
+    return _DEFAULT_REROUTE_SCOPE
+
+
+def last_reroute_options(
+    user_id: str | None = None, session_id: str | None = None
+) -> dict | None:
+    """Return this turn's reroute workspace, or ``None``.
+
+    ``options`` is intentionally empty until ``finalize_reroute_options`` has
+    applied every hard constraint. ``candidate_options`` is internal planning
+    state and must never be rendered as selectable UI cards.
     """
-    return _LAST_REROUTE
+    return _REROUTE_WORKSPACES.get(_reroute_scope(user_id, session_id))
 
 
-def clear_reroute_options() -> None:
-    """Reset the in-process slot — called at the start of each chat turn."""
-    global _LAST_REROUTE
-    _LAST_REROUTE = None
+def clear_reroute_options(
+    user_id: str | None = None, session_id: str | None = None
+) -> None:
+    """Reset the request-scoped workspace at the start/end of a chat turn."""
+    _REROUTE_WORKSPACES.pop(_reroute_scope(user_id, session_id), None)
+
+
+def _rebuild_reroute_stash() -> None:
+    """Rebuild flattened planning fields from the explicit family entries."""
+    workspace = last_reroute_options()
+    if workspace is None:
+        return
+    candidate_options: list[dict] = []
+    fallback_options: list[dict] = []
+    rejected_options: list[dict] = []
+    rejected_summary: dict[str, int] = {}
+    for family_data in workspace.get("families", {}).values():
+        candidate_options.extend(family_data.get("options") or [])
+        fallback_options.extend(family_data.get("fallback_options") or [])
+        rejected_options.extend(family_data.get("rejected_options") or [])
+        for reason, count in (family_data.get("rejected_summary") or {}).items():
+            rejected_summary[reason] = rejected_summary.get(reason, 0) + int(count)
+
+    workspace["candidate_options"] = candidate_options
+    workspace["fallback_options"] = fallback_options
+    workspace["rejected_options"] = rejected_options
+    workspace["rejected_summary"] = rejected_summary
+
+    # Any corrected family invalidates calendar verdicts and the prior UI
+    # shortlist. A later calendar/finalize call rebuilds both against this batch.
+    workspace["calendar_checked"] = False
+    workspace["calendar_verdicts"] = {}
+    workspace["finalized"] = False
+    workspace["options"] = []
+    workspace["recommended_option_id"] = None
 
 
 def _stash_options(
     options: list[dict],
     *,
+    family: str,
     origin: str = "",
     destination: str = "",
     source: str = "",
+    fallback_options: list[dict] | None = None,
+    rejected_options: list[dict] | None = None,
+    rejected_summary: dict[str, int] | None = None,
 ) -> list[dict]:
-    """Append new options to the in-process slot; return the list unchanged.
+    """Replace one explicit mode family in the turn-local planning workspace.
 
-    Options whose ``option_id`` already exists in the slot are skipped so
-    repeated calls (train first, then ecosystem) merge without duplicates.
+    Replacement happens even for an empty list. The ``mobility`` family owns
+    both C# and B# options, so a car-only re-run removes stale bikes as well.
     """
-    global _LAST_REROUTE
-    if _LAST_REROUTE is None:
-        _LAST_REROUTE = {
+    scope = _reroute_scope()
+    workspace = _REROUTE_WORKSPACES.get(scope)
+    if workspace is None:
+        workspace = {
             "origin": origin,
             "destination": destination,
+            "families": {},
+            "candidate_options": [],
             "options": [],
+            "fallback_options": [],
             "source": source,
+            "finalized": False,
         }
-    seen_ids = {o.get("option_id") for o in _LAST_REROUTE["options"]}
-    for opt in options:
-        oid = opt.get("option_id")
-        if oid not in seen_ids:
-            _LAST_REROUTE["options"].append(opt)
-            seen_ids.add(oid)
+        _REROUTE_WORKSPACES[scope] = workspace
+    family_data = {
+        "origin": origin,
+        "destination": destination,
+        "source": source,
+        "options": list(options),
+        "fallback_options": list(fallback_options or []),
+        "rejected_options": list(rejected_options or []),
+        "rejected_summary": dict(rejected_summary or {}),
+    }
+    workspace["families"][family] = family_data
+
+    # Prefer the train route as the aggregate route; otherwise use the most
+    # recently replaced family. Per-option source remains authoritative in UI.
+    route_data = workspace["families"].get("train") or family_data
+    workspace["origin"] = route_data.get("origin", "")
+    workspace["destination"] = route_data.get("destination", "")
+    workspace["source"] = route_data.get("source", "")
+    _rebuild_reroute_stash()
     return options
 
 
@@ -438,6 +595,8 @@ def get_live_trip_status(trip_id: str) -> dict:
                     "current_delay_minutes": delay_int,
                     "trend": "unknown",
                     "current_position": _trip_position(option),
+                    "next_boardable_station": _next_boardable_station(option),
+                    "earliest_reroute_departure": _earliest_reroute_departure(option),
                     "incidents": incidents,
                     "connection_risk": " ".join(connection_warnings) or (
                         "Arrival delay may affect onward plans."
@@ -471,10 +630,17 @@ def get_live_trip_status(trip_id: str) -> dict:
         if trip is not None:
             result.setdefault("planned_departure", trip.get("planned_departure"))
             result.setdefault("planned_arrival", trip.get("planned_arrival"))
+        result.setdefault("next_boardable_station", None)
+        result.setdefault("earliest_reroute_departure", None)
         delay = result.get("current_delay_minutes") or 0
         result.setdefault(
             "risk_level", "HIGH" if delay >= 30 else "MEDIUM" if delay >= 10 else "LOW"
         )
+        planned_eta = _parse_datetime(result.get("planned_arrival"))
+        if planned_eta is not None:
+            result.setdefault(
+                "estimated_arrival", (planned_eta + timedelta(minutes=delay)).isoformat()
+            )
         if "arrived" not in result:
             # Derive arrival from the delayed ETA (planned arrival + current
             # delay, both German-local wall clock). Once that instant has
@@ -526,6 +692,8 @@ def get_live_trip_status(trip_id: str) -> dict:
                 "current_delay_minutes": None,
                 "trend": "unknown",
                 "current_position": None,
+                "next_boardable_station": None,
+                "earliest_reroute_departure": None,
                 "incidents": [],
                 "connection_risk": " ".join(connection_warnings)
                 or "No live data — no connection risk visible from the historical forecast.",
@@ -577,11 +745,296 @@ def get_network_disruptions(region: str) -> dict:
 # --- Planner tools ------------------------------------------------------------
 
 
+_REROUTE_PREFERENCE_DEFAULTS = {"max_transfers": 2, "min_transfer_minutes": 8, "speed_vs_comfort": 50}
+
+
+def _sanitize_reroute_preferences(raw_prefs: dict | None) -> dict:
+    """Clamp a raw ``profile.preferences`` blob to safe deterministic bounds.
+
+    Pure function over an already-fetched preferences dict, so a caller that
+    already has the profile in hand (e.g. ``finalize_reroute_options``) can
+    sanitize it without a second store round-trip.
+    """
+    prefs = raw_prefs or {}
+    try:
+        return {
+            "max_transfers": max(
+                0, int(prefs.get("max_transfers", _REROUTE_PREFERENCE_DEFAULTS["max_transfers"]))
+            ),
+            "min_transfer_minutes": max(
+                0,
+                int(
+                    prefs.get(
+                        "min_transfer_minutes", _REROUTE_PREFERENCE_DEFAULTS["min_transfer_minutes"]
+                    )
+                ),
+            ),
+            "speed_vs_comfort": min(
+                100,
+                max(
+                    0,
+                    int(
+                        prefs.get(
+                            "speed_vs_comfort", _REROUTE_PREFERENCE_DEFAULTS["speed_vs_comfort"]
+                        )
+                    ),
+                ),
+            ),
+        }
+    except (TypeError, ValueError):
+        return dict(_REROUTE_PREFERENCE_DEFAULTS)
+
+
+def _profile_reroute_preferences() -> dict:
+    """Read and sanitize the current request's deterministic reroute preferences."""
+    try:
+        from journey_autopilot.persistence import store
+        from journey_autopilot.request_context import current_user_id
+
+        user_id = current_user_id.get()
+        profile = store.get_profile(user_id) if user_id else store.any_profile()
+        return _sanitize_reroute_preferences((profile or {}).get("preferences"))
+    except Exception:
+        return dict(_REROUTE_PREFERENCE_DEFAULTS)
+
+
+def _profile_max_transfers(default: int = 2) -> int:
+    """Backward-compatible accessor used by focused checks and callers."""
+    return _profile_reroute_preferences().get("max_transfers", default)
+
+
+def _reroute_sort_key(opt: dict) -> tuple:
+    """Order discovery candidates by earliest arrival, then transfers/cost.
+
+    Live arrivals are uniformly tz-aware within one search; the tz is stripped so
+    a stray naive value cannot raise on comparison (wall-clock ordering, like
+    ``_minutes_between``).
+    """
+    arr = _parse_datetime(opt.get("new_arrival"))
+    arr_key = arr.replace(tzinfo=None) if arr else datetime.max
+    cost = _option_cost(opt)
+    return (
+        arr_key,
+        opt.get("transfers") or 0,
+        cost if cost is not None else float("inf"),
+        opt.get("added_delay_minutes") or 0,
+    )
+
+
+def _option_cost(opt: dict) -> float | None:
+    """Comparable cost when known; prefer actual added cost over quoted fare."""
+    value = opt.get("added_cost_eur")
+    if value is None:
+        value = opt.get("price_eur")
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_cost_contract(option: dict) -> None:
+    """Make known, estimated, and unknown incremental cost unambiguous."""
+    status = option.get("cost_status")
+    if status in ("known", "estimate", "unknown"):
+        return
+    if option.get("added_cost_eur") is not None:
+        option["cost_status"] = "known"
+        return
+    mode = option.get("mode", "train")
+    if mode in ("car_sharing", "bike_sharing") and option.get("price_eur") is not None:
+        option["added_cost_eur"] = option["price_eur"]
+        option["cost_status"] = "estimate"
+        return
+    if mode == "hotel" and option.get("price_per_night_eur") is not None:
+        try:
+            option["added_cost_eur"] = round(
+                float(option["price_per_night_eur"])
+                * max(1, int(option.get("nights") or 1)),
+                2,
+            )
+        except (TypeError, ValueError):
+            pass
+        else:
+            option["cost_status"] = "estimate"
+            return
+    option["added_cost_eur"] = None
+    option["cost_status"] = "unknown"
+
+
+def _tool_visible_option(option: dict) -> dict:
+    """Remove provider-only identifiers from agent/browser-facing payloads."""
+    return {key: value for key, value in option.items() if not key.startswith("_provider_")}
+
+
+def _minimum_transfer_buffer(opt: dict) -> int | None:
+    """Smallest live transfer buffer across an option's ride legs."""
+    legs = opt.get("legs") or []
+    buffers: list[int] = []
+    for leg, following in zip(legs, legs[1:]):
+        buffer_minutes = _minutes_between(leg.get("arrival"), following.get("departure"))
+        if buffer_minutes is not None:
+            buffers.append(buffer_minutes)
+    return min(buffers) if buffers else None
+
+
+def _before(value: str | None, threshold: str | None) -> bool:
+    """Wall-clock comparison for German-local DB timestamps."""
+    value_dt = _parse_datetime(value)
+    threshold_dt = _parse_datetime(threshold)
+    if value_dt is None or threshold_dt is None:
+        return False
+    return value_dt.replace(tzinfo=None) < threshold_dt.replace(tzinfo=None)
+
+
+def _dominates(a: dict, b: dict) -> bool:
+    """True if option ``a`` makes ``b`` pointless: ``a`` departs no earlier,
+    arrives no later, has no more transfers, and is no more expensive. At least
+    one dimension must be strictly better. Unknown-vs-known cost is deliberately
+    incomparable so a potentially cheaper route is never discarded.
+    """
+    a_dep, b_dep = _parse_datetime(a.get("departure")), _parse_datetime(b.get("departure"))
+    a_arr, b_arr = _parse_datetime(a.get("new_arrival")), _parse_datetime(b.get("new_arrival"))
+    if a_dep is None or b_dep is None or a_arr is None or b_arr is None:
+        return False
+    # Wall-clock compare (strip tz; all live times are German-local).
+    a_dep, b_dep = a_dep.replace(tzinfo=None), b_dep.replace(tzinfo=None)
+    a_arr, b_arr = a_arr.replace(tzinfo=None), b_arr.replace(tzinfo=None)
+    a_tr, b_tr = a.get("transfers") or 0, b.get("transfers") or 0
+    a_cost, b_cost = _option_cost(a), _option_cost(b)
+    if (a_cost is None) != (b_cost is None):
+        return False
+    cost_no_worse = True if a_cost is None else a_cost <= b_cost
+    cost_better = False if a_cost is None else a_cost < b_cost
+    no_worse = a_dep >= b_dep and a_arr <= b_arr and a_tr <= b_tr and cost_no_worse
+    strictly_better = a_dep > b_dep or a_arr < b_arr or a_tr < b_tr or cost_better
+    return no_worse and strictly_better
+
+
+def _select_diverse_options(options: list[dict], max_options: int) -> list[dict]:
+    """Cap a shortlist while preserving fastest, simplest, and cheapest choices."""
+    if max_options <= 0 or not options:
+        return []
+    ranked = sorted(options, key=_reroute_sort_key)
+    selected: list[dict] = []
+
+    def add(option: dict | None) -> None:
+        if option is not None and option not in selected and len(selected) < max_options:
+            selected.append(option)
+
+    add(ranked[0])
+    add(min(ranked, key=lambda o: (o.get("transfers") or 0, _reroute_sort_key(o))))
+    priced = [o for o in ranked if _option_cost(o) is not None]
+    if priced:
+        add(min(priced, key=lambda o: (_option_cost(o), _reroute_sort_key(o))))
+    buffered = [o for o in ranked if o.get("minimum_transfer_minutes") is not None]
+    if buffered:
+        add(max(buffered, key=lambda o: o["minimum_transfer_minutes"]))
+    for option in ranked:
+        add(option)
+    return sorted(selected, key=_reroute_sort_key)
+
+
+def _prune_reroute_options(
+    options: list[dict],
+    *,
+    max_transfers: int,
+    min_transfer_minutes: int,
+    max_added_delay_minutes: int,
+    max_options: int,
+    earliest_departure: str = "",
+    current_arrival: str = "",
+) -> dict:
+    """Split raw live journeys into eligible, fallback, and rejected buckets."""
+    eligible: list[dict] = []
+    invalid: list[dict] = []
+    rejected: list[dict] = []
+    summary: dict[str, int] = {}
+
+    def reject(option: dict, reasons: list[str], *, fallback: bool) -> None:
+        item = {**option, "eligible": False, "selectable": False, "constraint_violations": reasons}
+        (invalid if fallback else rejected).append(item)
+        for reason in reasons:
+            summary[reason] = summary.get(reason, 0) + 1
+
+    for raw in options:
+        option = dict(raw)
+        option["minimum_transfer_minutes"] = _minimum_transfer_buffer(option)
+        fatal_reasons: list[str] = []
+        constraint_reasons: list[str] = []
+        if option.get("cancelled"):
+            fatal_reasons.append("cancelled")
+        if earliest_departure and _before(option.get("departure"), earliest_departure):
+            fatal_reasons.append("already_departed")
+        if option.get("new_arrival") is None:
+            fatal_reasons.append("missing_arrival")
+        if (option.get("transfers") or 0) > max_transfers:
+            constraint_reasons.append("too_many_transfers")
+        transfer_buffer = option.get("minimum_transfer_minutes")
+        if transfer_buffer is not None and transfer_buffer < min_transfer_minutes:
+            constraint_reasons.append("transfer_too_short")
+
+        # A current ETA is the decision baseline: a reroute that arrives later is
+        # not useful. Without it, fall back to the schedule-relative safety bound —
+        # and if that too is unknown (no original_arrival to compare against),
+        # fall back further to the option's own live-reported delay so an option
+        # with no delay information at all is never silently treated as safe.
+        saved = option.get("minutes_saved_vs_current_plan")
+        if current_arrival and saved is not None:
+            if saved < 0:
+                constraint_reasons.append("slower_than_current_plan")
+        else:
+            effective_added_delay = option.get("added_delay_minutes")
+            if effective_added_delay is None:
+                effective_added_delay = option.get("live_delay_minutes")
+            if effective_added_delay is not None and effective_added_delay > max_added_delay_minutes:
+                constraint_reasons.append("excessive_added_delay")
+
+        if fatal_reasons:
+            reject(option, fatal_reasons + constraint_reasons, fallback=False)
+        elif constraint_reasons:
+            reject(option, constraint_reasons, fallback=True)
+        else:
+            option.update(eligible=True, selectable=True, constraint_violations=[])
+            eligible.append(option)
+
+    dominated: list[dict] = []
+    survivors: list[dict] = []
+    for option in eligible:
+        if any(other is not option and _dominates(other, option) for other in eligible):
+            dominated.append(
+                {**option, "eligible": False, "selectable": False, "constraint_violations": ["dominated"]}
+            )
+            summary["dominated"] = summary.get("dominated", 0) + 1
+        else:
+            survivors.append(option)
+
+    shortlist = _select_diverse_options(survivors, max_options)
+    for option in survivors:
+        if option not in shortlist:
+            rejected.append(
+                {**option, "eligible": False, "selectable": False, "constraint_violations": ["shortlist_cap"]}
+            )
+            summary["shortlist_cap"] = summary.get("shortlist_cap", 0) + 1
+    rejected.extend(dominated)
+
+    # Keep at most one least-bad, non-fatal route for explanation/constraint
+    # relaxation. It is never placed in the selectable ``options`` list.
+    fallback_options = sorted(invalid, key=_reroute_sort_key)[:1] if not shortlist else []
+    return {
+        "options": shortlist,
+        "fallback_options": fallback_options,
+        "rejected_options": rejected + ([o for o in invalid if o not in fallback_options]),
+        "rejected_summary": summary,
+        "raw_count": len(options),
+    }
+
+
 def find_reroute_options(
     origin: str,
     destination: str,
     departure: str = "",
     original_arrival: str = "",
+    current_arrival: str = "",
     max_results: int = 8,
 ) -> dict:
     """Finds alternative connections (reroute options) between two stations.
@@ -589,10 +1042,14 @@ def find_reroute_options(
     Args:
         origin: Departure station, e.g. "Munich Hbf".
         destination: Destination station, e.g. "Berlin Hbf".
-        departure: Optional planned departure time (ISO "YYYY-MM-DDTHH:MM:SS").
-        original_arrival: Optional original planned arrival time, used to
-            compute added delay.
-        max_results: Maximum number of live options to return.
+        departure: Earliest boardable departure time (ISO timestamp). En route,
+            pair this with the next boardable station as ``origin``.
+        original_arrival: Original scheduled arrival, used only for the
+            schedule-relative arrival delta.
+        current_arrival: Current estimated arrival if the traveler stays on the
+            disrupted itinerary. Options arriving later become non-selectable
+            fallbacks; options arriving earlier expose minutes saved.
+        max_results: Candidate-pool size before deterministic pruning (1..12).
 
     Returns:
         A dict with the list of possible reroutes including new arrival time,
@@ -601,25 +1058,33 @@ def find_reroute_options(
         stations and transfer times when presenting an option), and ``source``.
     """
     try:
+        preferences = _profile_reroute_preferences()
+        max_results = max(1, min(int(max_results), 12))
         from_eva = stations.resolve_eva(origin)
         to_eva = stations.resolve_eva(destination)
         if from_eva is None or to_eva is None:
             raise db_api.DBServiceError(
                 f"Station not resolvable (origin={origin!r}, destination={destination!r})."
             )
+        query_preferences: dict[str, Any] = {
+            "transferTime": preferences["min_transfer_minutes"],
+        }
+        # Keep the DB candidate pool broader than the transfer preference. The
+        # deterministic split below needs to distinguish "no compliant train"
+        # from "no train at all" and retain one disabled least-bad fallback.
         payload = db_api.journeys(
             from_eva,
             to_eva,
             departure=departure or None,
             results=max_results,
             tickets=True,
+            **query_preferences,
         )
         live_options = []
         for option in db_api.normalize_journeys(payload)[:max_results]:
             arrival = option.get("arrival") or option.get("planned_arrival")
             added_delay = _minutes_between(original_arrival, arrival)
-            if added_delay is None:
-                added_delay = option.get("arrival_delay_minutes") or 0
+            minutes_saved = _minutes_between(arrival, current_arrival)
             comfort_parts = []
             if option.get("price_eur") is not None:
                 comfort_parts.append(f"Price: {option['price_eur']} EUR")
@@ -634,6 +1099,11 @@ def find_reroute_options(
                     "destination": leg.get("destination"),
                     "departure": leg.get("departure") or leg.get("planned_departure"),
                     "arrival": leg.get("arrival") or leg.get("planned_arrival"),
+                    "planned_departure": leg.get("planned_departure"),
+                    "planned_arrival": leg.get("planned_arrival"),
+                    "departure_delay_minutes": leg.get("departure_delay_minutes"),
+                    "arrival_delay_minutes": leg.get("arrival_delay_minutes"),
+                    "cancelled": bool(leg.get("cancelled")),
                 }
                 for leg in option.get("legs") or []
                 if leg.get("train")
@@ -641,26 +1111,80 @@ def find_reroute_options(
             live_options.append(
                 {
                     "option_id": option.get("option_id"),
+                    "_provider_refresh_token": option.get("refresh_token"),
                     "mode": "train",
                     "description": option.get("description"),
+                    "origin": origin,
+                    "destination": destination,
                     "departure": option.get("departure") or option.get("planned_departure"),
                     "new_arrival": arrival,
                     "transfers": option.get("transfers", 0),
-                    "added_delay_minutes": round(added_delay),
+                    "added_delay_minutes": round(added_delay) if added_delay is not None else None,
+                    "live_delay_minutes": option.get("arrival_delay_minutes"),
+                    "minutes_saved_vs_current_plan": (
+                        round(minutes_saved) if minutes_saved is not None else None
+                    ),
+                    "current_plan_arrival": current_arrival or None,
                     "comfort": "; ".join(comfort_parts) or "Live DB connection",
                     "price_eur": option.get("price_eur"),
+                    "added_cost_eur": None,
+                    "cost_status": "unknown",
                     "trains": option.get("trains", []),
                     "legs": legs,
+                    "cancelled": bool(option.get("cancelled")),
                     "remarks": option.get("remarks", []),
                     "source": "db_service_live",
                 }
             )
         if live_options:
-            _stash_options(live_options, origin=origin, destination=destination, source="db_service_live")
+            # Deterministic pre-filter: the sidecar returns the next N departures
+            # verbatim, so without this the UI floods with the user's own delayed
+            # train, later runs of the same line, and slow many-transfer routings.
+            pruned = _prune_reroute_options(
+                live_options,
+                max_transfers=preferences["max_transfers"],
+                min_transfer_minutes=preferences["min_transfer_minutes"],
+                max_added_delay_minutes=REROUTE_MAX_ADDED_DELAY_MINUTES,
+                max_options=REROUTE_MAX_OPTIONS,
+                earliest_departure=departure,
+                current_arrival=current_arrival,
+            )
+            logger.info(
+                "reroute discovery: route=%s -> %s raw=%d eligible=%d fallback=%d rejected=%s",
+                origin,
+                destination,
+                pruned["raw_count"],
+                len(pruned["options"]),
+                len(pruned["fallback_options"]),
+                pruned["rejected_summary"],
+            )
+            live_options = pruned["options"]
+            fallback_options = pruned["fallback_options"]
+            # Renumber after pruning. R1 is the earliest discovery candidate;
+            # final recommendation/order is assigned after profile/calendar checks.
+            for i, opt in enumerate(live_options, start=1):
+                opt["option_id"] = f"R{i}"
+            for i, opt in enumerate(fallback_options, start=1):
+                opt["option_id"] = f"R{i}"
+            _stash_options(
+                live_options,
+                family="train",
+                origin=origin,
+                destination=destination,
+                source="db_service_live",
+                fallback_options=fallback_options,
+                rejected_options=pruned["rejected_options"],
+                rejected_summary=pruned["rejected_summary"],
+            )
             return {
                 "origin": origin,
                 "destination": destination,
-                "options": live_options,
+                "options": [_tool_visible_option(option) for option in live_options],
+                "fallback_options": [
+                    _tool_visible_option(option) for option in fallback_options
+                ],
+                "rejected_summary": pruned["rejected_summary"],
+                "raw_count": pruned["raw_count"],
                 "source": "db_service_live",
             }
     except db_api.DBServiceError:
@@ -672,18 +1196,39 @@ def find_reroute_options(
 
     options = mock_data.lookup_route(mock_data.REROUTE_OPTIONS, origin, destination)
     if options:
-        mock_options = [{**option, "mode": option.get("mode", "train"), "source": "mock_reroute_options"} for option in options]
-        _stash_options(mock_options, origin=origin, destination=destination, source="mock_reroute_options")
+        mock_options = [
+            {
+                **option,
+                "mode": option.get("mode", "train"),
+                "origin": origin,
+                "destination": destination,
+                "eligible": True,
+                "selectable": True,
+                "source": "mock_reroute_options",
+            }
+            for option in options
+        ]
+        for option in mock_options:
+            _apply_cost_contract(option)
+        _stash_options(
+            mock_options,
+            family="train",
+            origin=origin,
+            destination=destination,
+            source="mock_reroute_options",
+        )
         return {
             "origin": origin,
             "destination": destination,
             "options": mock_options,
             "source": "mock_reroute_options",
         }
+    _stash_options([], family="train", origin=origin, destination=destination, source="none")
     return {
         "origin": origin,
         "destination": destination,
         "options": [],
+        "fallback_options": [],
         "source": "none",
         "error": "No reroute options available for this route.",
     }
@@ -722,17 +1267,44 @@ def find_mobility_alternatives(
         ``price_eur``, ``remarks``, and ``source`` ("mock_flinkster" /
         "mock_callabike"). Also includes ``source`` on the top-level dict.
     """
+    max_results = max(1, min(int(max_results), 8))
     flinkster = [
-        {**o, "source": "mock_flinkster"}
+        {
+            **o,
+            "origin": location,
+            "destination": destination,
+            "eligible": True,
+            "selectable": True,
+            "source": "mock_flinkster",
+        }
         for o in mock_data.lookup_location(mock_data.FLINKSTER_OPTIONS, location)[:max_results]
     ]
     callabike = [
-        {**o, "source": "mock_callabike"}
+        {
+            **o,
+            "origin": location,
+            "destination": destination,
+            "eligible": True,
+            "selectable": True,
+            "source": "mock_callabike",
+        }
         for o in mock_data.lookup_location(mock_data.CALLABIKE_OPTIONS, location)[:max_results]
     ]
-    all_options = flinkster + callabike
-    if all_options:
-        _stash_options(all_options, origin=location, destination=destination, source="mock_mobility")
+    all_options: list[dict] = []
+    for index in range(max(len(flinkster), len(callabike))):
+        for group in (flinkster, callabike):
+            if index < len(group) and len(all_options) < max_results:
+                all_options.append(group[index])
+    kept_ids = {o.get("option_id") for o in all_options}
+    flinkster = [o for o in flinkster if o.get("option_id") in kept_ids]
+    callabike = [o for o in callabike if o.get("option_id") in kept_ids]
+    _stash_options(
+        all_options,
+        family="mobility",
+        origin=location,
+        destination=destination,
+        source="mock_mobility" if all_options else "none",
+    )
     return {
         "location": location,
         "destination": destination,
@@ -760,8 +1332,10 @@ def find_partner_hotels(
     partner-hotel list when the live lookup fails or finds nothing.
 
     Args:
-        location: Station or city near which to search (typically the destination
-            or the stranded intermediate stop), e.g. "Berlin Hbf".
+        location: Station or city near which to search — pass where the traveler
+            ACTUALLY IS: the origin/start city before departure, the current
+            stranded station en route, or the destination only when they can
+            still arrive today (just too late), e.g. "Munich Hbf".
         check_in_date: Planned check-in date in "YYYY-MM-DD" format.
         max_results: Maximum number of hotels to return.
 
@@ -781,10 +1355,25 @@ def find_partner_hotels(
         tool="find_partner_hotels",
         accept=lambda hs: bool(hs),
     )
-    hotels = [{**h, "check_in_date": check_in_date} for h in outcome.value]
+    hotels = [
+        {
+            **h,
+            "origin": location,
+            "destination": location,
+            "check_in_date": check_in_date,
+            "eligible": True,
+            "selectable": True,
+        }
+        for h in outcome.value
+    ]
     source = hotels[0]["source"] if hotels else "none"
-    if hotels:
-        _stash_options(hotels, origin=location, destination=location, source=source)
+    _stash_options(
+        hotels,
+        family="hotel",
+        origin=location,
+        destination=location,
+        source=source,
+    )
     return {
         "location": location,
         "check_in_date": check_in_date,
@@ -828,7 +1417,13 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     # one planning run and all for the same date. Serving those from a 60s
     # cache turns N+1 Graph round-trips into one; failed fetches are never
     # cached so a Graph hiccup can recover on the next call.
-    cache_key = (date, user_email)
+    try:
+        from journey_autopilot.request_context import current_user_id
+
+        request_user_id = current_user_id.get()
+    except Exception:
+        request_user_id = None
+    cache_key = (request_user_id, date, user_email)
     cached = _CALENDAR_CACHE.get(cache_key)
     if cached is not None and time.monotonic() - cached[0] < _CALENDAR_CACHE_TTL_S:
         return {**cached[1], "events": list(cached[1]["events"])}
@@ -859,7 +1454,7 @@ CALENDAR_TRAVEL_BUFFER_MINUTES = 30
 # Live-calendar cache: (date, user_email) -> (monotonic timestamp, result).
 # 60 seconds spans one planning run (overview + per-option conflict checks)
 # without holding stale data across chat turns.
-_CALENDAR_CACHE: dict[tuple[str, str | None], tuple[float, dict]] = {}
+_CALENDAR_CACHE: dict[tuple[str | None, str, str | None], tuple[float, dict]] = {}
 _CALENDAR_CACHE_TTL_S = 60
 
 _TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}$")
@@ -1046,6 +1641,10 @@ async def check_options_against_calendar(
         ``buffer_minutes``, and the calendar ``source``.
     """
     if not calendar_connected():
+        stashed = last_reroute_options()
+        if stashed is not None:
+            stashed["calendar_checked"] = True
+            stashed["calendar_verdicts"] = {}
         return {
             "calendar_connected": False,
             "checked": False,
@@ -1056,14 +1655,24 @@ async def check_options_against_calendar(
         }
 
     stashed = last_reroute_options()
-    options = (stashed or {}).get("options") or []
-    if not options:
+    if stashed is None:
         return {
             "date": date,
             "error": (
                 "No reroute options were gathered this turn — call "
                 "find_reroute_options first, then this check."
             ),
+        }
+    options = stashed.get("candidate_options") or []
+    if not options:
+        stashed["calendar_checked"] = True
+        stashed["calendar_verdicts"] = {}
+        return {
+            "calendar_connected": True,
+            "date": date,
+            "checked": True,
+            "option_verdicts": [],
+            "note": "No eligible reroute candidates to check; widen the search or finalize fallbacks.",
         }
 
     calendar = await get_user_calendar(date, user_email)
@@ -1114,7 +1723,274 @@ async def check_options_against_calendar(
     }
     if calendar.get("error"):
         result["calendar_error"] = calendar["error"]
+    stashed["calendar_checked"] = True
+    stashed["calendar_verdicts"] = {
+        entry.get("option_id"): entry for entry in verdicts if entry.get("option_id")
+    }
+    stashed["calendar_result"] = result
     return result
+
+
+def _station_key(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("name")
+    return " ".join(str(value or "").casefold().split())
+
+
+def _arrives_after_home_limit(option: dict, profile: dict) -> bool:
+    """Apply latest-arrival-home only when the option actually ends at home."""
+    home = profile.get("home") or {}
+    home_station = _station_key(home.get("home_station"))
+    if not home_station or _station_key(option.get("destination")) != home_station:
+        return False
+    limit = str(home.get("latest_arrival_home") or "").strip()
+    arrival = _parse_datetime(option.get("new_arrival"))
+    if arrival is None or not re.fullmatch(r"\d{2}:\d{2}", limit):
+        return False
+    limit_hour, limit_minute = (int(part) for part in limit.split(":"))
+    departure = _parse_datetime(option.get("departure"))
+    if departure is not None and arrival.replace(tzinfo=None).date() > departure.replace(tzinfo=None).date():
+        return True
+    return arrival.hour * 60 + arrival.minute > limit_hour * 60 + limit_minute
+
+
+def _mode_eligibility_violations(
+    option: dict,
+    *,
+    preferences: dict,
+    mobility: dict,
+    home: dict,
+    recompute_transfer_buffer: bool,
+) -> list[str]:
+    """Shared per-mode transfer/cancellation/mobility/hotel eligibility rules.
+
+    Used by both ``finalize_reroute_options`` (discovery-time) and
+    ``write_tools._profile_constraint_violations`` (execution-time
+    revalidation) so the two can't silently diverge on what counts as an
+    eligible option. Calendar verdicts and live-freshness checks (e.g.
+    already-departed) are caller-specific and stay out of this function.
+    """
+    reasons: list[str] = []
+    mode = option.get("mode", "train")
+    if mode == "train":
+        if option.get("cancelled"):
+            reasons.append("cancelled")
+        try:
+            max_transfers = max(0, int(preferences.get("max_transfers", 2)))
+            min_transfer = max(0, int(preferences.get("min_transfer_minutes", 8)))
+        except (TypeError, ValueError):
+            max_transfers, min_transfer = 2, 8
+        if (option.get("transfers") or 0) > max_transfers:
+            reasons.append("too_many_transfers")
+        if recompute_transfer_buffer or option.get("minimum_transfer_minutes") is None:
+            option["minimum_transfer_minutes"] = _minimum_transfer_buffer(option)
+        buffer = option.get("minimum_transfer_minutes")
+        if buffer is not None and buffer < min_transfer:
+            reasons.append("transfer_too_short")
+    elif mode == "car_sharing" and not mobility.get("car_sharing_ok", True):
+        reasons.append("car_sharing_disabled")
+    elif mode == "bike_sharing" and not mobility.get("bike_sharing_ok", True):
+        reasons.append("bike_sharing_disabled")
+    elif mode == "hotel" and not home.get("hotel_ok", True):
+        reasons.append("hotel_disabled")
+    return reasons
+
+
+def _profile_rank_score(option: dict, *, earliest_arrival: datetime | None, preferences: dict) -> float:
+    """Deterministic profile score; lower is better."""
+    speed = preferences.get("speed_vs_comfort", 50) / 100.0
+    arrival = _parse_datetime(option.get("new_arrival"))
+    arrival_penalty = 24 * 60.0
+    if arrival is not None and earliest_arrival is not None:
+        arrival_penalty = max(
+            0.0,
+            (arrival.replace(tzinfo=None) - earliest_arrival.replace(tzinfo=None)).total_seconds()
+            / 60.0,
+        )
+    elif option.get("mode") == "hotel":
+        arrival_penalty = 48 * 60.0
+
+    transfers = float(option.get("transfers") or 0)
+    time_weight = 0.5 + speed
+    transfer_weight = 45.0 - 35.0 * speed
+    cost = _option_cost(option)
+    cost_penalty = (cost or 0.0) * 0.05
+    buffer = option.get("minimum_transfer_minutes")
+    buffer_penalty = 0.0
+    if buffer is not None:
+        safe_buffer = preferences.get("min_transfer_minutes", 8) + 5
+        buffer_penalty = max(0, safe_buffer - buffer) * (2.0 - speed)
+    return round(
+        arrival_penalty * time_weight
+        + transfers * transfer_weight
+        + cost_penalty
+        + buffer_penalty,
+        2,
+    )
+
+
+def _select_final_diverse(options: list[dict], max_options: int) -> list[dict]:
+    """Recommended option first, while preserving distinct useful trade-offs."""
+    if not options:
+        return []
+    max_options = max(1, max_options)
+    ranked = sorted(options, key=lambda o: (o.get("ranking_score", float("inf")), _reroute_sort_key(o)))
+    selected: list[dict] = []
+
+    def add(option: dict | None) -> None:
+        if option is not None and option not in selected and len(selected) < max_options:
+            selected.append(option)
+
+    add(ranked[0])
+    timed = [o for o in ranked if _parse_datetime(o.get("new_arrival")) is not None]
+    if timed:
+        add(min(timed, key=_reroute_sort_key))
+    trains = [o for o in ranked if o.get("mode", "train") == "train"]
+    if trains:
+        add(min(trains, key=lambda o: (o.get("transfers") or 0, _reroute_sort_key(o))))
+    priced = [o for o in ranked if _option_cost(o) is not None]
+    if priced:
+        add(min(priced, key=lambda o: (_option_cost(o), o.get("ranking_score", float("inf")))))
+    for option in ranked:
+        add(option)
+    return selected
+
+
+def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
+    """Finalize the selectable reroute cards after all discovery/calendar calls.
+
+    This is the only tool allowed to populate the UI-facing ``options`` list.
+    It reapplies profile hard limits, merges calendar verdicts, ranks by the
+    speed-vs-comfort preference, preserves fastest/simple/cheap alternatives,
+    and keeps constraint-breaking fallbacks separate and non-selectable.
+
+    Args:
+        max_options: Maximum number of selectable cards across all modes.
+
+    Returns:
+        ``options`` (eligible/selectable), ``fallback_options`` (disabled), the
+        recommended option id, and a rejection summary. Call this after the
+        calendar check and after any mobility/hotel widening.
+    """
+    stashed = last_reroute_options()
+    if stashed is None:
+        return {"error": "No reroute search has run in this turn."}
+    candidates = [dict(option) for option in stashed.get("candidate_options") or []]
+    if calendar_connected() and candidates and not stashed.get("calendar_checked"):
+        return {
+            "error": (
+                "Calendar is connected but the current candidate batch has not been checked. "
+                "Call check_options_against_calendar after the last discovery tool, then finalize again."
+            )
+        }
+
+    profile = get_user_profile()
+    if profile.get("error"):
+        profile = {
+            "preferences": dict(_REROUTE_PREFERENCE_DEFAULTS),
+            "home": {},
+            "mobility": {"car_sharing_ok": True, "bike_sharing_ok": True},
+        }
+    # Sanitize/clamp the preferences already fetched above (malformed or
+    # out-of-range values) instead of re-reading the profile from the store a
+    # second time — do not overwrite `profile` with the raw sanitized blob.
+    preferences = _sanitize_reroute_preferences(profile.get("preferences"))
+    mobility = profile.get("mobility") or {}
+    home = profile.get("home") or {}
+    verdicts = stashed.get("calendar_verdicts") or {}
+    rejected_summary: dict[str, int] = {}
+    fallback_pool: list[dict] = []
+    for family_data in stashed.get("families", {}).values():
+        fallback_pool.extend(dict(option) for option in family_data.get("fallback_options") or [])
+        for reason, count in (family_data.get("rejected_summary") or {}).items():
+            rejected_summary[reason] = rejected_summary.get(reason, 0) + int(count)
+    eligible: list[dict] = []
+
+    for option in candidates:
+        _apply_cost_contract(option)
+        reasons = _mode_eligibility_violations(
+            option,
+            preferences=preferences,
+            mobility=mobility,
+            home=home,
+            recompute_transfer_buffer=False,
+        )
+
+        verdict = verdicts.get(option.get("option_id"))
+        if verdict and verdict.get("viable") is False:
+            reasons.append("calendar_hard_conflict")
+        if _arrives_after_home_limit(option, profile):
+            reasons.append("after_latest_arrival_home")
+
+        if reasons:
+            fallback_pool.append(
+                {**option, "eligible": False, "selectable": False, "constraint_violations": reasons}
+            )
+            for reason in reasons:
+                rejected_summary[reason] = rejected_summary.get(reason, 0) + 1
+        else:
+            option.update(eligible=True, selectable=True, constraint_violations=[])
+            eligible.append(option)
+
+    # Hotels are last-resort choices, not peers of a same-day train/mobility route.
+    if any(option.get("mode") != "hotel" for option in eligible):
+        omitted_hotels = sum(option.get("mode") == "hotel" for option in eligible)
+        eligible = [option for option in eligible if option.get("mode") != "hotel"]
+        if omitted_hotels:
+            rejected_summary["hotel_not_needed"] = (
+                rejected_summary.get("hotel_not_needed", 0) + omitted_hotels
+            )
+
+    arrivals = [_parse_datetime(o.get("new_arrival")) for o in eligible]
+    earliest_arrival = min(
+        (arrival for arrival in arrivals if arrival is not None),
+        key=lambda dt: dt.replace(tzinfo=None),
+        default=None,
+    )
+    for option in eligible:
+        option["ranking_score"] = _profile_rank_score(
+            option, earliest_arrival=earliest_arrival, preferences=preferences
+        )
+
+    selected = _select_final_diverse(eligible, min(max(1, int(max_options)), REROUTE_MAX_OPTIONS))
+    omitted = len(eligible) - len(selected)
+    if omitted:
+        rejected_summary["final_shortlist_cap"] = rejected_summary.get("final_shortlist_cap", 0) + omitted
+    for rank, option in enumerate(selected, start=1):
+        option["rank"] = rank
+        option["recommended"] = rank == 1
+    recommended_option_id = selected[0].get("option_id") if selected else None
+
+    # Fallbacks are useful only when there is no selectable plan. Never expose
+    # more than one, and never let it pass the UI's click gate.
+    fallback_options: list[dict] = []
+    if not selected and fallback_pool:
+        fallback = sorted(fallback_pool, key=_reroute_sort_key)[0]
+        fallback_options = [{**fallback, "eligible": False, "selectable": False}]
+
+    stashed["options"] = selected
+    stashed["fallback_options"] = fallback_options
+    stashed["recommended_option_id"] = recommended_option_id
+    stashed["rejected_summary"] = rejected_summary
+    stashed["finalized"] = True
+    logger.info(
+        "reroute finalized: candidates=%d selectable=%d fallback=%d recommended=%s rejected=%s",
+        len(candidates),
+        len(selected),
+        len(fallback_options),
+        recommended_option_id,
+        rejected_summary,
+    )
+    return {
+        "options": [_tool_visible_option(option) for option in selected],
+        "fallback_options": [
+            _tool_visible_option(option) for option in fallback_options
+        ],
+        "recommended_option_id": recommended_option_id,
+        "candidate_count": len(candidates),
+        "rejected_summary": rejected_summary,
+        "source": stashed.get("source"),
+    }
 
 
 def get_user_profile() -> dict:
@@ -1133,8 +2009,10 @@ def get_user_profile() -> dict:
         # Lazy import: keeps the ADK package independent of the persistence
         # layer (SQLite store) as long as the tool is not called.
         from journey_autopilot.persistence import store
+        from journey_autopilot.request_context import current_user_id
 
-        profile = store.any_profile()
+        user_id = current_user_id.get()
+        profile = store.get_profile(user_id) if user_id else store.any_profile()
     except Exception as exc:  # persistence layer / DB not available
         return {"error": f"Profile not readable: {exc}"}
     if profile is None:
@@ -1169,7 +2047,7 @@ def get_upcoming_trips() -> dict:
 # top-level event stream that ui.chat iterates. Scanning that trace for a
 # "get_passenger_rights" entry therefore never matches.
 #
-# Workaround (same pattern as find_reroute_options' _LAST_REROUTE stash on
+# Workaround (same pattern as the request-scoped reroute workspace on
 # the rerouting branch): the tool stashes its result here while it runs
 # (same process), and the caller reads it after the run instead of the
 # trace. Safe for the single-user prototype (the chat UI's busy guard

@@ -62,6 +62,10 @@ B) EN ROUTE (a trip is already running; you are given a trip_id):
       - Current delay from live data.
       - Connection risk warnings: if any exist, the risk is elevated.
       - Network disruptions: if active, flag the impact on the trip.
+      - Preserve `estimated_arrival`, `next_boardable_station`, and
+        `earliest_reroute_departure` exactly from live status; the Planner uses
+        them to compare a reroute against staying aboard and avoid searching
+        from a station already passed.
    4. Check the `arrived` field on the live status:
       - `arrived: true` -> the trip is OVER. Its `current_delay_minutes` is the
         FINAL, CONFIRMED delay — not a forecast, and there is nothing left to
@@ -80,6 +84,14 @@ Answer briefly and structured:
 - Status: EN ROUTE or ARRIVED (see B.4) — pre-trip has no such status.
 - Risk: <LOW|MEDIUM|HIGH> (pre-trip: also the 0-100 score if available)
 - Current/expected/final delay and trend
+- Next boardable station (en route only): copy `next_boardable_station` exactly
+  when reported; this is the origin for a new train search. Pair it with the
+  exact `earliest_reroute_departure` from live status.
+- Current estimated arrival (en route only): copy `estimated_arrival` exactly
+  and label it as the ETA if the traveler stays on the current itinerary.
+- Current position (en route only): where the trip currently is, from the live
+  status `current_position` (e.g. "between Munich Hbf and Augsburg Hbf"), when
+  reported — the reroute step needs it to place an overnight hotel correctly.
 - ETA (pre-trip): planned <HH:MM> -> expected <HH:MM>, at the latest ~<HH:MM>
 - Key incidents / endangered connections (cite connection_risk from live data)
 - One- to two-sentence justification based on the forecast and current conditions
