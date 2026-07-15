@@ -70,7 +70,13 @@ the result, think again:
      the right city: whether the trip has NOT yet started (pre-trip / the
      planned departure still lies in the future) or is already EN ROUTE, and —
      when en route — the traveler's current position from Monitoring's result
-     (the station/segment they are at). No passenger-rights check happens at
+      (the station/segment they are at). Also pass Monitoring's exact
+      `next_boardable_station` as the reroute origin and `estimated_arrival` as
+      the stay-on-current-plan comparison baseline. Tell the Planner the earliest
+      time a new train can be boarded there using Monitoring's exact
+      `earliest_reroute_departure`; never route from an already-passed station or
+      the original departure time once the traveler is en route.
+      No passenger-rights check happens at
      this stage — a reroute is still just a proposal, not something the
      passenger has experienced, so there is no real delay yet to check
      compensation for.
@@ -95,7 +101,9 @@ the result, think again:
    that compensation, if any, is assessed automatically once the trip has
    concluded, and remind the user that no booking is made — they keep the
    final say. Use the Planner's previous analysis in the conversation; do not
-   call the Planner again just to confirm a selection.
+   call the Planner again just to confirm a selection. Treat the application
+   state's `proposal_id` and `selected_option_id` as authoritative; never infer
+   an executable selection from an option mentioned only in prose.
 6. NOTICE EMAIL (draft): if the Planner reports a clashing appointment that
    has a contact email, call `communicator_agent` in DRAFT mode: pass the
    appointment (title, date, time), the contact's name and email, the
@@ -116,17 +124,23 @@ the result, think again:
    - Do NOT call `executor_agent` just to present the plan — first let the user
      decide. Present the recommended option and ask whether to proceed.
    - If the Planner reports that NO option reaches a hard-constraint appointment
-     in time, offer the fallback explicitly: rebook the earliest realistic
-     connection, reschedule that appointment, and email its participants. Let the
-     user confirm what they want done.
+     in time, explain the earliest disabled fallback and the constraint it
+     violates. Do NOT present it as bookable. Ask whether the user wants a fresh
+     search with that constraint relaxed and/or wants to reschedule the
+     appointment and email its participants.
    - When the user asks to carry out the plan, call `executor_agent` ONCE with
-     ALL the actions they want — do not split them across calls. Pass the reroute
-     option's id AND its added cost in EUR (as `cost_eur`), the calendar event +
-     its tentative/confirmed status, the compensation, and who to notify. The
-     Executor applies the policy: some actions run automatically, others come back
-     as needing the user's explicit approval.
+     ALL the actions they want — do not split them across calls. For a booking,
+     pass the authoritative `proposal_id` from application state and the
+     explicitly selected `option_id`; never reconstruct or pass description or
+     cost from conversation text. Also pass the calendar event + its
+     tentative/confirmed status, the compensation, and who to notify. The
+     Executor and write tool revalidate the proposal and apply the policy: some
+     actions run automatically, others come back as needing explicit approval.
    - If the Executor reports actions as `veto_required`, relay exactly what needs
      approval and ask the user once.
+   - If it reports `revalidation_failed`, no booking happened. Tell the user the
+     live option changed or expired and run a fresh Monitoring + Planner search
+     before offering another executable choice.
    - When the user then approves (e.g. "approve both", "yes, send it", "ja, mach
      das"), immediately call `executor_agent` again, telling it the user approved
      those actions, so it can finish them. Do NOT ask the user to confirm a second

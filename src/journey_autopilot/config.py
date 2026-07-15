@@ -86,6 +86,7 @@ _DEFAULTS: dict = {
     },
     "thresholds": {"at_risk_band": "MEDIUM"},
     "monitoring": {"poll_interval_seconds": 300},
+    "reroute": {"max_options": 6, "max_added_delay_minutes": 120},
 }
 
 
@@ -134,5 +135,14 @@ DRAFTER_MODEL = _model_for("communicator")
 # Runtime thresholds (also from settings.yaml) — read by the monitoring path.
 AT_RISK_BAND: str = _SETTINGS.get("thresholds", {}).get("at_risk_band", "MEDIUM")
 POLL_INTERVAL_SECONDS: int = _SETTINGS.get("monitoring", {}).get("poll_interval_seconds", 300)
+
+# Reroute pre-filter bounds (read by tools/read_tools.find_reroute_options).
+REROUTE_MAX_OPTIONS: int = int(_SETTINGS.get("reroute", {}).get("max_options", 5))
+REROUTE_MAX_ADDED_DELAY_MINUTES: int = int(
+    _SETTINGS.get("reroute", {}).get("max_added_delay_minutes", 120)
+)
+REROUTE_PROPOSAL_TTL_SECONDS: int = int(
+    _SETTINGS.get("reroute", {}).get("proposal_ttl_seconds", 300)
+)
 
 CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(BASE_DIR / "data" / "chromadb")))

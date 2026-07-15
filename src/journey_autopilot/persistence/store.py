@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -50,6 +51,20 @@ CREATE TABLE IF NOT EXISTS complaints (
     updated_at   TEXT NOT NULL,
     PRIMARY KEY (complaint_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS reroute_proposals (
+    proposal_id       TEXT PRIMARY KEY,
+    user_id           TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    session_id        TEXT NOT NULL,
+    trip_id           TEXT NOT NULL,
+    proposal          TEXT NOT NULL,   -- JSON: finalized options + constraint evidence
+    selected_option_id TEXT,
+    status            TEXT NOT NULL,   -- active | selected | executed | expired | superseded
+    created_at        TEXT NOT NULL,
+    expires_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reroute_proposals_session
+    ON reroute_proposals (user_id, session_id, trip_id, updated_at DESC);
 """
 
 # Empty profile with all fields and sensible defaults. The UI fills this in
@@ -221,6 +236,178 @@ def delete_trip(user_id: str, trip_id: str) -> None:
             "DELETE FROM trips WHERE user_id = ? AND trip_id = ?",
             (user_id, trip_id),
         )
+
+
+# --- Finalized reroute proposals -------------------------------------------------
+
+
+def _proposal_row(row: tuple) -> dict:
+    proposal_id, user_id, session_id, trip_id, blob, selected, status, created, expires, updated = row
+    payload = json.loads(blob)
+    expires_dt = datetime.fromisoformat(expires)
+    expired = expires_dt <= datetime.now(timezone.utc)
+    return {
+        "proposal_id": proposal_id,
+        "user_id": user_id,
+        "session_id": session_id,
+        "trip_id": trip_id,
+        "proposal": payload,
+        "selected_option_id": selected,
+        "status": "expired" if expired and status in ("active", "selected") else status,
+        "created_at": created,
+        "expires_at": expires,
+        "updated_at": updated,
+        "expired": expired,
+    }
+
+
+def save_reroute_proposal(
+    user_id: str,
+    session_id: str,
+    trip_id: str,
+    proposal: dict,
+    *,
+    ttl_seconds: int = 300,
+) -> dict:
+    """Persist one finalized shortlist and supersede the prior active version."""
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
+    expires = (now_dt + timedelta(seconds=max(30, int(ttl_seconds)))).isoformat()
+    proposal_id = f"RP-{secrets.token_hex(8)}"
+    trip_id = str(trip_id or "")
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE reroute_proposals SET status = 'superseded', updated_at = ? "
+            "WHERE user_id = ? AND session_id = ? AND trip_id = ? "
+            "AND status IN ('active', 'selected')",
+            (now, user_id, session_id, trip_id),
+        )
+        conn.execute(
+            "INSERT INTO reroute_proposals "
+            "(proposal_id, user_id, session_id, trip_id, proposal, selected_option_id, "
+            "status, created_at, expires_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                proposal_id,
+                user_id,
+                session_id,
+                trip_id,
+                json.dumps(proposal),
+                None,
+                "active",
+                now,
+                expires,
+                now,
+            ),
+        )
+    return get_reroute_proposal(user_id, proposal_id)  # type: ignore[return-value]
+
+
+def get_reroute_proposal(user_id: str, proposal_id: str) -> dict | None:
+    """Return a proposal owned by the user, including its computed expiry state."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT proposal_id, user_id, session_id, trip_id, proposal, "
+            "selected_option_id, status, created_at, expires_at, updated_at "
+            "FROM reroute_proposals WHERE user_id = ? AND proposal_id = ?",
+            (user_id, proposal_id),
+        ).fetchone()
+        if row is None:
+            return None
+        item = _proposal_row(row)
+        if item["expired"] and row[6] in ("active", "selected"):
+            conn.execute(
+                "UPDATE reroute_proposals SET status = 'expired', updated_at = ? "
+                "WHERE user_id = ? AND proposal_id = ?",
+                (_now(), user_id, proposal_id),
+            )
+    return item
+
+
+def get_active_reroute_proposal(
+    user_id: str, session_id: str, trip_id: str | None = None
+) -> dict | None:
+    """Return the newest unexpired active/selected proposal for this chat."""
+    query = (
+        "SELECT proposal_id FROM reroute_proposals "
+        "WHERE user_id = ? AND session_id = ? AND status IN ('active', 'selected')"
+    )
+    params: list[str] = [user_id, session_id]
+    if trip_id is not None:
+        query += " AND trip_id = ?"
+        params.append(str(trip_id or ""))
+    query += " ORDER BY updated_at DESC"
+    with _connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+    for (proposal_id,) in rows:
+        item = get_reroute_proposal(user_id, proposal_id)
+        if item and not item["expired"] and item["status"] in ("active", "selected"):
+            return item
+    return None
+
+
+def select_reroute_option(
+    user_id: str,
+    session_id: str,
+    proposal_id: str,
+    option_id: str,
+) -> dict:
+    """Select only an eligible option from an owned, active proposal."""
+    item = get_reroute_proposal(user_id, proposal_id)
+    if item is None or item["session_id"] != session_id:
+        return {"error": "Reroute proposal not found for this chat."}
+    if item["expired"] or item["status"] not in ("active", "selected"):
+        return {"error": "That reroute proposal is no longer active. Run a fresh search."}
+    option = next(
+        (
+            candidate
+            for candidate in item["proposal"].get("options") or []
+            if candidate.get("option_id") == option_id
+            and candidate.get("eligible") is not False
+            and candidate.get("selectable") is not False
+        ),
+        None,
+    )
+    if option is None:
+        return {"error": f"Option {option_id} is not selectable in this proposal."}
+    now = _now()
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE reroute_proposals SET selected_option_id = ?, status = 'selected', "
+            "updated_at = ? WHERE user_id = ? AND proposal_id = ?",
+            (option_id, now, user_id, proposal_id),
+        )
+    item["selected_option_id"] = option_id
+    item["selected_option"] = option
+    item["status"] = "selected"
+    item["updated_at"] = now
+    return item
+
+
+def set_reroute_proposal_status(user_id: str, proposal_id: str, status: str) -> None:
+    """Update lifecycle state after an authoritative execution decision."""
+    if status not in ("active", "selected", "executed", "expired", "superseded"):
+        raise ValueError(f"Unsupported reroute proposal status: {status}")
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE reroute_proposals SET status = ?, updated_at = ? "
+            "WHERE user_id = ? AND proposal_id = ?",
+            (status, _now(), user_id, proposal_id),
+        )
+
+
+def claim_reroute_proposal_execution(
+    user_id: str, proposal_id: str, option_id: str
+) -> bool:
+    """Atomically consume a selected, unexpired proposal exactly once."""
+    now = _now()
+    with _connect() as conn:
+        cursor = conn.execute(
+            "UPDATE reroute_proposals SET status = 'executed', updated_at = ? "
+            "WHERE user_id = ? AND proposal_id = ? AND selected_option_id = ? "
+            "AND status IN ('active', 'selected') AND expires_at > ?",
+            (now, user_id, proposal_id, option_id, now),
+        )
+    return cursor.rowcount == 1
 
 
 # --- Complaints (passenger-rights drafts) -----------------------------------------

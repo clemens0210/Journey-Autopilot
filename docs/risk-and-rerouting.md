@@ -53,6 +53,40 @@ Two deterministic checks, used in different places:
   against every appointment; a `hard_constraint` clash makes the option
   non-viable.
 
+## How live reroute options are shortlisted
+
+Live DB journey results are a candidate pool, not UI cards. The deterministic
+pipeline in `tools/read_tools.py`:
+
+1. searches from the next boardable station/time when already en route;
+2. rejects cancellations, already-departed legs, excessive transfers, and
+   transfers below the profile's minimum connection time;
+3. compares arrival with Monitoring's current stay-on-trip ETA and separates
+   slower/constraint-breaking trains as non-selectable fallbacks;
+4. removes time/transfer/cost-dominated routes and preserves a diverse cap
+   (fastest, fewest changes, cheapest);
+5. merges the batched calendar verdicts and remaining profile hard limits in
+   `finalize_reroute_options`.
+
+Only that finalized `options` list is sent to the browser as clickable cards.
+Rejected and fallback routes remain separate; at most one fallback is shown,
+disabled, when there is no selectable plan.
+
+### Selection and execution safety
+
+Every finalized shortlist is persisted as an opaque `proposal_id`, scoped to
+the authenticated user, chat session, and trip. Proposals expire after the TTL
+in `config/settings.yaml` (five minutes by default). A card click selects an
+eligible option inside that proposal; a bare model-generated option id is not
+an execution authority.
+
+Before a write tool executes, it reloads the selected proposal, refreshes an
+exact live train through the DB `refreshToken`, and reapplies departure,
+cancellation, transfer, profile, home-arrival, and hard-calendar constraints.
+Provider tokens never leave the server. The incremental cost contract is
+explicit: `known`, `estimate`, or `unknown`; estimated/unknown cost always
+requires approval and is never converted to zero.
+
 ## When rerouting is triggered
 
 The Orchestrator (see `orchestrator.py`, step 2) always calls Monitoring

@@ -23,7 +23,12 @@ from ..onboarding.complaints import bahncard_type
 logger = logging.getLogger(__name__)
 
 APP_NAME = "journey_autopilot"
-USER_ID = "ui-user"
+
+_OPTION_CHOICE_RE = re.compile(
+    r"^\s*(?:(?:take|choose|select|pick|book|use|go with|let'?s go with)\s+"
+    r"(?:option\s+)?)?([RCBH]\d+)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
 
 # The orchestrator is instructed to lead its summary with "Risk: <LOW|MEDIUM|HIGH>"
 # (see orchestrator.py), but LLMs rephrase — observed variants include
@@ -158,6 +163,36 @@ def _seed_prompt(trip: dict | None, message: str, account: dict | None = None) -
     return f"{context}\n\n{message}"
 
 
+def _proposal_context(proposal: dict) -> str:
+    """Compact authoritative state appended by the application, not the user."""
+    payload = proposal.get("proposal") or {}
+    option_summaries = []
+    for option in payload.get("options") or []:
+        option_summaries.append(
+            f"{option.get('option_id')} (mode={option.get('mode', 'train')}, "
+            f"cost_status={option.get('cost_status', 'unknown')}, "
+            f"added_cost_eur={option.get('added_cost_eur')})"
+        )
+    selected = proposal.get("selected_option_id") or "none"
+    return (
+        "Authoritative application state (not user-provided): active reroute "
+        f"proposal_id={proposal.get('proposal_id')}, expires_at={proposal.get('expires_at')}, "
+        f"selected_option_id={selected}, selectable_options=[{'; '.join(option_summaries)}]. "
+        "Only these finalized options may be executed. The Executor must pass both "
+        "proposal_id and option_id to a booking tool; descriptions and costs are read "
+        "from the proposal, never reconstructed from conversation text."
+    )
+
+
+def _public_option(option: dict) -> dict:
+    """Strip provider/execution internals before returning a card to the browser."""
+    return {
+        key: value
+        for key, value in option.items()
+        if not key.startswith("_provider_") and key != "ranking_score"
+    }
+
+
 def _describe(event: Any) -> list[dict]:
     """Turn one ADK event into compact trace entries for the chat UI.
 
@@ -191,6 +226,9 @@ async def chat_turn(
     trip: dict | None = None,
     account: dict | None = None,
     notify_phone: str | None = None,
+    user_id: str = "ui-user",
+    proposal_id: str | None = None,
+    selected_option_id: str | None = None,
 ) -> dict:
     """Run one chat turn through the orchestrator.
 
@@ -203,6 +241,9 @@ async def chat_turn(
             context for accurate passenger-rights checks.
         notify_phone: The traveler's saved number. When monitoring comes back
             HIGH risk, a proactive WhatsApp disruption alert is sent here.
+        user_id: Authenticated application user owning the ADK session/proposal.
+        proposal_id: Authoritative proposal selected by a structured option card.
+        selected_option_id: Eligible option selected from that proposal.
 
     Returns:
         ``{"session_id", "reply", "trace", "risk_band", "alert"}`` — the (new or
@@ -216,20 +257,22 @@ async def chat_turn(
     runner = _get_runner()
     clear_passenger_rights()  # a stale rights result from a prior turn must not leak in
 
-    # Reset the in-process reroute slot so options from a previous turn are
-    # never shown. The Planner's find_reroute_options tool repopulates it when
-    # it runs; read after the loop. (Base AgentTool runs the sub-agent in its
+    # Reset the request-scoped reroute workspace so options from a previous turn are
+    # never shown. Planner discovery tools repopulate internal candidates and
+    # finalize_reroute_options publishes the selectable list; read after the
+    # loop. (Base AgentTool runs the sub-agent in its
     # own runner, so the tool payload doesn't surface in the event stream —
     # see tools/read_tools.py.)
     try:
         from ..tools import read_tools
-        read_tools.clear_reroute_options()
+        if session_id:
+            read_tools.clear_reroute_options(user_id, session_id)
     except Exception:
         read_tools = None  # type: ignore[assignment]
 
     if not session_id:
         session = await runner.session_service.create_session(
-            app_name=APP_NAME, user_id=USER_ID
+            app_name=APP_NAME, user_id=user_id
         )
         session_id = session.id
         text = _seed_prompt(trip, message, account)
@@ -237,23 +280,58 @@ async def chat_turn(
         # The session already carries the trip context from the first turn.
         text = message
 
+    # Structured card selections are validated against the persisted shortlist
+    # before the model sees them. A conservative exact-text parser keeps manual
+    # "Take option R1" input working without treating incidental mentions as a
+    # selection.
+    from journey_autopilot.persistence import store
+
+    trip_id = str((trip or {}).get("trip_id") or "")
+    active_proposal = store.get_active_reroute_proposal(
+        user_id, session_id, trip_id if trip_id else None
+    )
+    chosen_id = selected_option_id
+    chosen_proposal_id = proposal_id
+    if not chosen_id and active_proposal:
+        match = _OPTION_CHOICE_RE.fullmatch(message)
+        if match:
+            chosen_id = match.group(1).upper()
+            chosen_proposal_id = active_proposal["proposal_id"]
+    if chosen_id or chosen_proposal_id:
+        if not chosen_id or not chosen_proposal_id:
+            raise ValueError("Both proposal_id and selected_option_id are required for a selection.")
+        selected = store.select_reroute_option(
+            user_id, session_id, chosen_proposal_id, chosen_id.upper()
+        )
+        if selected.get("error"):
+            raise ValueError(selected["error"])
+        active_proposal = selected
+    if active_proposal:
+        text = f"{_proposal_context(active_proposal)}\n\n{text}"
+
     new_message = types.Content(role="user", parts=[types.Part(text=text)])
     trace: list[dict] = []
     reply = ""
 
     async def _run_turn() -> str:
         """One pass through the orchestrator; rebuilds the trace from scratch."""
+        from journey_autopilot import request_context
+
         trace.clear()
         result = ""
-        async for event in runner.run_async(
-            user_id=USER_ID, session_id=session_id, new_message=new_message
-        ):
-            if event.is_final_response() and event.content and event.content.parts:
-                result = "".join(
-                    p.text for p in event.content.parts if getattr(p, "text", None)
-                )
-                continue
-            trace.extend(_describe(event))
+        context_tokens = request_context.bind(user_id, session_id)
+        try:
+            async for event in runner.run_async(
+                user_id=user_id, session_id=session_id, new_message=new_message
+            ):
+                if event.is_final_response() and event.content and event.content.parts:
+                    result = "".join(
+                        p.text for p in event.content.parts if getattr(p, "text", None)
+                    )
+                    continue
+                trace.extend(_describe(event))
+        finally:
+            request_context.reset(context_tokens)
         return result
 
     # The LLM backend occasionally emits malformed JSON in a tool call
@@ -311,14 +389,58 @@ async def chat_turn(
         notify_phone or "(none)",
         alert,
     )
-    # Pick up the structured option list the Planner's tool stashed, if any.
+    # Pick up only the finalized structured shortlist. Discovery candidates are
+    # deliberately invisible to the browser so calendar/profile rejections can
+    # never become selectable cards.
     options: list[dict] | None = None
+    fallback_options: list[dict] | None = None
     options_source: str | None = None
+    recommended_option_id: str | None = None
+    rejected_summary: dict | None = None
+    response_proposal_id: str | None = (
+        active_proposal.get("proposal_id") if active_proposal else None
+    )
+    proposal_expires_at: str | None = (
+        active_proposal.get("expires_at") if active_proposal else None
+    )
     if read_tools is not None:
-        stashed = read_tools.last_reroute_options()
-        if stashed and stashed.get("options"):
-            options = stashed["options"]
+        stashed = read_tools.last_reroute_options(user_id, session_id)
+        if stashed and stashed.get("finalized"):
+            from journey_autopilot.config import REROUTE_PROPOSAL_TTL_SECONDS
+
+            proposal = store.save_reroute_proposal(
+                user_id,
+                session_id,
+                trip_id,
+                {
+                    "trip_id": trip_id,
+                    "travel_date": ((trip or {}).get("planned_departure") or "")[:10],
+                    "origin": stashed.get("origin"),
+                    "destination": stashed.get("destination"),
+                    "source": stashed.get("source"),
+                    "options": stashed.get("options") or [],
+                    "fallback_options": stashed.get("fallback_options") or [],
+                    "recommended_option_id": stashed.get("recommended_option_id"),
+                    "calendar_checked": stashed.get("calendar_checked", False),
+                    "calendar_verdicts": stashed.get("calendar_verdicts") or {},
+                    "calendar_result": stashed.get("calendar_result") or {},
+                    "rejected_summary": stashed.get("rejected_summary") or {},
+                },
+                ttl_seconds=REROUTE_PROPOSAL_TTL_SECONDS,
+            )
+            response_proposal_id = proposal["proposal_id"]
+            proposal_expires_at = proposal["expires_at"]
+            options = [
+                _public_option(option) for option in stashed.get("options") or []
+            ] or None
+            fallback_options = [
+                _public_option(option)
+                for option in stashed.get("fallback_options") or []
+            ] or None
             options_source = stashed.get("source")
+            recommended_option_id = stashed.get("recommended_option_id")
+            rejected_summary = stashed.get("rejected_summary") or None
+            read_tools.clear_reroute_options(user_id, session_id)
 
     return {
         "session_id": session_id,
@@ -327,5 +449,10 @@ async def chat_turn(
         "risk_band": risk_band,
         "alert": alert,
         "options": options,
+        "fallback_options": fallback_options,
         "options_source": options_source,
+        "recommended_option_id": recommended_option_id,
+        "rejected_summary": rejected_summary,
+        "proposal_id": response_proposal_id,
+        "proposal_expires_at": proposal_expires_at,
     }

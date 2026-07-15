@@ -982,6 +982,26 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 .option-card.disabled, .option-card:disabled { opacity: .4; cursor: default; }
 .option-card.selected:disabled { opacity: .9; cursor: default; }
 .option-card.disabled:hover { border-color: var(--line); box-shadow: none; }
+.option-fallback-title {
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.option-recommended {
+  color: var(--green-badge-ink);
+  font-size: 9.5px;
+  font-weight: 800;
+}
+.option-violation {
+  display: block;
+  margin-top: 3px;
+  color: var(--coral);
+  font-size: 10px;
+  font-weight: 700;
+}
 
 .option-head { display: flex; align-items: center; gap: 5px; margin-bottom: 1px; }
 .option-badge {
@@ -998,6 +1018,7 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 .option-delay { color: var(--coral); font-weight: 700; }
 .option-remark { display: block; font-size: 10px; color: var(--ink-soft); margin-top: 1px; line-height: 1.3; overflow-wrap: anywhere; }
 .option-price { font-weight: 700; }
+.option-price.unknown { color: var(--warning, #a35a00); }
 
 /* Per-option itinerary: stops with times, trains between them, and the
    connection (transfer) time at every change station. */

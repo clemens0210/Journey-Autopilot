@@ -137,6 +137,8 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
     trip: dict | None = None
+    proposal_id: str | None = None
+    selected_option_id: str | None = None
 
 
 class ComplaintPatchRequest(BaseModel):
@@ -860,7 +862,14 @@ async def chat_endpoint(
     try:
         account = store.get_account(user_id)
         result = await chat.chat_turn(
-            body.session_id, body.message, body.trip, account, notify_phone=notify_phone
+            body.session_id,
+            body.message,
+            body.trip,
+            account,
+            notify_phone=notify_phone,
+            user_id=user_id,
+            proposal_id=body.proposal_id,
+            selected_option_id=body.selected_option_id,
         )
         created = complaints.maybe_create_from_last_rights(user_id, body.trip)
         if created:

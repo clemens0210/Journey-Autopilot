@@ -186,6 +186,11 @@ def resolve(
     if tool_name == "send_whatsapp_to_user":
         return "auto"
 
+    # Unknown incremental cost can never be interpreted as a free booking,
+    # regardless of profile overrides or the aggressive autonomy level.
+    if tool_name in ("book_alternative_connection", "book_hotel") and cost_eur is None:
+        return "ask"
+
     cfg = load_policy_config()
     level = policy_mode or _effective_level(profile, cfg)
 

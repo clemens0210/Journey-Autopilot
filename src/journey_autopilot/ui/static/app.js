@@ -1927,7 +1927,10 @@ function renderChatLog() {
     }
     const trace = m.trace && m.trace.length ? renderTrace(m.trace) : "";
     const cards = m.options && m.options.length ? renderOptionCards(m.options, m.optionsSource, m) : "";
-    return `<div class="bubble assistant"><div class="md">${renderMarkdown(m.text)}</div>${cards}${trace}</div>`;
+    const fallbacks = m.fallbackOptions && m.fallbackOptions.length
+      ? `<div class="option-fallback-title">Outside your current limits</div>${renderOptionCards(m.fallbackOptions, m.optionsSource, m, { fallback: true })}`
+      : "";
+    return `<div class="bubble assistant"><div class="md">${renderMarkdown(m.text)}</div>${cards}${fallbacks}${trace}</div>`;
   });
   if (state.chat.busy) parts.push(`<div class="bubble assistant typing"><i></i><i></i><i></i></div>`);
   log.innerHTML = parts.join("");
@@ -1952,7 +1955,11 @@ function journeyBodyHTML(j) {
   const transfers = j.transfers != null ? `${j.transfers} change${j.transfers === 1 ? "" : "s"}` : "—";
   const delay = j.added_delay_minutes != null ? `<span class="option-delay">+${j.added_delay_minutes} min</span>` : "";
   let cost = "";
-  if (j.added_cost_eur != null) {
+  if (j.cost_status === "unknown") {
+    cost = '<span class="option-price unknown">Added cost unknown</span>';
+  } else if (j.cost_status === "estimate" && j.added_cost_eur != null) {
+    cost = `<span class="option-price">~${Number(j.added_cost_eur).toFixed(2)} € added</span>`;
+  } else if (j.added_cost_eur != null) {
     const addedCost = Number(j.added_cost_eur);
     cost = addedCost === 0
       ? '<span class="option-price">No added cost</span>'
@@ -2003,8 +2010,11 @@ function optionStopsHTML(legs) {
   return `<div class="option-stops">${rows.join("")}</div>`;
 }
 
-function renderOptionCards(options, optionsSource, message) {
+function renderOptionCards(options, optionsSource, message, { fallback = false } = {}) {
   const chosen = message.chosenOption || null;
+  const proposalExpired = message.proposalExpiresAt
+    ? Date.parse(message.proposalExpiresAt) <= Date.now()
+    : false;
   const items = options.map((o) => {
     const id = escapeHtml(o.option_id || "?");
     const mode = o.mode || "train";
@@ -2019,7 +2029,17 @@ function renderOptionCards(options, optionsSource, message) {
       ? `<span class="option-mode-badge option-mode-${meta.cls}">${meta.icon} ${meta.label}</span>`
       : "";
     const picked = chosen === (o.option_id || "");
-    const stateCls = picked ? " selected" : chosen ? " disabled" : "";
+    const selectable = !fallback && !proposalExpired && o.selectable !== false && o.eligible !== false;
+    const stateCls = picked ? " selected" : chosen || !selectable ? " disabled" : "";
+    const recommended = o.recommended
+      ? '<span class="option-recommended">Recommended</span>'
+      : "";
+    const violations = [
+      ...(o.constraint_violations || []),
+      ...(proposalExpired ? ["proposal_expired_refresh_required"] : []),
+    ].map((reason) =>
+      escapeHtml(String(reason).replaceAll("_", " "))
+    ).join(", ");
 
     let body;
     if (mode === "hotel") {
@@ -2056,6 +2076,7 @@ function renderOptionCards(options, optionsSource, message) {
         arrival: o.new_arrival,            // reroute-specific field
         transfers: o.transfers, added_delay_minutes: o.added_delay_minutes,
         added_cost_eur: o.added_cost_eur, price_eur: o.price_eur,
+        cost_status: o.cost_status,
         remarks: o.remarks,
       });
       // Full itinerary (stops, per-leg trains, transfer times) when available.
@@ -2063,9 +2084,10 @@ function renderOptionCards(options, optionsSource, message) {
     }
 
     return `
-      <button type="button" class="option-card${stateCls}" data-option-id="${id}"${chosen ? " disabled" : ""}>
-        <div class="option-head"><span class="option-badge">${id}</span>${modeBadge}${liveBadge}</div>
+      <button type="button" class="option-card${stateCls}" data-option-id="${id}"${chosen || !selectable ? " disabled" : ""}>
+        <div class="option-head"><span class="option-badge">${id}</span>${modeBadge}${recommended}${liveBadge}</div>
         ${body}
+        ${violations ? `<span class="option-violation">Not selectable: ${violations}</span>` : ""}
       </button>`;
   }).join("");
   return `<div class="option-cards" data-chosen="${chosen || ""}">${items}</div>`;
@@ -2077,17 +2099,25 @@ function onOptionCardClick(ev) {
   if (state.chat.busy) return;
   const optionId = card.dataset.optionId;
   if (!optionId) return;
-  // Mark the originating assistant message so its batch greys out on re-render.
+  // Mark the originating assistant message so its batch greys out on re-render,
+  // and carry its server-issued proposal id separately from the visible text.
+  let proposalId = null;
   for (let i = state.chat.messages.length - 1; i >= 0; i--) {
     const m = state.chat.messages[i];
     if (m.options && m.options.some((o) => (o.option_id || "?") === optionId)) {
       m.chosenOption = optionId;
+      proposalId = m.proposalId || null;
       break;
     }
   }
-  const input = $("#chat-text");
-  if (input) input.value = `Take option ${optionId}`;
-  $("#chat-form").requestSubmit();
+  if (!proposalId) {
+    toast("This reroute proposal is no longer active. Please run a fresh search.", 6000);
+    return;
+  }
+  runChatTurn(`Take option ${optionId}`, {
+    display: { role: "user", text: `Take option ${optionId}` },
+    selection: { proposalId, optionId },
+  });
 }
 
 async function onChatSubmit(ev) {
@@ -2102,7 +2132,7 @@ async function onChatSubmit(ev) {
 // One chat turn against the orchestrator. ``display`` overrides the bubble
 // shown for this turn (the auto-monitor turn shows a notice instead of a
 // fake user message); the ``text`` is what the agent actually receives.
-async function runChatTurn(text, { display = null } = {}) {
+async function runChatTurn(text, { display = null, selection = null } = {}) {
   if (state.chat.busy) return;
   state.chat.messages.push(display || { role: "user", text });
   state.chat.busy = true;
@@ -2113,7 +2143,13 @@ async function runChatTurn(text, { display = null } = {}) {
   try {
     const data = await api("/api/chat", {
       method: "POST",
-      body: { session_id: chat.sessionId, message: text, trip: chat.trip },
+      body: {
+        session_id: chat.sessionId,
+        message: text,
+        trip: chat.trip,
+        proposal_id: selection?.proposalId || null,
+        selected_option_id: selection?.optionId || null,
+      },
     });
     if (data.session_id) chat.sessionId = data.session_id;
     if (data.error) {
@@ -2139,7 +2175,12 @@ async function runChatTurn(text, { display = null } = {}) {
         text: data.reply,
         trace: data.trace,
         options: data.options || null,
+        fallbackOptions: data.fallback_options || null,
         optionsSource: data.options_source || null,
+        recommendedOptionId: data.recommended_option_id || null,
+        rejectedSummary: data.rejected_summary || null,
+        proposalId: data.proposal_id || null,
+        proposalExpiresAt: data.proposal_expires_at || null,
       });
       if (data.complaint_created) {
         handleComplaintCreated(data.complaint_created);
