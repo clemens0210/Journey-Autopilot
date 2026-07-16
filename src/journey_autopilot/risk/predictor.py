@@ -11,7 +11,7 @@ list[forecast]``, stays the same either way.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from . import delay_reference
 
@@ -96,14 +96,30 @@ def connection_risks(legs: list[dict]) -> list[str]:
     return warnings
 
 
-def live_connection_risks(legs: list[dict]) -> list[str]:
-    """Transfer warnings based ONLY on the current live delay per leg.
+# A real gap at or below this many minutes is too tight to rely on, even
+# though the train has not left yet.
+_TIGHT_TRANSFER_MINUTES = 5
 
-    Unlike ``connection_risks`` (which folds the historical mean into the
-    check and therefore flags transfers on a perfectly punctual day), this
-    variant warns only when a train is ACTUALLY running late enough to eat the
-    transfer buffer — the right signal for the trip-detail screen, where a
-    speculative "you may miss your connection" reads as a wrong warning.
+
+def _real_time(planned: datetime, leg: dict) -> datetime:
+    """Planned time shifted by that leg's own live delay."""
+    return planned + timedelta(minutes=int(leg.get("current_delay_minutes") or 0))
+
+
+def live_connection_risks(legs: list[dict]) -> list[str]:
+    """Transfer warnings from the REAL gap at each change station.
+
+    Both ends move: the feeder's arrival and the connecting train's departure
+    are each shifted by their OWN live delay. Judging the transfer by the
+    timetable gap and the feeder's delay alone cries wolf whenever a train runs
+    late — a connection that is just as late is still perfectly safe. An 8 min
+    timetable transfer with the feeder +16 and the connection +31 is in reality
+    a comfortable 23 min, not a risk.
+
+    Two cases are reported, because they are not the same thing: the gap has
+    closed entirely (the train is gone — a fact, not a risk), or a delay has
+    eaten it down to a buffer too thin to rely on. A short transfer the
+    timetable always intended is not flagged: nothing went wrong there.
     """
     warnings: list[str] = []
     for prev_leg, leg in zip(legs, legs[1:]):
@@ -111,13 +127,19 @@ def live_connection_risks(legs: list[dict]) -> list[str]:
         next_departure = _planned(leg.get("origin"))
         if prev_arrival is None or next_departure is None:
             continue
-        buffer_minutes = round((next_departure - prev_arrival).total_seconds() / 60)
-        delay = int(prev_leg.get("current_delay_minutes") or 0)
-        if delay > 0 and delay >= buffer_minutes:
-            station = (prev_leg.get("destination") or {}).get("name", "the transfer station")
+        scheduled_minutes = round((next_departure - prev_arrival).total_seconds() / 60)
+        real_minutes = round(
+            (_real_time(next_departure, leg) - _real_time(prev_arrival, prev_leg)).total_seconds() / 60
+        )
+        station = (prev_leg.get("destination") or {}).get("name", "the transfer station")
+        if real_minutes < 0:
             warnings.append(
-                f"{prev_leg.get('train')} is currently {delay} min late — the "
-                f"{leg.get('train')} connection at {station} ({buffer_minutes} min "
-                f"transfer) is at risk."
+                f"{leg.get('train')} leaves {station} {-real_minutes} min before "
+                f"{prev_leg.get('train')} gets in — that connection is missed."
+            )
+        elif real_minutes <= _TIGHT_TRANSFER_MINUTES and real_minutes < scheduled_minutes:
+            warnings.append(
+                f"Only {real_minutes} min left to change to {leg.get('train')} at "
+                f"{station} (timetable: {scheduled_minutes} min) — this is tight."
             )
     return warnings
