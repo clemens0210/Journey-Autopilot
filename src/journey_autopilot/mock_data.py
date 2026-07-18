@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "data" / "fixtures"
@@ -29,8 +29,10 @@ _ACTIVE = os.getenv("JA_FIXTURES", "happy_path")
 # the anchor lands on today + JA_DEMO_OFFSET_DAYS (default 0 = today). This
 # keeps the demo evergreen: the canonical trip is never silently "three weeks
 # in the past", the calendar clash sits on the actual travel day, and the
-# reroute arrivals stay consistent with the live status. Wall-clock TIMES are
-# deliberately left untouched — only the date part moves.
+# reroute arrivals stay consistent with the live status. A second pass
+# (``_anchor_times_to_start``) then shifts the wall-clock TIMES once per
+# process so the demo trip departs JA_DEMO_TRIP_LEAD_MIN minutes before the
+# app was started.
 _DEMO_OFFSET_DAYS = int(os.getenv("JA_DEMO_OFFSET_DAYS", "0"))
 
 # Matches the date part of bare dates AND ISO datetimes. The lookahead accepts
@@ -78,6 +80,85 @@ def _rebase_fixture(fx: dict) -> dict:
     if not delta:
         return fx
     return _shift_dates(fx, delta)
+
+
+# --- Start-relative time anchoring --------------------------------------------
+# The date rebase puts the demo trip on "today", but its wall-clock times were
+# authored for one specific morning (10:02 departure, "now" ≈ 11:32). So the
+# scenario plays correctly at ANY start time, the whole fixture timeline is
+# shifted ONCE per process: the demo trip then departed JA_DEMO_TRIP_LEAD_MIN
+# minutes (default 90) before the app was started — the presenter is always
+# sitting in the delayed train mid-journey, the missed transfer lies just
+# behind, the line reopening and both reroutes just ahead, and the hard
+# meeting ~4.5 h in the future. Every fixture datetime moves by the same
+# delta, so all relative gaps stay exactly as authored. Set
+# JA_DEMO_TRIP_LEAD_MIN=0 to keep the authored wall-clock times.
+
+_DATETIME_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)\b")
+
+
+def _shift_datetimes(node, delta: timedelta):
+    """Recursively shift every ISO datetime in strings/keys by delta.
+
+    Bare dates (no time part) are left alone — day-granular values like the
+    ``user_calendar`` keys are re-derived afterwards from the shifted event
+    times instead.
+    """
+
+    def _shift_str(s: str) -> str:
+        def repl(m: re.Match) -> str:
+            try:
+                dt = datetime.fromisoformat(m[1])
+            except ValueError:
+                return m[0]
+            return (dt + delta).isoformat(timespec="seconds")
+
+        return _DATETIME_RE.sub(repl, s)
+
+    if isinstance(node, str):
+        return _shift_str(node)
+    if isinstance(node, list):
+        return [_shift_datetimes(item, delta) for item in node]
+    if isinstance(node, dict):
+        return {_shift_str(k) if isinstance(k, str) else k: _shift_datetimes(v, delta) for k, v in node.items()}
+    return node
+
+
+def _anchor_times_to_start(fx: dict) -> tuple[dict, timedelta]:
+    """Shift all fixture datetimes so the demo trip departed LEAD minutes ago.
+
+    The target departure is rounded down to a 5-minute grid so the shifted
+    timetable still looks like a timetable. Returns the shifted fixture and
+    the applied delta — ``onboarding/accounts.py`` adds the same delta to its
+    composed times so bookings/calendar stay on the fixture's clock.
+    """
+    try:
+        lead = int(os.getenv("JA_DEMO_TRIP_LEAD_MIN", "90"))
+    except ValueError:
+        lead = 0
+    if lead <= 0:
+        return fx, timedelta(0)
+    try:
+        dep = datetime.fromisoformat(fx.get("demo_trip", {}).get("planned_departure") or "")
+    except ValueError:
+        return fx, timedelta(0)
+    target = datetime.now() - timedelta(minutes=lead)
+    target = target.replace(minute=target.minute - target.minute % 5, second=0, microsecond=0)
+    delta = target - dep
+    if not delta:
+        return fx, delta
+    shifted = _shift_datetimes(fx, delta)
+    # Day-keyed calendar: a shift across midnight can move events to another
+    # date — rebuild the keys from each event's (shifted) start.
+    calendar = shifted.get("user_calendar")
+    if isinstance(calendar, dict):
+        rekeyed: dict = {}
+        for events in calendar.values():
+            for event in events or []:
+                key = (event.get("start") or "")[:10]
+                rekeyed.setdefault(key, []).append(event)
+        shifted["user_calendar"] = rekeyed
+    return shifted, delta
 
 
 def _load_fixtures(name: str) -> dict:
@@ -177,12 +258,21 @@ def lookup_location(table: dict, location: str) -> list:
 
 _FX = _rebase_fixture(_load_fixtures(_ACTIVE))
 
-# --- Demo trip + live ops (Monitoring) ----------------------------------------
-DEMO_TRIP: dict = _FX["demo_trip"]
-
 # The (rebased) demo travel day — single source of truth for everything that
 # must sit on the same day as the demo trip (simulated bookings, calendar).
-DEMO_DAY: date = date.fromisoformat(DEMO_TRIP["planned_departure"][:10])
+# Captured BEFORE the start-relative time shift: accounts.py composes its
+# wall-clock times as "DEMO_DAY at HH:MM plus DEMO_TIME_SHIFT", which equals
+# the fixture arithmetic exactly, even if the shifted departure crosses
+# midnight.
+DEMO_DAY: date = date.fromisoformat(_FX["demo_trip"]["planned_departure"][:10])
+
+# Applied to every fixture datetime so the demo trip departed
+# JA_DEMO_TRIP_LEAD_MIN minutes before this process started (see
+# _anchor_times_to_start). Exported for accounts.py.
+_FX, DEMO_TIME_SHIFT = _anchor_times_to_start(_FX)
+
+# --- Demo trip + live ops (Monitoring) ----------------------------------------
+DEMO_TRIP: dict = _FX["demo_trip"]
 LIVE_TRIP_STATUS: dict = _FX["live_trip_status"]
 NETWORK_DISRUPTIONS: dict = _FX["network_disruptions"]
 

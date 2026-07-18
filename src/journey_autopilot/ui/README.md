@@ -55,6 +55,7 @@ Configuration via environment variables:
 | `ONBOARDING_PORT` | `8000`                           | Port of the web app                    |
 | `DB_API_URL`      | `http://127.0.0.1:3000`          | Endpoint of the `db_service` sidecar   |
 | `JA_DB_PATH`      | `data/journey_autopilot.db`      | SQLite file (covered by `.gitignore`)  |
+| `JA_DEMO_TRIP_LEAD_MIN` | `90`                       | Demo trip departs N min before app start (0 = authored times) |
 
 ---
 
@@ -103,7 +104,7 @@ first message, so the orchestrator monitors it, and (on elevated risk) calls the
 planner for reroutes and checks the calendar. The reply is shown as a chat
 bubble with a collapsible **agent trace** (which agent called which tool).
 
-> Lucas' first trip (Munich → Berlin) is the canonical demo scenario — pinned to
+> Lucas' Munich → Berlin trip (today, two transfers) is the canonical demo scenario — pinned to
 > the same `trip_id`/date as `mock_data.DEMO_TRIP`, so it triggers the full
 > disruption → reroute → calendar story. Requires a configured Uni-GPT backend
 > in `.env` (`UNI_GPT_*`); without it, the chat shows the backend error inline.

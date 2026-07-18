@@ -53,8 +53,8 @@ from litellm import completion
 
 
 PROMPT = (
-    "My ICE 1006 from Munich to Berlin is heavily delayed, and I have an "
-    "important on-site meeting in Berlin at 14:00. Please assess the "
+    "My ICE 528 from Munich to Berlin is heavily delayed, and I have an "
+    "important on-site meeting in Berlin at 16:00. Please assess the "
     "situation, find the best alternative, and tell me what I should do."
 )
 

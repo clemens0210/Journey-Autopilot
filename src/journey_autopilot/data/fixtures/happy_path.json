@@ -2,7 +2,7 @@
   "_meta": {
     "scenario": "happy_path",
     "persona": "Lucas Wild",
-    "description": "Munich -> Berlin with a severe signal-box disruption near Nuremberg; one confirmed on-site meeting (14:00, with participants) as the hard deadline. NO reroute reaches it in time, so the autopilot rebooks the earliest realistic connection (R1, free) and the user can have the confirmed meeting rescheduled and its participants emailed — exercising the policy/veto layer across booking, calendar reschedule, and third-party email.",
+    "description": "Munich -> Berlin (10:02, two transfers: Nuremberg + Erfurt) with a severe signal-box disruption near Nuremberg; one confirmed on-site meeting (16:00, with participants) as the hard deadline. NO reroute reaches it in time, so the autopilot rebooks the earliest realistic connection (R1, free) and the user can have the confirmed meeting rescheduled and its participants emailed — exercising the policy/veto layer across booking, calendar reschedule, and third-party email. A second, already-arrived trip from the previous day (DB-FRA-MUC, +128 min) feeds the passenger-rights/complaints demo.",
     "note": "Route/connection maps are stored as lists of records with explicit origin/destination; mock_data.py rebuilds the (origin, destination) tuple-keyed dicts on load."
   },
   "demo_trip": {
@@ -10,35 +10,55 @@
     "passenger": "Lucas Wild",
     "origin": "Munich Hbf",
     "destination": "Berlin Hbf",
-    "train": "ICE 1006",
-    "planned_departure": "2026-06-19T08:00:00",
-    "planned_arrival": "2026-06-19T12:04:00"
+    "train": "ICE 528",
+    "planned_departure": "2026-06-19T10:02:00",
+    "planned_arrival": "2026-06-19T14:10:00"
   },
   "live_trip_status": {
     "DB-2026-0619-MUC-BLN": {
       "trip_id": "DB-2026-0619-MUC-BLN",
-      "train": "ICE 1006",
-      "current_delay_minutes": 95,
+      "train": "ICE 528",
+      "current_delay_minutes": 55,
       "trend": "increasing",
       "current_position": "held before Nuremberg",
       "incidents": [
         {
           "type": "Signal box malfunction",
-          "location": "Nuremberg area",
-          "impact": "Main line blocked; ICE 1006 severely delayed, onward connections lost"
+          "location": "Nuremberg node",
+          "impact": "ICE 528 held on the approach; the high-speed line towards Erfurt/Berlin is blocked, expected to reopen in roughly 1.5 hours"
         }
       ],
-      "connection_risk": "Will not reach Berlin before mid-afternoon — the 14:00 on-site meeting is no longer reachable",
-      "data_timestamp": "2026-06-19T09:42:00"
+      "connection_risk": "The Nuremberg transfer is lost and no train runs towards Erfurt/Berlin until the line reopens — even the first ICE after reopening arrives too late for the confirmed on-site client meeting in Berlin (check the calendar for the exact start)",
+      "next_boardable_station": "Nuremberg Hbf",
+      "earliest_reroute_departure": "2026-06-19T13:22:00",
+      "estimated_arrival": "2026-06-19T16:25:00",
+      "data_timestamp": "2026-06-19T11:30:00"
+    },
+    "DB-FRA-MUC": {
+      "trip_id": "DB-FRA-MUC",
+      "train": "ICE 521",
+      "current_delay_minutes": 128,
+      "trend": "final",
+      "current_position": "arrived at Munich Hbf",
+      "arrived": true,
+      "incidents": [
+        {
+          "type": "Overhead line damage",
+          "location": "near Würzburg",
+          "impact": "Single-track operation for hours; ICE 521 arrived 128 minutes late"
+        }
+      ],
+      "connection_risk": "Trip concluded — final arrival delay 128 minutes (eligible for passenger-rights compensation).",
+      "data_timestamp": "2026-06-18T22:45:00"
     }
   },
   "network_disruptions": {
     "bavaria": [
       {
-        "line": "ICE line Nuremberg-Erfurt",
+        "line": "Nuremberg node incl. high-speed line Nuremberg-Erfurt",
         "type": "Signal box malfunction",
         "severity": "high",
-        "expected_resolution": "2026-06-19T11:30:00"
+        "expected_resolution": "2026-06-19T13:00:00"
       }
     ],
     "berlin": []
@@ -50,64 +70,50 @@
       "options": [
         {
           "option_id": "R1",
-          "description": "Detour via Leipzig (ICE 1612), then ICE towards Berlin",
-          "departure": "2026-06-19T09:55:00",
-          "new_arrival": "2026-06-19T14:42:00",
-          "transfers": 1,
-          "added_delay_minutes": 158,
+          "description": "Stay on the delayed ICE 528 to Nuremberg, then the first direct ICE to Berlin after the line reopens",
+          "departure": "2026-06-19T13:22:00",
+          "new_arrival": "2026-06-19T16:25:00",
+          "transfers": 0,
+          "added_delay_minutes": 135,
           "added_cost_eur": 0.0,
-          "trains": ["ICE 1612", "ICE 502"],
+          "trains": ["ICE 1006"],
           "legs": [
             {
-              "train": "ICE 1612",
-              "origin": "Munich Hbf",
-              "destination": "Leipzig Hbf",
-              "departure": "2026-06-19T09:55:00",
-              "arrival": "2026-06-19T13:16:00"
-            },
-            {
-              "train": "ICE 502",
-              "origin": "Leipzig Hbf",
+              "train": "ICE 1006",
+              "origin": "Nuremberg Hbf",
               "destination": "Berlin Hbf",
-              "departure": "2026-06-19T13:30:00",
-              "arrival": "2026-06-19T14:42:00"
+              "departure": "2026-06-19T13:22:00",
+              "arrival": "2026-06-19T16:25:00"
             }
           ],
-          "comfort": "Earliest realistic arrival; free rebooking (delay). Misses the 14:00 meeting."
+          "comfort": "Earliest realistic arrival, no further transfers; free rebooking (delay over 60 min). Arrives after the client meeting starts."
         },
         {
           "option_id": "R2",
-          "description": "Via Frankfurt and Kassel-Wilhelmshöhe to Berlin",
-          "departure": "2026-06-19T09:28:00",
-          "new_arrival": "2026-06-19T15:25:00",
-          "transfers": 2,
-          "added_delay_minutes": 201,
+          "description": "Leave Nuremberg earlier via the slower Leipzig route (avoids the blocked line), then ICE to Berlin",
+          "departure": "2026-06-19T12:24:00",
+          "new_arrival": "2026-06-19T16:47:00",
+          "transfers": 1,
+          "added_delay_minutes": 157,
           "added_cost_eur": 59.0,
-          "trains": ["ICE 624", "ICE 26", "ICE 1537"],
+          "trains": ["ICE 1710", "ICE 808"],
           "legs": [
             {
-              "train": "ICE 624",
-              "origin": "Munich Hbf",
-              "destination": "Frankfurt (Main) Hbf",
-              "departure": "2026-06-19T09:28:00",
-              "arrival": "2026-06-19T12:40:00"
+              "train": "ICE 1710",
+              "origin": "Nuremberg Hbf",
+              "destination": "Leipzig Hbf",
+              "departure": "2026-06-19T12:24:00",
+              "arrival": "2026-06-19T15:19:00"
             },
             {
-              "train": "ICE 26",
-              "origin": "Frankfurt (Main) Hbf",
-              "destination": "Kassel-Wilhelmshöhe",
-              "departure": "2026-06-19T12:58:00",
-              "arrival": "2026-06-19T13:45:00"
-            },
-            {
-              "train": "ICE 1537",
-              "origin": "Kassel-Wilhelmshöhe",
+              "train": "ICE 808",
+              "origin": "Leipzig Hbf",
               "destination": "Berlin Hbf",
-              "departure": "2026-06-19T14:00:00",
-              "arrival": "2026-06-19T15:25:00"
+              "departure": "2026-06-19T15:32:00",
+              "arrival": "2026-06-19T16:47:00"
             }
           ],
-          "comfort": "More transfers; +59 EUR fare difference. Misses the 14:00 meeting."
+          "comfort": "Departs earlier but takes the slow route — arrives after R1; +59 EUR fare difference. Also arrives after the client meeting starts."
         }
       ]
     }
@@ -118,7 +124,7 @@
         "id": "evt-berlin-client-2026-06-19",
         "title": "Client meeting Berlin (on-site)",
         "location": "Berlin Mitte",
-        "start": "2026-06-19T14:00:00",
+        "start": "2026-06-19T16:00:00",
         "hard_constraint": true,
         "organizer_name": "Anna Client",
         "organizer_email": "anna.client@example.com",
@@ -126,7 +132,7 @@
           "lucas.wild@example.com"
         ],
         "self_organized": false,
-        "end": "2026-06-19T17:00:00",
+        "end": "2026-06-19T18:00:00",
         "status": "confirmed",
         "participants": [
           "Sara Klein (client) <s.klein@kunde.example>",
@@ -146,6 +152,26 @@
     }
   ],
   "connection_delay_history": [
+    {
+      "origin": "Frankfurt (Main) Hbf",
+      "destination": "Munich Hbf",
+      "stats": {
+        "window": "30-day history (simulated)",
+        "sample_count": 38,
+        "mean_delay_minutes": 21.6,
+        "median_delay_minutes": 14.0,
+        "p90_delay_minutes": 62.0,
+        "max_delay_minutes": 128.0,
+        "on_time_rate_pct": 34,
+        "delayed_over_15_rate_pct": 46,
+        "cancellations": 1,
+        "common_causes": [
+          "Overhead line damage near Würzburg",
+          "Construction works between Würzburg and Nuremberg",
+          "High network utilisation in long-distance traffic"
+        ]
+      }
+    },
     {
       "origin": "Munich Hbf",
       "destination": "Berlin Hbf",
@@ -172,10 +198,10 @@
       "origin": "Munich Hbf",
       "destination": "Berlin Hbf",
       "connection": {
-        "train": "ICE 1006",
-        "planned_departure": "2026-06-19T08:00:00",
-        "planned_arrival": "2026-06-19T12:04:00",
-        "transfers": 0,
+        "train": "ICE 528",
+        "planned_departure": "2026-06-19T10:02:00",
+        "planned_arrival": "2026-06-19T14:10:00",
+        "transfers": 2,
         "realtime_arrival_delay_minutes": null
       }
     }

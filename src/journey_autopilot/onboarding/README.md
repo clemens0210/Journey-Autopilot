@@ -25,13 +25,14 @@ single JSON blob — see `DEFAULT_PROFILE` — and imported trips; standard-libr
 
 ## Demo data note
 
-`accounts.booked_trips()` pins Lucas' first trip (Munich → Berlin) to the
-canonical demo scenario in
-[`journey_autopilot/mock_data.py`](../mock_data.py) — same `trip_id`, route, and
-date (`DEMO_DATE`). That keeps the dashboard's trip chat in sync with the
-monitoring/reroute/calendar fixtures, so it exercises the full disruption story.
-The remaining trips are generated relative to today so the demo always shows
-upcoming bookings.
+`accounts.booked_trips()` gives Lucas three demo trips: yesterday's heavily
+delayed Frankfurt → Munich trip (drives the passenger-rights/complaints demo,
+final delay scripted in the fixture's `live_trip_status`), the canonical
+Munich → Berlin main trip pinned to
+[`journey_autopilot/mock_data.py`](../mock_data.py) — same `trip_id`, route,
+times, and legs (`DEMO_DATE`) so the dashboard's trip chat exercises the full
+disruption/reroute/calendar story — and a filler trip next week. All dates are
+generated relative to today, so the set stays evergreen.
 
 > Why simulated at all? DB offers no official API for account login or ticket
 > import, and Microsoft OAuth / SMS need registered apps. Background in
