@@ -117,11 +117,17 @@ bubble with a collapsible **agent trace** (which agent called which tool).
 | Home station search       | **live**\*    | real DB station data via the `db_service` sidecar, otherwise fallback list |
 | Profile persistence       | **real**      | SQLite (`../persistence/store.py`)                                      |
 | DB account login & import | *simulated*   | `../onboarding/accounts.py` — no official DB API available             |
-| SMS verification          | *simulated*   | no SMS gateway; the code is returned and displayed inline              |
-| Outlook calendar (OAuth)  | *simulated*   | no registered Microsoft app; consent dialog + sample appointments      |
+| SMS verification          | *simulated*   | no SMS gateway; the code is returned and displayed inline (delivered via Twilio WhatsApp when configured) |
+| Outlook calendar (OAuth)  | **live**\*\*  | real MS Entra device-code flow when `MS_ENTRA_CLIENT_ID` is set; simulated consent dialog + sample events otherwise |
 
 \* only if the sidecar is running. A green dot in front of a result marks
 live data; without the sidecar, a static list of major stations is used.
+
+\*\* a cached Microsoft login (from an earlier connect or
+`python scripts/check_outlook.py --login`) is reused silently — the wizard's
+Outlook step then connects instantly without a device-code round trip. For a
+clean wizard run-through (e.g. before a demo), reset the stored profile with
+`python scripts/reset_demo.py` — it keeps the Outlook login cached.
 
 The simulations are deliberately kept behind realistic API contracts. A real
 integration would ideally only need to swap out `../onboarding/accounts.py` and

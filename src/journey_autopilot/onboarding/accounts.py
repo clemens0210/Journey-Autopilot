@@ -278,15 +278,29 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
     the hard constraint that the planner agent checks reroutes against.
     """
     today = today or date.today()
+    d2 = today + timedelta(days=7)
     d3 = today + timedelta(days=12)
 
     if user_id == "u-lucas-wild":
-        # The Berlin meeting sits on the demo date and is the hard constraint the
-        # planner checks the Munich → Berlin reroute against (see mock_data).
-        # Contact fields mirror the real Graph mapper schema
-        # (integrations/outlook/mapper.py) so the notice-email flow works in
-        # demo mode too; the client meeting matches fixtures/happy_path.json.
+        # Chronological: one morning event and the Berlin client meeting on the
+        # demo date (DEMO_DATE rebases to "today"), then two future events.
+        # The Berlin meeting is the hard constraint the planner checks the
+        # Munich → Berlin reroute against (see mock_data) — keep its date/time
+        # in sync with fixtures/happy_path.json. Contact fields mirror the real
+        # Graph mapper schema (integrations/outlook/mapper.py) so the
+        # notice-email flow works in demo mode too.
         return [
+            {
+                "title": "Team sync (Teams call)",
+                "location": "online",
+                "start": _iso(DEMO_DATE, "10:30"),
+                "end": _iso(DEMO_DATE, "11:00"),
+                "hard_constraint": False,
+                "organizer_name": "Lucas Wild",
+                "organizer_email": "lucas.wild@example.com",
+                "attendee_emails": ["team@example.com"],
+                "self_organized": True,
+            },
             {
                 "title": "Client meeting Berlin (on-site)",
                 "location": "Berlin Mitte, Friedrichstraße 100",
@@ -299,10 +313,10 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
                 "self_organized": False,
             },
             {
-                "title": "Team sync (Teams call)",
+                "title": "Quarterly review (Teams call)",
                 "location": "online",
-                "start": _iso(DEMO_DATE, "10:30"),
-                "end": _iso(DEMO_DATE, "11:00"),
+                "start": _iso(d2, "09:30"),
+                "end": _iso(d2, "11:00"),
                 "hard_constraint": False,
                 "organizer_name": "Lucas Wild",
                 "organizer_email": "lucas.wild@example.com",

@@ -33,7 +33,12 @@ _ACTIVE = os.getenv("JA_FIXTURES", "happy_path")
 # deliberately left untouched — only the date part moves.
 _DEMO_OFFSET_DAYS = int(os.getenv("JA_DEMO_OFFSET_DAYS", "0"))
 
-_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+# Matches the date part of bare dates AND ISO datetimes. The lookahead accepts
+# a following "T" explicitly: a plain trailing \b would fail between the day
+# and the "T" (both word characters), silently leaving every datetime in the
+# fixture un-rebased — the demo trip then sits weeks in the past while
+# date-keyed maps (user_calendar) DO shift.
+_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})(?=T|\b)")
 
 
 def _shift_dates(node, delta: timedelta):

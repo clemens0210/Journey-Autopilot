@@ -92,7 +92,9 @@ DEFAULT_PROFILE: dict = {
     "notifications": {
         "phone": None,
         "phone_verified": False,
-        "channels": ["push"],             # push | whatsapp | email
+        # All channels on by default; WhatsApp only actually delivers once a
+        # phone number is confirmed (the chat alert degrades to a hint toast).
+        "channels": ["push", "whatsapp", "email"],
         "quiet_hours": {"from": "22:00", "to": "06:30"},
     },
     "connections": {

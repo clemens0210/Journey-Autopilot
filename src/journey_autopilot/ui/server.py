@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import secrets
 import random
@@ -177,6 +178,18 @@ def db_login(body: LoginRequest) -> dict:
         )
 
     store.upsert_user(account)
+    # Pre-fill (NOT verify) the traveler's phone number from the env — the
+    # wizard's phone step then starts with the presenter's real number typed
+    # in and only the code confirmation remains. Same variable the WhatsApp
+    # demo uses (DEMO_TRAVELER_NUMBER); the .env.example placeholder
+    # ("+49171xxxxxxx") fails the digit check and is ignored.
+    demo_phone = re.sub(r"[^\d+]", "", os.getenv("DEMO_TRAVELER_NUMBER") or "")
+    if re.fullmatch(r"\+?\d{8,15}", demo_phone):
+        existing = store.get_profile(account["user_id"]) or {}
+        if not (existing.get("notifications") or {}).get("phone"):
+            store.update_profile(
+                account["user_id"], {"notifications": {"phone": demo_phone}}
+            )
     imported = accounts.booked_trips(account["user_id"])
     store.save_trips(account["user_id"], imported)
     # Re-importing owns the DB-account bookings ("DB-…" ids): drop imports from
@@ -481,9 +494,12 @@ def _outlook_preview_dates() -> list[str]:
 def outlook_start(authorization: str | None = Header(default=None)) -> dict:
     """Begin the Outlook connection flow.
 
-    If MS_ENTRA_CLIENT_ID is configured, starts the real device-code flow in a
-    background thread and returns the user code + verification URL for the
-    browser to display. The frontend polls ``/api/connect/outlook/status``.
+    If MS_ENTRA_CLIENT_ID is configured, first tries the cached login from an
+    earlier session silently (``{"mode": "cached"}`` — the frontend then polls
+    ``/status`` which completes immediately). Otherwise starts the real
+    device-code flow in a background thread and returns the user code +
+    verification URL for the browser to display; the frontend polls
+    ``/api/connect/outlook/status``.
 
     Without Entra credentials, returns ``{"mode": "simulated"}`` so the UI can
     fall back to the existing simulated consent dialog.
@@ -502,6 +518,28 @@ def outlook_start(authorization: str | None = Header(default=None)) -> dict:
     if not is_outlook_configured():
         return {"mode": "simulated"}
 
+    from journey_autopilot.integrations.outlook.auth import (
+        MAIL_SCOPES,
+        SCOPES,
+        acquire_credential,
+        save_authentication_record,
+    )
+
+    # A cached Microsoft login from an earlier session (a previous onboarding
+    # run or ``python scripts/check_outlook.py --login``) makes the connect
+    # instant: acquire the token silently and hand it straight to the /status
+    # completion path — no device-code round trip through microsoft.com. This
+    # is what lets a live demo pre-authorize Outlook before the wizard starts.
+    try:
+        token = acquire_credential().get_token(*SCOPES)  # silent or raises
+        _OUTLOOK_AUTH[user_id] = {
+            "thread": None, "result": token, "error": None, "device_code": None,
+        }
+        _outlog.info("cached login reused — connected silently, no device flow")
+        return {"mode": "cached"}
+    except Exception as exc:
+        _outlog.info("no usable cached login (%s: %s) — starting device flow", type(exc).__name__, exc)
+
     auth_state: dict = {"thread": None, "result": None, "error": None, "device_code": None}
     _OUTLOOK_AUTH[user_id] = auth_state
 
@@ -512,12 +550,6 @@ def outlook_start(authorization: str | None = Header(default=None)) -> dict:
             "verification_uri": verification_uri,
             "expires_at": expires_on.isoformat() if hasattr(expires_on, "isoformat") else str(expires_on),
         }
-
-    from journey_autopilot.integrations.outlook.auth import (
-        MAIL_SCOPES,
-        SCOPES,
-        save_authentication_record,
-    )
 
     # AADSTS codes that mean the Mail.Send scope could not be consented (app
     # registration lacks the permission / admin consent withheld). Calendar

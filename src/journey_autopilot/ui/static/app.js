@@ -150,6 +150,22 @@ function tripCardHTML(t, { foot, live = false, index = null, deletable = false }
     </div>`;
 }
 
+// Simulated incoming SMS: shows the verification code as a notification
+// inside the phone frame (no need to leave the UI). Tapping it fills the
+// code input. Re-showing restarts the slide-down animation.
+function showSmsBanner(code) {
+  const banner = $("#sms-banner");
+  if (!banner) return;
+  $("#sms-code").textContent = code;
+  banner.hidden = true;
+  void banner.offsetWidth; // restart the drop animation on resend
+  banner.hidden = false;
+}
+function hideSmsBanner() {
+  const banner = $("#sms-banner");
+  if (banner) banner.hidden = true;
+}
+
 let toastTimer = null;
 function toast(msg, ms = 4200) {
   const node = $("#toast");
@@ -177,11 +193,11 @@ function policyOverrideCount(p) {
 
 // Display labels for the internally stored profile values
 const LABELS = {
-  fenster: "Window", gang: "Aisle", egal: "No preference",
-  grossraum: "Open seating", abteil: "Compartment",
+  window: "Window", aisle: "Aisle", any: "No preference",
+  open_plan: "Open seating", compartment: "Compartment",
 };
 const seatLabel = (pref) =>
-  `${LABELS[pref.seat_location]}, ${LABELS[pref.seat_area]}${pref.quiet_zone ? ", quiet zone" : ""}`;
+  `${LABELS[pref.seat_location] || "No preference"}, ${LABELS[pref.seat_area] || "No preference"}${pref.quiet_zone ? ", quiet zone" : ""}`;
 
 const fmtDate = (iso) => new Date(iso).toLocaleDateString("de-DE", {
   day: "2-digit", month: "2-digit", year: "numeric",
@@ -416,7 +432,6 @@ const renderers = {
           <p class="error" id="login-error"></p>
           <button class="btn primary block" type="submit">Sign in &amp; import trips</button>
         </form>
-        <div class="demo-hint">🎓 <b>Demo mode:</b> DB login is simulated (no official DB API). Credentials: <code>lucas.wild@example.com</code> / <code>demo123</code></div>
       </div>
     `));
     setNav({ back: true, next: "Next", nextEnabled: false });
@@ -486,7 +501,6 @@ const renderers = {
             <button class="btn primary block" id="phone-verify" type="button">Confirm</button>
           </div>
           <p class="error" id="phone-error"></p>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> No real SMS is sent — the code is shown as a notification.</div>
         `}
       </div>
     `));
@@ -501,7 +515,7 @@ const renderers = {
         });
         $("#phone-confirm-area").hidden = false;
         $("#phone-code").focus();
-        toast(`📱 SMS to ${data.phone} (demo): your code is ${data.demo_code}`, 10000);
+        showSmsBanner(data.demo_code);
       } catch (err) {
         $("#phone-error").textContent = err.message;
       }
@@ -514,6 +528,7 @@ const renderers = {
           method: "POST", body: { code: $("#phone-code").value },
         });
         state.profile = data.profile;
+        hideSmsBanner();
         toast("✓ Number confirmed");
         renderers.phone(); // re-render the screen with success state
       } catch (err) {
@@ -528,8 +543,8 @@ const renderers = {
     const events = state.outlookEvents.map((e) => `
       <div class="event-row">
         <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
-        <span><span class="event-title">${e.title}</span>
-          <span class="event-loc">${e.location}</span>
+        <span><span class="event-title">${escapeHtml(e.title)}</span>
+          <span class="event-loc">${escapeHtml(e.location)}</span>
           ${e.hard_constraint ? '<span class="event-hard">Hard deadline</span>' : ""}
         </span>
       </div>
@@ -546,7 +561,6 @@ const renderers = {
         ` : `
           <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
           <div id="outlook-device-flow"></div>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
         `}
       </div>
     `));
@@ -582,14 +596,14 @@ const renderers = {
 
         <label class="field" style="margin-top:16px">Seat</label>
         <div class="choices cols-3" data-group="seat_location">
-          <button type="button" class="choice" data-value="fenster"><span class="choice-title">Window</span></button>
-          <button type="button" class="choice" data-value="gang"><span class="choice-title">Aisle</span></button>
-          <button type="button" class="choice" data-value="egal"><span class="choice-title">No preference</span></button>
+          <button type="button" class="choice" data-value="window"><span class="choice-title">Window</span></button>
+          <button type="button" class="choice" data-value="aisle"><span class="choice-title">Aisle</span></button>
+          <button type="button" class="choice" data-value="any"><span class="choice-title">No preference</span></button>
         </div>
         <div class="choices cols-3" style="margin-top:9px" data-group="seat_area">
-          <button type="button" class="choice" data-value="grossraum"><span class="choice-title">Open seating</span></button>
-          <button type="button" class="choice" data-value="abteil"><span class="choice-title">Compartment</span></button>
-          <button type="button" class="choice" data-value="egal"><span class="choice-title">No preference</span></button>
+          <button type="button" class="choice" data-value="open_plan"><span class="choice-title">Open seating</span></button>
+          <button type="button" class="choice" data-value="compartment"><span class="choice-title">Compartment</span></button>
+          <button type="button" class="choice" data-value="any"><span class="choice-title">No preference</span></button>
         </div>
 
         <div class="switch-row" style="margin-top:8px">
@@ -735,8 +749,8 @@ const renderers = {
           <label class="switch"><input type="checkbox" data-channel="push" ${channels.has("push") ? "checked" : ""}><span class="track"></span></label>
         </div>
         <div class="switch-row">
-          <span>WhatsApp / SMS<span class="sub">${n.phone_verified ? `To ${n.phone}` : "Requires a confirmed phone number"}</span></span>
-          <label class="switch"><input type="checkbox" data-channel="whatsapp" ${channels.has("whatsapp") ? "checked" : ""} ${n.phone_verified ? "" : "disabled"}><span class="track"></span></label>
+          <span>WhatsApp / SMS<span class="sub">${n.phone_verified ? `To ${n.phone}` : "Delivered once your phone number is confirmed"}</span></span>
+          <label class="switch"><input type="checkbox" data-channel="whatsapp" ${channels.has("whatsapp") ? "checked" : ""}><span class="track"></span></label>
         </div>
         <div class="switch-row">
           <span>Email<span class="sub">Summaries &amp; receipts</span></span>
@@ -1116,8 +1130,8 @@ const renderers = {
     const events = state.outlookEvents.map((e) => `
       <div class="event-row">
         <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
-        <span><span class="event-title">${e.title}</span>
-          <span class="event-loc">${e.location}</span>
+        <span><span class="event-title">${escapeHtml(e.title)}</span>
+          <span class="event-loc">${escapeHtml(e.location)}</span>
           ${e.hard_constraint ? '<span class="event-hard">Hard deadline</span>' : ""}
         </span>
       </div>
@@ -1148,7 +1162,6 @@ const renderers = {
             <button class="btn primary block" id="phone-verify" type="button">Confirm</button>
           </div>
           <p class="error" id="phone-error"></p>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> No real SMS is sent — the code is shown as a notification.</div>
         `}
       </div>
 
@@ -1162,7 +1175,6 @@ const renderers = {
         ` : `
           <button class="btn primary block" id="outlook-connect" type="button">Sign in with Microsoft</button>
           <div id="outlook-device-flow"></div>
-          <div class="demo-hint">🎓 <b>Demo mode:</b> Without a configured Microsoft Entra app, login is simulated — sample events will be loaded.</div>
         `}
       </div>
     `));
@@ -1189,9 +1201,7 @@ const renderers = {
           });
           $("#phone-confirm-area").hidden = false;
           $("#phone-code").focus();
-          toast(data.delivery?.sent
-            ? `📲 Code sent to ${data.phone} on WhatsApp — code: ${data.demo_code}`
-            : `📱 Demo (Twilio off) — your code is ${data.demo_code}`, 10000);
+          showSmsBanner(data.demo_code);
         } catch (err) {
           $("#phone-error").textContent = err.message;
         }
@@ -1204,6 +1214,7 @@ const renderers = {
             method: "POST", body: { code: $("#phone-code").value },
           });
           state.profile = data.profile;
+          hideSmsBanner();
           toast("✓ Number confirmed");
           renderers.connections();
         } catch (err) {
@@ -2199,6 +2210,13 @@ async function startOutlookConnect() {
 
   try {
     const data = await api("/api/connect/outlook/start", { method: "POST" });
+    if (data.mode === "cached") {
+      // A cached Microsoft login was reused — no device code needed. The
+      // status poll completes immediately with the account + event preview.
+      if (container) container.innerHTML = '<div class="device-waiting"><span class="spinner"></span>Reusing your Microsoft sign-in…</div>';
+      pollOutlookStatus(container);
+      return;
+    }
     if (data.mode === "simulated") {
       // No Entra app configured → fall back to the simulated consent dialog
       if (btn) btn.disabled = false;
@@ -2351,6 +2369,7 @@ async function persistCurrentStep() {
 
 function go(step) {
   state.step = step;
+  hideSmsBanner(); // a pending verification code belongs to the previous screen
   // Chat and trip detail are full-height flex layouts (scrolling body with a
   // pinned header/footer); other screens scroll normally.
   const chatMode = step === "chat" || step === "tripdetail";
@@ -2433,6 +2452,15 @@ $("#btn-skip").addEventListener("click", () => {
   go(STEPS[STEPS.indexOf(state.step) + 1]);
 });
 
+// Tapping the simulated SMS fills the code input — one tap instead of typing.
+$("#sms-banner").addEventListener("click", () => {
+  const input = $("#phone-code");
+  if (input) {
+    input.value = $("#sms-code").textContent;
+    input.focus();
+  }
+});
+
 $("#ms-cancel").addEventListener("click", () => { $("#ms-modal").hidden = true; });
 $("#ms-accept").addEventListener("click", async () => {
   $("#ms-modal").hidden = true;
@@ -2440,7 +2468,7 @@ $("#ms-accept").addEventListener("click", async () => {
     const data = await api("/api/connect/outlook", { method: "POST", body: { consent: true } });
     state.profile = data.profile;
     state.outlookEvents = data.events;
-    toast(`✓ Outlook verbunden — ${data.events.length} Termine erkannt`);
+    toast(`✓ Outlook connected — ${data.events.length} events detected`);
     renderers[state.step]?.();
   } catch (err) {
     toast(`⚠️ ${err.message}`);
