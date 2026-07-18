@@ -21,7 +21,7 @@ const state = {
   complaintId: null, // active detail view
   outlookEvents: [],
   step: "welcome",
-  editReturn: null, // "dashboard" / "profile" = return target after editing
+  editReturn: null, // "profile" = return target after editing
   phone: { sent: false, verifiedThisSession: false },
   chat: null, // { sessionId, trip, messages: [...], busy } when a trip chat is open
   tripDetail: null, // { trip, data, error } when the trip-detail screen is open
@@ -210,6 +210,15 @@ const isUpcomingTrip = (trip, now = new Date()) => {
   const start = tripStartTime(trip);
   return start !== Number.MAX_SAFE_INTEGER && start >= now.getTime();
 };
+// Header badge for the trip detail / chat screens. The green "● live" dot only
+// makes sense while the journey can still change — on a trip that already
+// arrived it claims a live feed that isn't running. Finished trips get a
+// neutral label instead, matching the dashboard card's "Past trip" footer.
+// A trip with unparseable dates is not treated as past, so it keeps "● live".
+const tripLiveBadge = (trip) =>
+  isPastTrip(trip)
+    ? `<span class="chat-live past">Past trip</span>`
+    : `<span class="chat-live">● live</span>`;
 const sortTripsByDate = (trips) =>
   [...(trips || [])].sort((a, b) => tripStartTime(a) - tripStartTime(b));
 
@@ -800,9 +809,10 @@ const renderers = {
   },
 
   // -- Dashboard -------------------------------------------------------------------------
+  // Profile settings live in the Profile tab only — the dashboard used to
+  // duplicate them (preferences, policy, connections, GDPR delete) and both
+  // copies had to be kept in sync.
   dashboard() {
-    const p = state.profile;
-    const pref = p.preferences;
     const now = new Date();
     const sortedTrips = sortTripsByDate(state.trips);
     const nextTrip = sortedTrips.find((t) => isUpcomingTrip(t, now));
@@ -838,36 +848,6 @@ const renderers = {
         <span class="muted">No booking needed — describe a route to check delay risk, reroutes, and calendar deadlines.</span>
       </div>
 
-      <div class="section-title">
-        <h2>Your profile</h2>
-        <div class="section-actions">
-          <button id="edit-prefs" type="button">Edit profile</button>
-        </div>
-      </div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Class / seat</span><span class="v">${pref.travel_class === 1 ? "1st" : "2nd"} class · ${seatLabel(pref)}</span></div>
-        <div class="summary-row"><span class="k">Speed vs. comfort</span><span class="v">${pref.speed_vs_comfort} / 100</span></div>
-        <div class="summary-row"><span class="k">Home station</span><span class="v">${p.home.home_station?.name || "—"}</span></div>
-        <div class="summary-row"><span class="k">Autonomy</span><span class="v">${{ notify_only: "Just notify me", approve_each: "Approve every action", auto_within_limits: "Automatic within limits" }[p.autonomy]}</span></div>
-      </div>
-
-      <div class="section-title"><h2>Automation &amp; veto</h2><button id="edit-policy" type="button">Manage</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">Autonomy level</span><span class="v">${POLICY_LEVEL_LABEL[(p.policy && p.policy.global_autonomy_level) || "balanced"]}</span></div>
-        <div class="summary-row"><span class="k">Pinned action rules</span><span class="v">${policyOverrideCount(p)}</span></div>
-      </div>
-
-      <div class="section-title"><h2>Connections</h2><button id="edit-connections" type="button">Manage</button></div>
-      <div class="card" style="padding: 12px 16px">
-        <div class="summary-row"><span class="k">DB account</span><span class="v">✓ ${state.account.email}</span></div>
-        <div class="summary-row"><span class="k">Phone number</span><span class="v">${p.notifications.phone_verified ? "✓ " + p.notifications.phone : "not confirmed"}</span></div>
-        <div class="summary-row"><span class="k">Outlook</span><span class="v">${p.connections.outlook ? (p.connections.outlook_email ? "✓ " + p.connections.outlook_email : "✓ connected") : "not connected"}</span></div>
-      </div>
-
-      <div class="card">
-        <p class="muted" style="margin-top:0">Your data belongs to you: with one click you can permanently delete your profile, connections, and imported trips (GDPR Art. 17).</p>
-        <button class="btn danger block" id="delete-profile" type="button">Delete profile &amp; data</button>
-      </div>
     `));
     setNav({ back: false, next: "Next" });
     $("#navbar").hidden = true;
@@ -888,19 +868,6 @@ const renderers = {
     $("#general-chat-card")?.addEventListener("click", () => openChat(null));
 
     $("#add-trip").addEventListener("click", () => go("book"));
-    $("#edit-prefs").addEventListener("click", () => { state.editReturn = "dashboard"; go("preferences"); });
-    $("#edit-connections").addEventListener("click", () => { state.editReturn = "dashboard"; go("connections"); });
-    $("#edit-policy").addEventListener("click", () => go("policy"));
-    $("#delete-profile").addEventListener("click", async () => {
-      if (!confirm("Really delete all data? This cannot be undone.")) return;
-      await api("/api/profile", { method: "DELETE" });
-      sessionStorage.removeItem("ja_token");
-      sessionStorage.removeItem(CHAT_STORAGE_KEY);
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], complaints: [], complaintId: null, outlookEvents: [], editReturn: null, chat: null });
-      updateTopbarAccount();
-      toast("All data deleted. See you soon!");
-      go("welcome");
-    });
   },
 
   // -- Profile (reachable via the Profile tab in the bottom tab bar) ---------------
@@ -1437,7 +1404,7 @@ const renderers = {
     } else if (!data) {
       body = `<div class="device-waiting"><span class="spinner"></span>Loading live journey data…</div>`;
     } else {
-      body = journeyHTML(data);
+      body = journeyHTML(data, { past: isPastTrip(trip) });
     }
 
     screen.replaceChildren(el(`
@@ -1447,7 +1414,7 @@ const renderers = {
           <span class="chat-route">${trip.origin} → ${trip.destination}</span>
           <span class="chat-sub">${fmtDate(trip.planned_departure)} · Duration: ${fmtDuration(duration)}</span>
         </div>
-        <span class="chat-live">● live</span>
+        ${tripLiveBadge(trip)}
       </div>
       <div class="jd-body">${body}</div>
       <div class="jd-actions">
@@ -1471,7 +1438,7 @@ const renderers = {
           <span class="chat-route">${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}</span>
           <span class="chat-sub">${escapeHtml(trip.train || "Connection")} · ${escapeHtml(fmtDate(trip.planned_departure))} · ${escapeHtml(fmtTime(trip.planned_departure))}</span>
         </div>
-        <span class="chat-live">● live</span>`
+        ${tripLiveBadge(trip)}`
       : `<div class="chat-trip">
           <span class="chat-route">Ask the autopilot</span>
           <span class="chat-sub">Any trip — no booking needed</span>
@@ -1707,7 +1674,12 @@ function stopHTML(stop, delayMinutes, { arrival = false } = {}) {
 
 // The full itinerary: stops and train legs, each leg with its current ("real")
 // delay next to the expected delay from the risk forecast (historical DB data).
-function journeyHTML(data) {
+// On a trip that already arrived the forecast is dropped entirely: the delay is
+// final and confirmed, so predicting one is meaningless — and the historical
+// band would even contradict the real outcome (e.g. "Expected: +10 min" next to
+// a trip that actually ran 95 min late). Only the facts stay: real delay,
+// incidents, stops.
+function journeyHTML(data, { past = false } = {}) {
   const incidents = (data.incidents || []).map((inc) => `
     <div class="jd-notice"><b>${escapeHtml(inc.type)}</b> (${escapeHtml(inc.location)}): ${escapeHtml(inc.impact)}</div>
   `).join("");
@@ -1718,13 +1690,28 @@ function journeyHTML(data) {
     const expected = fc.expected_delay_minutes ?? 0;
     const legMinutes = minutesBetween(leg.origin.planned, leg.destination.planned);
 
-    // Transfer row between the previous leg's arrival and this departure.
-    const transfer = i === 0 ? "" : `
+    // Transfer row between the previous leg's arrival and this departure —
+    // built from the same delayed times the stop rows show in red, not from
+    // the timetable. The timetable gap claims a comfortable transfer to a
+    // train that already left, and hides that a delay on both legs often
+    // makes the real transfer *longer*, not shorter.
+    let transfer = "";
+    if (i > 0) {
+      const prev = data.legs[i - 1];
+      const transferMin = minutesBetween(
+        shiftedTime(prev.destination.planned, prev.current_delay_minutes || 0),
+        shiftedTime(leg.origin.planned, delay),
+      );
+      const missed = transferMin < 0;
+      transfer = `
       <div class="jd-transfer">
-        <div class="jd-legdur">${fmtDuration(minutesBetween(data.legs[i - 1].destination.planned, leg.origin.planned))}</div>
+        <div class="jd-legdur">${missed ? "" : fmtDuration(transferMin)}</div>
         <div class="jd-line dotted"></div>
-        <div class="jd-transfer-label">↷ Transfer</div>
+        <div class="jd-transfer-label${missed ? " missed" : ""}">${missed
+          ? `↷ Connection missed by ${-transferMin} min`
+          : "↷ Transfer"}</div>
       </div>`;
+    }
 
     return `
       ${transfer}
@@ -1737,9 +1724,9 @@ function journeyHTML(data) {
           <div class="jd-dir">to ${escapeHtml(leg.direction)}</div>
           <div class="jd-delays">
             <span class="jd-chip real ${delay > 0 ? "late" : "ok"}">${delay > 0 ? `+${delay} min delay` : "On time"}</span>
-            <span class="jd-chip expected ${fc.level || "low"}">Expected: ${expected > 0 ? `+${expected} min` : "on time"}</span>
+            ${past ? "" : `<span class="jd-chip expected ${fc.level || "low"}">Expected: ${expected > 0 ? `+${expected} min` : "on time"}</span>`}
           </div>
-          ${fc.factors && fc.factors.length ? `<div class="jd-forecast-note">Autopilot forecast (${Math.round((fc.confidence || 0) * 100)}% confidence): ${escapeHtml(fc.factors[0])}</div>` : ""}
+          ${!past && fc.factors && fc.factors.length ? `<div class="jd-forecast-note">Autopilot forecast (${Math.round((fc.confidence || 0) * 100)}% confidence): ${escapeHtml(fc.factors[0])}</div>` : ""}
         </div>
       </div>
       ${stopHTML(leg.destination, delay, { arrival: true })}`;
@@ -1747,9 +1734,9 @@ function journeyHTML(data) {
 
   return `
     ${incidents}
-    ${data.connection_risk ? `<div class="jd-notice">${escapeHtml(data.connection_risk)}</div>` : ""}
+    ${!past && data.connection_risk ? `<div class="jd-notice">${escapeHtml(data.connection_risk)}</div>` : ""}
     <div class="jd-timeline">${parts}</div>
-    <p class="muted" style="margin-top:14px">Expected delay is the autopilot's risk forecast, based on historical DB punctuality data for this route — not a live prediction.</p>`;
+    ${past ? "" : `<p class="muted" style="margin-top:14px">Expected delay is the autopilot's risk forecast, based on historical DB punctuality data for this route — not a live prediction.</p>`}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2494,4 +2481,19 @@ async function boot() {
   go("welcome");
 }
 
+// Live status-bar clock — replaces the static "9:41" iOS mock time with the
+// real current time (24h, no leading zero on the hour, like the iOS original).
+// Ticks every 15s so it never lags behind by more than that.
+function startStatusClock() {
+  const el = document.getElementById("sb-time");
+  if (!el) return;
+  const tick = () => {
+    const now = new Date();
+    el.textContent = `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`;
+  };
+  tick();
+  setInterval(tick, 15000);
+}
+
+startStatusClock();
 boot();

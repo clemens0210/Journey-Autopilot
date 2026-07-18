@@ -739,6 +739,8 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 .chat-route { font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-sub { font-size: 11.5px; color: var(--ink-soft); }
 .chat-live { margin-left: auto; flex-shrink: 0; font-size: 11px; font-weight: 800; color: var(--green-badge-ink); }
+/* Finished trip: no live feed to signal, so drop the green and stay neutral. */
+.chat-live.past { color: var(--ink-soft); }
 
 .chat-log {
   flex: 1;
@@ -939,6 +941,8 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 }
 .jd-dir { font-size: 12.5px; color: var(--ink-soft); margin-top: 5px; }
 .jd-transfer-label { font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+/* The connecting train is already gone — not a soft hint. */
+.jd-transfer-label.missed { color: var(--coral); }
 
 /* Delay chips: the live ("real") delay next to the forecast expected delay */
 .jd-delays { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
