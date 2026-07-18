@@ -16,6 +16,7 @@ The ReAct/agent code stays untouched by the concrete model — it only uses the
 
 from __future__ import annotations
 from pathlib import Path
+from typing import Any
 
 import logging
 import os
@@ -37,6 +38,12 @@ _UNI_BASE_URL = os.getenv("UNI_GPT_BASE_URL")
 _UNI_API_KEY = os.getenv("UNI_GPT_API_KEY")
 
 _BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
+# Cross-region inference profile (note the `us.` prefix): the plain
+# foundation-model ID is not invokable with on-demand throughput. Use the
+# prefix matching AWS_REGION (`us.` / `eu.` / `apac.`).
+_BEDROCK_HAIKU_MODEL = os.getenv(
+    "BEDROCK_HAIKU_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+)
 _BEDROCK_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -45,12 +52,15 @@ _SETTINGS_PATH = Path(
 )
 
 
-def _uni_model() -> LiteLlm:
+def _uni_model(**params: Any) -> LiteLlm:
     """Fresh LiteLlm instance for the Uni-GPT endpoint (one per agent).
 
     The provider prefix ``openai/`` tells LiteLLM: "talk to this endpoint via
-    the OpenAI chat protocol". ``api_base``/``api_key`` come from .env.
+    the OpenAI chat protocol". ``api_base``/``api_key`` come from .env. Per-role
+    ``model_params`` tuning is Bedrock-oriented and ignored here.
     """
+    if params:
+        logger.debug("Ignoring model_params %s for the Uni-GPT endpoint.", sorted(params))
     return LiteLlm(
         model=f"openai/{_UNI_MODEL}",
         api_base=_UNI_BASE_URL,
@@ -58,21 +68,40 @@ def _uni_model() -> LiteLlm:
     )
 
 
-def _bedrock_claude_model() -> LiteLlm:
-    """Fresh LiteLlm instance for Claude on AWS Bedrock.
+def _bedrock_model(model_id: str, **params: Any) -> LiteLlm:
+    """Fresh LiteLlm instance for a Claude model on AWS Bedrock.
 
     Auth uses the ``AWS_BEARER_TOKEN_BEDROCK`` env var (read by LiteLLM
     automatically). Region comes from ``AWS_REGION`` (default: us-east-1).
+    ``params`` are per-role tuning kwargs from settings.yaml's ``model_params``
+    (e.g. ``reasoning_effort``, ``temperature``); ``drop_params`` lets LiteLLM
+    silently ignore any a given Claude model doesn't support instead of erroring.
     """
     return LiteLlm(
-        model=f"bedrock/{_BEDROCK_MODEL}",
+        model=f"bedrock/{model_id}",
         aws_region_name=_BEDROCK_REGION,
+        drop_params=True,
+        **params,
     )
+
+
+def _bedrock_claude_model(**params: Any) -> LiteLlm:
+    """Claude Sonnet 4.6 on Bedrock — the stronger tier for demanding roles."""
+    return _bedrock_model(_BEDROCK_MODEL, **params)
+
+
+def _bedrock_haiku_model(**params: Any) -> LiteLlm:
+    """Claude Haiku 4.5 on Bedrock — the fast/cheap tier (e.g. the monitoring loop)."""
+    return _bedrock_model(_BEDROCK_HAIKU_MODEL, **params)
 
 
 # Model alias -> builder. Add an entry here (plus the alias in settings.yaml)
 # to introduce a new endpoint; agents stay untouched.
-_MODEL_BUILDERS = {"uni_gpt": _uni_model, "bedrock_claude": _bedrock_claude_model}
+_MODEL_BUILDERS = {
+    "uni_gpt": _uni_model,
+    "bedrock_claude": _bedrock_claude_model,
+    "bedrock_haiku": _bedrock_haiku_model,
+}
 
 # Defaults mirror config/settings.yaml so the app still runs if the file is
 # missing or PyYAML is unavailable (config.py must import cleanly for ADK
@@ -84,6 +113,7 @@ _DEFAULTS: dict = {
         "planner": "uni_gpt",
         "communicator": "uni_gpt",
     },
+    "model_params": {},
     "thresholds": {"at_risk_band": "MEDIUM"},
     "monitoring": {"poll_interval_seconds": 300},
     "reroute": {"max_options": 6, "max_added_delay_minutes": 120},
@@ -116,13 +146,20 @@ _SETTINGS = _load_settings()
 
 
 def _model_for(role: str) -> LiteLlm:
-    """Build the LiteLlm for a role from its alias in settings.yaml."""
+    """Build the LiteLlm for a role from its alias in settings.yaml.
+
+    Optional per-role tuning under ``model_params:`` (e.g. ``reasoning_effort``,
+    ``temperature``) is forwarded to the builder as LiteLLM completion kwargs.
+    It only affects the Bedrock (Claude) aliases; ``uni_gpt`` ignores it.
+    """
     alias = _SETTINGS.get("models", {}).get(role) or _DEFAULTS["models"][role]
     builder = _MODEL_BUILDERS.get(alias)
     if builder is None:
         logger.warning("Unknown model alias %r for role %r; using uni_gpt.", alias, role)
         builder = _MODEL_BUILDERS["uni_gpt"]
-    return builder()
+    # `model_params` may be absent or an all-comments YAML block (parses to None).
+    params = (_SETTINGS.get("model_params") or {}).get(role) or {}
+    return builder(**params)
 
 
 # Per-role models, resolved from config/settings.yaml. (No RISK_MODEL: risk

@@ -6,18 +6,37 @@
 # resolved in config.py's _MODEL_BUILDERS. Available aliases:
 #   uni_gpt        — University of Cologne GPT (OpenAI-compatible via LiteLLM)
 #                    env: UNI_GPT_MODEL, UNI_GPT_BASE_URL, UNI_GPT_API_KEY
-#   bedrock_claude — Claude Sonnet 4.6 on AWS Bedrock via LiteLLM
+#   bedrock_claude — Claude Sonnet 4.6 on AWS Bedrock via LiteLLM (stronger tier)
 #                    env: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (IAM user with AmazonBedrockFullAccess)
 #                         AWS_REGION (default: us-east-1), BEDROCK_MODEL (default: us.anthropic.claude-sonnet-4-6)
+#   bedrock_haiku  — Claude Haiku 4.5 on AWS Bedrock via LiteLLM (fast/cheap tier)
+#                    env: same AWS auth as bedrock_claude
+#                         BEDROCK_HAIKU_MODEL (default: us.anthropic.claude-haiku-4-5-20251001-v1:0)
 # If this file or PyYAML is missing, config.py falls back to these same defaults.
 
 models:
   # All roles share the Uni-GPT endpoint by default; switch individual roles to
-  # bedrock_claude for higher capacity (e.g. planner: bedrock_claude).
+  # bedrock_claude (Sonnet 4.6, stronger) for higher capacity, or bedrock_haiku
+  # (Haiku 4.5, faster/cheaper) for high-frequency roles
+  # — e.g. planner: bedrock_claude, monitoring: bedrock_haiku.
   orchestrator: uni_gpt
-  monitoring:   uni_gpt    # runs frequently/in a loop -> prefer the cheap tier
-  planner:      uni_gpt   # most demanding reasoning -> prefer the stronger tier
+  monitoring:   uni_gpt  # runs frequently/in a loop -> prefer the cheap tier
+  planner:      uni_gpt  # most demanding reasoning -> prefer the stronger tier
   communicator: uni_gpt
+
+model_params:
+  # Optional per-role tuning, forwarded to the model as LiteLLM completion
+  # kwargs. Only affects the Bedrock (Claude) aliases above — uni_gpt ignores it.
+  # Omitting a role (the default) means NO extended thinking -> fastest/cheapest.
+  # Supported knobs (Claude on Bedrock):
+  #   reasoning_effort: low | medium | high   # enables thinking (maps to a token budget)
+  #   temperature: 0.0 - 1.0
+  # Unsupported knobs are dropped rather than erroring (drop_params=True).
+  #
+  # Example — give the demanding planner some reasoning headroom, at the cost of
+  # extra latency/tokens (leave it out to keep the planner fast):
+  # planner:
+  #   reasoning_effort: medium
 
 thresholds:
   # Monitoring flips at_risk when the risk band reaches this level.
