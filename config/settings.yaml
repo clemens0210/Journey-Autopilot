@@ -19,10 +19,10 @@ models:
   # bedrock_claude (Sonnet 4.6, stronger) for higher capacity, or bedrock_haiku
   # (Haiku 4.5, faster/cheaper) for high-frequency roles
   # — e.g. planner: bedrock_claude, monitoring: bedrock_haiku.
-  orchestrator: bedrock_haiku
-  monitoring:   bedrock_haiku   # runs frequently/in a loop -> prefer the cheap tier
-  planner:      bedrock_haiku   # most demanding reasoning -> prefer the stronger tier
-  communicator: bedrock_claude
+  orchestrator: uni_gpt
+  monitoring:   uni_gpt  # runs frequently/in a loop -> prefer the cheap tier
+  planner:      uni_gpt  # most demanding reasoning -> prefer the stronger tier
+  communicator: uni_gpt
 
 model_params:
   # Optional per-role tuning, forwarded to the model as LiteLLM completion
