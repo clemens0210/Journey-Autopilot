@@ -2,7 +2,7 @@
   "_meta": {
     "scenario": "happy_path",
     "persona": "Lucas Wild",
-    "description": "Munich -> Berlin (10:02, two transfers: Nuremberg + Erfurt) with a severe signal-box disruption near Nuremberg; one confirmed on-site meeting (16:00, with participants) as the hard deadline. NO reroute reaches it in time, so the autopilot rebooks the earliest realistic connection (R1, free) and the user can have the confirmed meeting rescheduled and its participants emailed — exercising the policy/veto layer across booking, calendar reschedule, and third-party email. A second, already-arrived trip from the previous day (DB-FRA-MUC, +128 min) feeds the passenger-rights/complaints demo.",
+    "description": "Munich -> Berlin (two transfers: Nuremberg + Erfurt); a signal-box malfunction delays the first leg ~55 min, killing the Nuremberg connection. The confirmed on-site meeting (with participants) starts 35 min after the planned arrival, and with Nuremberg -> Berlin taking ~3h no reroute — live or mock — can reach it, so the autopilot rebooks the earliest connection (R1, free) and the user can have the meeting rescheduled and its participants emailed. Times are start-relative (see mock_data._anchor_times_to_start); prose must stay clock-free. A second, already-arrived trip from the previous day (DB-FRA-MUC, +128 min) feeds the passenger-rights/complaints demo.",
     "note": "Route/connection maps are stored as lists of records with explicit origin/destination; mock_data.py rebuilds the (origin, destination) tuple-keyed dicts on load."
   },
   "demo_trip": {
@@ -24,14 +24,14 @@
       "incidents": [
         {
           "type": "Signal box malfunction",
-          "location": "Nuremberg node",
-          "impact": "ICE 528 held on the approach; the high-speed line towards Erfurt/Berlin is blocked, expected to reopen in roughly 1.5 hours"
+          "location": "Nuremberg area",
+          "impact": "ICE 528 held on the approach to Nuremberg — about 55 minutes late and rising; the booked onward connection in Nuremberg will be missed"
         }
       ],
-      "connection_risk": "The Nuremberg transfer is lost and no train runs towards Erfurt/Berlin until the line reopens — even the first ICE after reopening arrives too late for the confirmed on-site client meeting in Berlin (check the calendar for the exact start)",
+      "connection_risk": "The booked Nuremberg connection cannot be reached — without rebooking, the arrival slips roughly two hours behind schedule and past the confirmed on-site client meeting in Berlin (check the calendar for the exact start). Rebooking from Nuremberg Hbf is required",
       "next_boardable_station": "Nuremberg Hbf",
-      "earliest_reroute_departure": "2026-06-19T13:22:00",
-      "estimated_arrival": "2026-06-19T16:25:00",
+      "earliest_reroute_departure": "2026-06-19T12:05:00",
+      "estimated_arrival": "2026-06-19T16:10:00",
       "data_timestamp": "2026-06-19T11:30:00"
     },
     "DB-FRA-MUC": {
@@ -55,10 +55,10 @@
   "network_disruptions": {
     "bavaria": [
       {
-        "line": "Nuremberg node incl. high-speed line Nuremberg-Erfurt",
+        "line": "Nuremberg node",
         "type": "Signal box malfunction",
-        "severity": "high",
-        "expected_resolution": "2026-06-19T13:00:00"
+        "severity": "medium",
+        "expected_resolution": "2026-06-19T12:45:00"
       }
     ],
     "berlin": []
@@ -70,50 +70,50 @@
       "options": [
         {
           "option_id": "R1",
-          "description": "Stay on the delayed ICE 528 to Nuremberg, then the first direct ICE to Berlin after the line reopens",
-          "departure": "2026-06-19T13:22:00",
-          "new_arrival": "2026-06-19T16:25:00",
+          "description": "Stay on the delayed ICE 528 to Nuremberg, then the next direct ICE to Berlin",
+          "departure": "2026-06-19T12:31:00",
+          "new_arrival": "2026-06-19T15:36:00",
           "transfers": 0,
-          "added_delay_minutes": 135,
+          "added_delay_minutes": 86,
           "added_cost_eur": 0.0,
-          "trains": ["ICE 1006"],
+          "trains": ["ICE 1002"],
           "legs": [
             {
-              "train": "ICE 1006",
+              "train": "ICE 1002",
               "origin": "Nuremberg Hbf",
               "destination": "Berlin Hbf",
-              "departure": "2026-06-19T13:22:00",
-              "arrival": "2026-06-19T16:25:00"
+              "departure": "2026-06-19T12:31:00",
+              "arrival": "2026-06-19T15:36:00"
             }
           ],
-          "comfort": "Earliest realistic arrival, no further transfers; free rebooking (delay over 60 min). Arrives after the client meeting starts."
+          "comfort": "Earliest arrival, no further transfers; free rebooking (delay over 60 min). Arrives after the client meeting starts."
         },
         {
           "option_id": "R2",
-          "description": "Leave Nuremberg earlier via the slower Leipzig route (avoids the blocked line), then ICE to Berlin",
+          "description": "From Nuremberg via Leipzig to Berlin",
           "departure": "2026-06-19T12:24:00",
-          "new_arrival": "2026-06-19T16:47:00",
+          "new_arrival": "2026-06-19T15:57:00",
           "transfers": 1,
-          "added_delay_minutes": 157,
+          "added_delay_minutes": 107,
           "added_cost_eur": 59.0,
-          "trains": ["ICE 1710", "ICE 808"],
+          "trains": ["ICE 1704", "ICE 808"],
           "legs": [
             {
-              "train": "ICE 1710",
+              "train": "ICE 1704",
               "origin": "Nuremberg Hbf",
               "destination": "Leipzig Hbf",
               "departure": "2026-06-19T12:24:00",
-              "arrival": "2026-06-19T15:19:00"
+              "arrival": "2026-06-19T14:29:00"
             },
             {
               "train": "ICE 808",
               "origin": "Leipzig Hbf",
               "destination": "Berlin Hbf",
-              "departure": "2026-06-19T15:32:00",
-              "arrival": "2026-06-19T16:47:00"
+              "departure": "2026-06-19T14:42:00",
+              "arrival": "2026-06-19T15:57:00"
             }
           ],
-          "comfort": "Departs earlier but takes the slow route — arrives after R1; +59 EUR fare difference. Also arrives after the client meeting starts."
+          "comfort": "One transfer via Leipzig; +59 EUR fare difference. Also arrives after the client meeting starts."
         }
       ]
     }
@@ -124,7 +124,7 @@
         "id": "evt-berlin-client-2026-06-19",
         "title": "Client meeting Berlin (on-site)",
         "location": "Berlin Mitte",
-        "start": "2026-06-19T16:00:00",
+        "start": "2026-06-19T14:45:00",
         "hard_constraint": true,
         "organizer_name": "Anna Client",
         "organizer_email": "anna.client@example.com",
@@ -132,7 +132,7 @@
           "lucas.wild@example.com"
         ],
         "self_organized": false,
-        "end": "2026-06-19T18:00:00",
+        "end": "2026-06-19T17:45:00",
         "status": "confirmed",
         "participants": [
           "Sara Klein (client) <s.klein@kunde.example>",

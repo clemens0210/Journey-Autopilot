@@ -125,11 +125,12 @@ def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
                 # Canonical main demo trip — kept in sync with mock_data.DEMO_TRIP
                 # so the dashboard chat triggers the full disruption/reroute flow.
                 # Two transfers (Nuremberg, Erfurt); the scripted +55 min on the
-                # first leg kills the 11:16 Nuremberg connection, and with the
-                # line blocked until ~13:00 the earliest arrival (16:25) misses
-                # the 16:00 Berlin meeting. The explicit legs render the real
-                # itinerary on the trip card and the trip-detail screen
-                # (trip_journey uses them).
+                # first leg kills the Nuremberg connection. The client meeting
+                # starts 35 min after the planned arrival, and Nuremberg→Berlin
+                # takes ~3h — so every reroute (live or mock) misses it and the
+                # reschedule+email flow triggers deterministically. The explicit
+                # legs render the real itinerary on the trip card and the
+                # trip-detail screen (trip_journey uses them).
                 "trip_id": DEMO_TRIP_ID,
                 "order_number": "QX7K2P",
                 "origin": "Munich Hbf",
@@ -344,8 +345,8 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
             {
                 "title": "Client meeting Berlin (on-site)",
                 "location": "Berlin Mitte, Friedrichstraße 100",
-                "start": _iso(DEMO_DATE, "16:00"),
-                "end": _iso(DEMO_DATE, "18:00"),
+                "start": _iso(DEMO_DATE, "14:45"),
+                "end": _iso(DEMO_DATE, "17:45"),
                 "hard_constraint": True,
                 "organizer_name": "Anna Client",
                 "organizer_email": "anna.client@example.com",
