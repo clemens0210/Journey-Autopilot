@@ -274,10 +274,6 @@ def _selected_proposal_option(proposal_id: str, option_id: str) -> tuple[dict, d
     proposal = store.get_reroute_proposal(user_id, proposal_id)
     if proposal is None:
         return _revalidation_error("Reroute proposal not found.", proposal_id=proposal_id)
-    if proposal.get("expired") or proposal.get("status") not in ("active", "selected"):
-        return _revalidation_error(
-            "Reroute proposal expired or is no longer active.", proposal_id=proposal_id
-        )
     if proposal.get("session_id") != session_id:
         return _revalidation_error(
             "Reroute proposal belongs to a different chat session.", proposal_id=proposal_id
@@ -288,6 +284,19 @@ def _selected_proposal_option(proposal_id: str, option_id: str) -> tuple[dict, d
             proposal_id=proposal_id,
             option_id=option_id,
             selected_option_id=proposal.get("selected_option_id"),
+        )
+    # Live shortlists go stale (TTL + supersession by any newer search) and must
+    # be refreshed before use; offline/mock shortlists are reproducible, so the
+    # shown card stays selectable — only a proposal already executed is refused.
+    offline = (proposal.get("proposal") or {}).get("source") != "db_service_live"
+    if offline:
+        if proposal.get("status") == "executed":
+            return _revalidation_error(
+                "Reroute proposal already used.", proposal_id=proposal_id
+            )
+    elif proposal.get("expired") or proposal.get("status") not in ("active", "selected"):
+        return _revalidation_error(
+            "Reroute proposal expired or is no longer active.", proposal_id=proposal_id
         )
     option = next(
         (
@@ -333,10 +342,20 @@ def _profile_constraint_violations(option: dict, profile: dict) -> list[str]:
     return reasons
 
 
-async def _fresh_calendar_violations(option: dict, proposal: dict) -> list[str]:
-    """Recheck hard calendar conflicts immediately before a booking effect."""
+async def _fresh_calendar_clash(option: dict, proposal: dict) -> dict | list[str]:
+    """Recheck the option's arrival against hard-constraint appointments.
+
+    Returns a clash dict (``hard_conflicts``, ``conflicts``) — a hard-constraint
+    clash no longer blocks the booking outright, since the traveler can still
+    take a train that arrives late for one appointment; the caller uses this
+    to require the traveler's explicit confirmation before booking, the same
+    way an unknown fare does. Only a genuine revalidation failure (calendar
+    unreadable right now) still fails closed — returned as a violations list
+    so the caller treats it like any other execution-constraint failure,
+    since a clash can't be safely confirmed as absent without a fresh read.
+    """
     if not calendar_connected() or not option.get("new_arrival"):
-        return []
+        return {"hard_conflicts": 0, "conflicts": []}
     payload = proposal.get("proposal") or {}
     travel_date = payload.get("travel_date") or str(option.get("new_arrival"))[:10]
     calendar = await get_user_calendar(travel_date)
@@ -348,15 +367,25 @@ async def _fresh_calendar_violations(option: dict, proposal: dict) -> list[str]:
         planned_departure=option.get("departure"),
         expected_arrival=option.get("new_arrival"),
     )
-    if classified and classified.get("hard_conflicts", 0) > 0:
-        return ["calendar_hard_conflict"]
-    return []
+    if not classified:
+        return {"hard_conflicts": 0, "conflicts": []}
+    return {
+        "hard_conflicts": classified.get("hard_conflicts", 0),
+        "conflicts": [c for c in classified.get("conflicts", []) if c.get("hard_constraint")],
+    }
 
 
 async def _revalidate_selected_option(
     proposal_id: str, option_id: str
-) -> tuple[dict, dict, dict, dict] | dict:
-    """Refresh live trains and return authoritative execution state."""
+) -> tuple[dict, dict, dict, dict, dict | None] | dict:
+    """Refresh live trains and return authoritative execution state.
+
+    The fifth element of the success tuple is the fresh calendar-clash detail
+    (``{"hard_conflicts": int, "conflicts": [...]}``) or ``None`` when there is
+    nothing to check — callers that book a same-day arrival use it to require
+    the traveler's explicit confirmation before booking into a clash, rather
+    than silently refusing or silently booking through it.
+    """
     loaded = _selected_proposal_option(proposal_id, option_id)
     if isinstance(loaded, dict):
         return loaded
@@ -405,7 +434,10 @@ async def _revalidate_selected_option(
         )
 
     reasons = _profile_constraint_violations(option, profile)
-    reasons.extend(await _fresh_calendar_violations(option, proposal))
+    calendar_clash = await _fresh_calendar_clash(option, proposal)
+    if isinstance(calendar_clash, list):
+        reasons.extend(calendar_clash)
+        calendar_clash = None
     if reasons:
         return _revalidation_error(
             "The selected option no longer satisfies the execution constraints.",
@@ -414,7 +446,7 @@ async def _revalidate_selected_option(
             violations=sorted(set(reasons)),
             evidence=evidence,
         )
-    return proposal, option, profile, evidence
+    return proposal, option, profile, evidence, calendar_clash
 
 
 def _booking_cost(option: dict) -> tuple[str, float | None, float | None, str]:
@@ -492,7 +524,13 @@ async def book_alternative_connection(
     option_id: str,
     user_approved: bool = False,
 ) -> dict:
-    """Book an explicitly selected option from an authoritative proposal.
+    """Record the traveler's choice of an alternative train from an authoritative proposal.
+
+    A train reroute is not a purchase: a DB ticket is valid on any reasonable
+    alternative connection, so a free (added_cost_eur == 0) train option is
+    simply *chosen*, not booked — no cost veto applies. An option that carries
+    a real fare difference (e.g. a different operator/route) still goes
+    through the normal cost veto below, same as before.
 
     Descriptions and prices are loaded from the persisted finalized proposal,
     never accepted from conversation text. Live trains are refreshed and all
@@ -506,7 +544,7 @@ async def book_alternative_connection(
     validated = await _revalidate_selected_option(proposal_id, option_id)
     if isinstance(validated, dict):
         return validated
-    proposal, option, profile, evidence = validated
+    proposal, option, profile, evidence, calendar_clash = validated
     mode = option.get("mode", "train")
     if mode == "hotel":
         return _revalidation_error(
@@ -518,9 +556,28 @@ async def book_alternative_connection(
     description = option.get("description") or " / ".join(option.get("trains") or []) or mode
     cost_status, cost_eur, policy_cost_eur, cost_label = _booking_cost(option)
     name = "book_alternative_connection"
-    summary = f"Book reroute {option_id} ({description}) — additional cost {cost_label}"
-    resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
-    if (cost_status != "known" or resolution == "ask") and not user_approved:
+    is_free_train_reroute = mode == "train" and cost_status == "known" and cost_eur == 0
+    summary = (
+        f"Choose connection {option_id} ({description}) — already covered by your ticket"
+        if is_free_train_reroute
+        else f"Choose connection {option_id} ({description}) — additional cost {cost_label}"
+    )
+    hard_conflicts = calendar_clash.get("hard_conflicts") if calendar_clash else 0
+    if hard_conflicts:
+        titles = ", ".join(
+            c.get("title") or "an appointment" for c in calendar_clash.get("conflicts") or []
+        )
+        summary += f" — arrives after hard-constraint appointment(s): {titles}"
+    # A free train reroute needs no cost/autonomy veto — riding a different train
+    # on the same ticket is not a purchase decision. The calendar-clash veto below
+    # still applies: the traveler must knowingly accept missing a hard-constraint
+    # appointment (the companion reschedule/notify step is a separate action).
+    if is_free_train_reroute:
+        needs_veto = bool(hard_conflicts)
+    else:
+        resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
+        needs_veto = cost_status != "known" or resolution == "ask" or hard_conflicts
+    if needs_veto and not user_approved:
         return _veto(
             name,
             summary,
@@ -530,6 +587,7 @@ async def book_alternative_connection(
             cost_status=cost_status,
             quoted_fare_eur=option.get("price_eur"),
             revalidation=evidence,
+            calendar_clash=calendar_clash,
         )
 
     from journey_autopilot.persistence import store
@@ -552,6 +610,7 @@ async def book_alternative_connection(
         quoted_fare_eur=option.get("price_eur"),
         revalidation=evidence,
         booking_ref=f"SIM-{proposal_id}-{option_id}",
+        calendar_clash=calendar_clash,
     )
 
 
@@ -564,7 +623,7 @@ async def book_hotel(
     validated = await _revalidate_selected_option(proposal_id, option_id)
     if isinstance(validated, dict):
         return validated
-    proposal, option, profile, evidence = validated
+    proposal, option, profile, evidence, _calendar_clash = validated
     if option.get("mode") != "hotel":
         return _revalidation_error(
             "The selected option is not a hotel.",

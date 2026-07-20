@@ -570,7 +570,14 @@ def get_live_trip_status(trip_id: str) -> dict:
                 for leg, forecast in zip(risk_legs, forecasts):
                     leg["forecast"] = forecast
                 connection_warnings = risk.connection_risks(risk_legs)
-                risk_level = _overall_level(forecasts)
+                # A definitively missed transfer breaks the itinerary: there is
+                # no "stay aboard" arrival anymore, so the journey's reported
+                # arrival (which assumes every transfer is still made) must not
+                # be handed on as an ETA — downstream it would become the
+                # baseline that rejects every real reroute as slower.
+                missed_transfers = risk.missed_connections(risk_legs)
+                itinerary_broken = bool(missed_transfers)
+                risk_level = "HIGH" if itinerary_broken else _overall_level(forecasts)
 
                 incidents = [
                     {"type": text, "location": trip.get("destination"), "impact": "DB live remark"}
@@ -598,7 +605,7 @@ def get_live_trip_status(trip_id: str) -> dict:
                     "next_boardable_station": _next_boardable_station(option),
                     "earliest_reroute_departure": _earliest_reroute_departure(option),
                     "incidents": incidents,
-                    "connection_risk": " ".join(connection_warnings) or (
+                    "connection_risk": " ".join(missed_transfers + connection_warnings) or (
                         "Arrival delay may affect onward plans."
                         if delay_int >= 15
                         else "No elevated connection risk visible from DB live data."
@@ -608,7 +615,11 @@ def get_live_trip_status(trip_id: str) -> dict:
                     "legs": risk_legs,
                     "planned_departure": option.get("planned_departure") or trip.get("planned_departure"),
                     "planned_arrival": option.get("planned_arrival") or trip.get("planned_arrival"),
-                    "estimated_arrival": option.get("arrival") or option.get("planned_arrival"),
+                    "itinerary_broken": itinerary_broken,
+                    "estimated_arrival": (
+                        None if itinerary_broken
+                        else option.get("arrival") or option.get("planned_arrival")
+                    ),
                     # Only the *estimated* arrival confirms the trip is over; a
                     # scheduled planned_arrival passing while a train is delayed
                     # must NOT read as "arrived" (would draft a premature claim).
@@ -632,15 +643,24 @@ def get_live_trip_status(trip_id: str) -> dict:
             result.setdefault("planned_arrival", trip.get("planned_arrival"))
         result.setdefault("next_boardable_station", None)
         result.setdefault("earliest_reroute_departure", None)
+        result.setdefault("itinerary_broken", False)
         delay = result.get("current_delay_minutes") or 0
         result.setdefault(
-            "risk_level", "HIGH" if delay >= 30 else "MEDIUM" if delay >= 10 else "LOW"
+            "risk_level",
+            "HIGH" if result["itinerary_broken"] or delay >= 30
+            else "MEDIUM" if delay >= 10 else "LOW",
         )
-        planned_eta = _parse_datetime(result.get("planned_arrival"))
-        if planned_eta is not None:
-            result.setdefault(
-                "estimated_arrival", (planned_eta + timedelta(minutes=delay)).isoformat()
-            )
+        if result["itinerary_broken"]:
+            # A scripted missed transfer means the booked itinerary cannot be
+            # completed — there is no stay-aboard ETA to synthesize, and a
+            # fixture-supplied one would poison the reroute baseline.
+            result["estimated_arrival"] = None
+        else:
+            planned_eta = _parse_datetime(result.get("planned_arrival"))
+            if planned_eta is not None:
+                result.setdefault(
+                    "estimated_arrival", (planned_eta + timedelta(minutes=delay)).isoformat()
+                )
         if "arrived" not in result:
             # Derive arrival from the delayed ETA (planned arrival + current
             # delay, both German-local wall clock). Once that instant has
@@ -974,9 +994,11 @@ def _prune_reroute_options(
             constraint_reasons.append("transfer_too_short")
 
         # A current ETA is the decision baseline: a reroute that arrives later is
-        # not useful. Without it, fall back to the schedule-relative safety bound —
-        # and if that too is unknown (no original_arrival to compare against),
-        # fall back further to the option's own live-reported delay so an option
+        # not useful. Callers omit current_arrival when the itinerary is broken
+        # (missed transfer) — every option is then judged on its own merits.
+        # Without it, fall back to the schedule-relative safety bound — and if
+        # that too is unknown (no original_arrival to compare against), fall
+        # back further to the option's own live-reported delay so an option
         # with no delay information at all is never silently treated as safe.
         saved = option.get("minutes_saved_vs_current_plan")
         if current_arrival and saved is not None:
@@ -1048,7 +1070,11 @@ def find_reroute_options(
             schedule-relative arrival delta.
         current_arrival: Current estimated arrival if the traveler stays on the
             disrupted itinerary. Options arriving later become non-selectable
-            fallbacks; options arriving earlier expose minutes saved.
+            fallbacks; options arriving earlier expose minutes saved. Leave
+            EMPTY when the itinerary is broken (a transfer already missed,
+            ``itinerary_broken`` on the live status): staying aboard has no
+            arrival time then, and a phantom baseline would demote every real
+            alternative as "slower than doing nothing".
         max_results: Candidate-pool size before deterministic pruning (1..12).
 
     Returns:
@@ -1057,6 +1083,17 @@ def find_reroute_options(
         (train, change stations, departure/arrival times — cite the change
         stations and transfer times when presenting an option), and ``source``.
     """
+    # Scripted reroutes win over the live sidecar — same rationale as
+    # get_live_trip_status: a demo route carries curated fixture options (the
+    # happy-path R1 free / R2 via Leipzig) that tell one deterministic story.
+    # A live search from the same station would return real, ever-changing
+    # trains and silently break the canonical demo. Routes the fixture does NOT
+    # curate return nothing here and fall through to the live-first path below,
+    # so self-booked / non-demo trips stay live exactly as before.
+    curated = mock_data.lookup_route(mock_data.REROUTE_OPTIONS, origin, destination)
+    if curated:
+        return _mock_reroute_result(origin, destination, curated)
+
     try:
         preferences = _profile_reroute_preferences()
         max_results = max(1, min(int(max_results), 12))
@@ -1196,33 +1233,7 @@ def find_reroute_options(
 
     options = mock_data.lookup_route(mock_data.REROUTE_OPTIONS, origin, destination)
     if options:
-        mock_options = [
-            {
-                **option,
-                "mode": option.get("mode", "train"),
-                "origin": origin,
-                "destination": destination,
-                "eligible": True,
-                "selectable": True,
-                "source": "mock_reroute_options",
-            }
-            for option in options
-        ]
-        for option in mock_options:
-            _apply_cost_contract(option)
-        _stash_options(
-            mock_options,
-            family="train",
-            origin=origin,
-            destination=destination,
-            source="mock_reroute_options",
-        )
-        return {
-            "origin": origin,
-            "destination": destination,
-            "options": mock_options,
-            "source": "mock_reroute_options",
-        }
+        return _mock_reroute_result(origin, destination, options)
     _stash_options([], family="train", origin=origin, destination=destination, source="none")
     return {
         "origin": origin,
@@ -1231,6 +1242,44 @@ def find_reroute_options(
         "fallback_options": [],
         "source": "none",
         "error": "No reroute options available for this route.",
+    }
+
+
+def _mock_reroute_result(origin: str, destination: str, options: list[dict]) -> dict:
+    """Build the reroute payload from curated fixture options (scripted / offline).
+
+    Used both when a route has scripted options (scripted-wins, sidecar up) and
+    as the fallback when the live sidecar is unreachable. The curated options
+    already carry authored arrival/delay/cost fields, so no pruning or
+    schedule-relative recomputation is applied — the fixture is the source of
+    truth for these routes.
+    """
+    mock_options = [
+        {
+            **option,
+            "mode": option.get("mode", "train"),
+            "origin": origin,
+            "destination": destination,
+            "eligible": True,
+            "selectable": True,
+            "source": "mock_reroute_options",
+        }
+        for option in options
+    ]
+    for option in mock_options:
+        _apply_cost_contract(option)
+    _stash_options(
+        mock_options,
+        family="train",
+        origin=origin,
+        destination=destination,
+        source="mock_reroute_options",
+    )
+    return {
+        "origin": origin,
+        "destination": destination,
+        "options": mock_options,
+        "source": "mock_reroute_options",
     }
 
 
@@ -1737,6 +1786,22 @@ def _station_key(value: Any) -> str:
     return " ".join(str(value or "").casefold().split())
 
 
+def _time_after_home_limit(arrival: datetime | None, departure: datetime | None, limit: str) -> bool:
+    """True if `arrival`'s wall-clock time is after "HH:MM" `limit`.
+
+    Also true if `arrival` falls on a later calendar date than `departure`
+    (an overnight arrival is "after" any same-day cutoff regardless of the
+    clock reading). `limit` must already be validated as "HH:MM"; an
+    unparseable `arrival` is treated as "not after" (nothing to compare).
+    """
+    if arrival is None:
+        return False
+    limit_hour, limit_minute = (int(part) for part in limit.split(":"))
+    if departure is not None and arrival.replace(tzinfo=None).date() > departure.replace(tzinfo=None).date():
+        return True
+    return arrival.hour * 60 + arrival.minute > limit_hour * 60 + limit_minute
+
+
 def _arrives_after_home_limit(option: dict, profile: dict) -> bool:
     """Apply latest-arrival-home only when the option actually ends at home."""
     home = profile.get("home") or {}
@@ -1744,14 +1809,11 @@ def _arrives_after_home_limit(option: dict, profile: dict) -> bool:
     if not home_station or _station_key(option.get("destination")) != home_station:
         return False
     limit = str(home.get("latest_arrival_home") or "").strip()
-    arrival = _parse_datetime(option.get("new_arrival"))
-    if arrival is None or not re.fullmatch(r"\d{2}:\d{2}", limit):
+    if not re.fullmatch(r"\d{2}:\d{2}", limit):
         return False
-    limit_hour, limit_minute = (int(part) for part in limit.split(":"))
+    arrival = _parse_datetime(option.get("new_arrival"))
     departure = _parse_datetime(option.get("departure"))
-    if departure is not None and arrival.replace(tzinfo=None).date() > departure.replace(tzinfo=None).date():
-        return True
-    return arrival.hour * 60 + arrival.minute > limit_hour * 60 + limit_minute
+    return _time_after_home_limit(arrival, departure, limit)
 
 
 def _mode_eligibility_violations(
@@ -1860,9 +1922,19 @@ def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
     """Finalize the selectable reroute cards after all discovery/calendar calls.
 
     This is the only tool allowed to populate the UI-facing ``options`` list.
-    It reapplies profile hard limits, merges calendar verdicts, ranks by the
-    speed-vs-comfort preference, preserves fastest/simple/cheap alternatives,
-    and keeps constraint-breaking fallbacks separate and non-selectable.
+    It reapplies profile hard limits, ranks by the speed-vs-comfort preference,
+    preserves fastest/simple/cheap alternatives, and keeps constraint-breaking
+    fallbacks (cancelled, too many transfers, mode disabled, arrives after the
+    traveler's own latest-arrival-home time) separate and non-selectable.
+
+    A hard-constraint CALENDAR clash is treated differently: it does not
+    disqualify an option (the traveler can still take a train that arrives
+    late for one appointment) — merged verdicts instead annotate the option
+    with ``calendar_clash`` so the Planner can recommend rescheduling that
+    appointment and notifying its contact, while still presenting the option
+    as bookable. Hotels are gated purely on whether any reachable option's
+    predicted arrival still beats ``home.latest_arrival_home`` — never on a
+    calendar clash alone.
 
     Args:
         max_options: Maximum number of selectable cards across all modes.
@@ -1916,9 +1988,16 @@ def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
             recompute_transfer_buffer=False,
         )
 
+        # A hard-constraint calendar clash does NOT make the option unbookable —
+        # the traveler can still take it, just late for that appointment. Surface
+        # the clash (so the Planner can recommend rescheduling + notifying
+        # participants) instead of hiding a perfectly reachable option.
         verdict = verdicts.get(option.get("option_id"))
         if verdict and verdict.get("viable") is False:
-            reasons.append("calendar_hard_conflict")
+            option["calendar_clash"] = {
+                "hard_conflicts": verdict.get("hard_conflicts"),
+                "conflicts": verdict.get("conflicts"),
+            }
         if _arrives_after_home_limit(option, profile):
             reasons.append("after_latest_arrival_home")
 
@@ -1932,8 +2011,28 @@ def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
             option.update(eligible=True, selectable=True, constraint_violations=[])
             eligible.append(option)
 
-    # Hotels are last-resort choices, not peers of a same-day train/mobility route.
-    if any(option.get("mode") != "hotel" for option in eligible):
+    # Hotels are a genuine last resort: only worth suggesting when nothing that
+    # actually reaches the destination gets the traveler home before the
+    # profile's latest-arrival-home cutoff — never merely because a reachable
+    # option misses a meeting (see calendar_clash above) or exceeds the
+    # transfer preference (that's already excluded via constraint_violations).
+    limit = str(home.get("latest_arrival_home") or "").strip()
+    non_hotel_options = [option for option in eligible if option.get("mode") != "hotel"]
+    if re.fullmatch(r"\d{2}:\d{2}", limit):
+        known_arrivals = [
+            (_parse_datetime(option.get("new_arrival")), _parse_datetime(option.get("departure")))
+            for option in non_hotel_options
+            if option.get("new_arrival")
+        ]
+        hotel_needed = all(
+            _time_after_home_limit(arrival, departure, limit) for arrival, departure in known_arrivals
+        )
+    else:
+        # No configured cutoff — fall back to the previous rule: any reachable
+        # non-hotel option makes hotels redundant.
+        hotel_needed = not non_hotel_options
+
+    if not hotel_needed:
         omitted_hotels = sum(option.get("mode") == "hotel" for option in eligible)
         eligible = [option for option in eligible if option.get("mode") != "hotel"]
         if omitted_hotels:

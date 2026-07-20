@@ -20,7 +20,7 @@ from datetime import date, datetime, time, timedelta
 # monitoring/reroute/calendar flow as ``scenarios/happy_path.py``. The date
 # comes from the rebased fixture (mock_data shifts the authored anchor day to
 # "today"), so the demo trip, live status, reroutes, and calendar always agree.
-from journey_autopilot.mock_data import DEMO_DAY as DEMO_DATE
+from journey_autopilot.mock_data import DEMO_DAY as DEMO_DATE, DEMO_TIME_SHIFT
 
 DEMO_TRIP_ID = "DB-2026-0619-MUC-BLN"
 
@@ -68,95 +68,133 @@ def authenticate(email: str, password: str) -> dict | None:
 
 
 def _iso(day: date, hhmm: str) -> str:
+    """Compose a wall-clock time on ``day`` — shifted onto the demo clock.
+
+    ``DEMO_TIME_SHIFT`` is the start-relative anchoring mock_data applies to
+    every fixture datetime (demo trip departs ~90 min before app start).
+    Adding the same delta here keeps the simulated bookings and calendar
+    events on exactly the fixture's timeline.
+    """
     h, m = hhmm.split(":")
-    return datetime.combine(day, time(int(h), int(m))).isoformat()
+    return (datetime.combine(day, time(int(h), int(m))) + DEMO_TIME_SHIFT).isoformat()
 
 
 def booked_trips(user_id: str, today: date | None = None) -> list[dict]:
-    """Upcoming bookings for an account.
+    """Bookings for an account — Lucas carries the three demo trips.
 
-    Most trips are generated relative to today (so the demo always shows
-    upcoming trips); Lucas' first trip is pinned to the canonical demo
-    scenario (see ``DEMO_DATE``) so the dashboard chat exercises the full
-    monitoring/reroute flow. Structure follows ``mock_data.DEMO_TRIP``,
-    extended with the fields the DB Navigator shows per order (order number,
-    coach/seat, price).
+    1. ``DB-FRA-MUC`` (yesterday, direct, arrived +128 min): drives the
+       passenger-rights/complaints demo — its final delay is scripted in the
+       fixture's ``live_trip_status`` with ``arrived: true``.
+    2. The canonical main trip (today, two transfers): pinned to
+       ``mock_data.DEMO_TRIP`` (same trip_id/route/times/legs) so the dashboard
+       chat exercises the full monitoring → reroute → calendar → email flow.
+    3. ``DB-MUC-HAM`` (next week): filler so the dashboard shows a future trip.
+
+    Trips are generated relative to today, so the set stays evergreen. Structure
+    follows ``mock_data.DEMO_TRIP``, extended with the fields the DB Navigator
+    shows per order (order number, coach/seat, price).
     """
     today = today or date.today()
-    d2 = today + timedelta(days=5)
-    d3 = today + timedelta(days=12)
+    yesterday = today - timedelta(days=1)
+    next_week = today + timedelta(days=8)
 
     if user_id == "u-lucas-wild":
         return [
             {
-                # Canonical demo trip — kept in sync with mock_data.DEMO_TRIP so
-                # the dashboard chat triggers the full disruption/reroute flow.
+                # Yesterday's heavily delayed trip → complaints demo. trip_id is
+                # route-stable (not date-encoded) so a re-login on a later day
+                # upserts the SAME row and the relative date stays "yesterday".
+                # Delay/arrival state lives in the fixture's live_trip_status
+                # under this id (+128 min, arrived) — 128 min ≥ 120 means 50%
+                # of the 79.90 € fare (39.95 €) per EU passenger rights.
+                "trip_id": "DB-FRA-MUC",
+                "order_number": "KL3M7Q",
+                "origin": "Frankfurt (Main) Hbf",
+                "destination": "Munich Hbf",
+                "train": "ICE 521",
+                "planned_departure": _iso(yesterday, "17:14"),
+                "planned_arrival": _iso(yesterday, "20:32"),
+                "platform": "Platform 7",
+                "coach": "Coach 27",
+                "seat": "Seat 31, window",
+                "travel_class": 2,
+                "price_eur": 79.90,
+                "purpose": "Return from Frankfurt",
+            },
+            {
+                # Canonical main demo trip — kept in sync with mock_data.DEMO_TRIP
+                # so the dashboard chat triggers the full disruption/reroute flow.
+                # Two transfers (Nuremberg, Erfurt); the scripted +55 min on the
+                # first leg kills the Nuremberg connection. The client meeting
+                # starts 35 min after the planned arrival, and Nuremberg→Berlin
+                # takes ~3h — so every reroute (live or mock) misses it and the
+                # reschedule+email flow triggers deterministically. The explicit
+                # legs render the real itinerary on the trip card and the
+                # trip-detail screen (trip_journey uses them).
                 "trip_id": DEMO_TRIP_ID,
                 "order_number": "QX7K2P",
                 "origin": "Munich Hbf",
                 "destination": "Berlin Hbf",
-                "train": "ICE 1006",
-                "planned_departure": _iso(DEMO_DATE, "08:00"),
-                "planned_arrival": _iso(DEMO_DATE, "12:04"),
+                "train": "ICE 528",
+                "trains": ["ICE 528", "ICE 1537", "ICE 802"],
+                "planned_departure": _iso(DEMO_DATE, "10:02"),
+                "planned_arrival": _iso(DEMO_DATE, "14:10"),
                 "platform": "Platform 18",
                 "coach": "Coach 9",
                 "seat": "Seat 64, window",
                 "travel_class": 2,
                 "price_eur": 89.90,
                 "purpose": "Client meeting Berlin",
+                "legs": [
+                    {
+                        "train": "ICE 528",
+                        "origin": "Munich Hbf",
+                        "destination": "Nuremberg Hbf",
+                        "planned_departure": _iso(DEMO_DATE, "10:02"),
+                        "planned_arrival": _iso(DEMO_DATE, "11:04"),
+                        "platform": "18",
+                        "arrival_platform": "8",
+                    },
+                    {
+                        "train": "ICE 1537",
+                        "origin": "Nuremberg Hbf",
+                        "destination": "Erfurt Hbf",
+                        "planned_departure": _iso(DEMO_DATE, "11:16"),
+                        "planned_arrival": _iso(DEMO_DATE, "12:08"),
+                        "platform": "6",
+                        "arrival_platform": "2",
+                    },
+                    {
+                        "train": "ICE 802",
+                        "origin": "Erfurt Hbf",
+                        "destination": "Berlin Hbf",
+                        "planned_departure": _iso(DEMO_DATE, "12:20"),
+                        "planned_arrival": _iso(DEMO_DATE, "14:10"),
+                        "platform": "7",
+                        "arrival_platform": "11",
+                    },
+                ],
             },
             {
-                # trip_id is route-stable (not date-encoded) so a re-login on a
-                # later day upserts the SAME row — the relative dates get
-                # refreshed to "always upcoming" without leaving stale duplicates
-                # behind. The canonical demo trip above keeps its pinned id.
-                "trip_id": "DB-BLN-MUC",
-                "order_number": "QX7K2P",
-                "origin": "Berlin Hbf",
-                "destination": "Munich Hbf",
-                "train": "ICE 1003",
-                "planned_departure": _iso(d2, "16:28"),
-                "planned_arrival": _iso(d2, "20:33"),
-                "platform": "Platform 4",
-                "coach": "Coach 23",
-                "seat": "Seat 11, aisle",
-                "travel_class": 2,
-                "price_eur": 79.90,
-                "purpose": "Return trip",
-            },
-            {
-                "trip_id": "DB-MUC-CGN",
-                "order_number": "MR4T9A",
+                # Next week's trip — dashboard filler, not used in the demo.
+                "trip_id": "DB-MUC-HAM",
+                "order_number": "TP8W2C",
                 "origin": "Munich Hbf",
-                "destination": "Cologne Hbf",
-                "train": "ICE 518",
-                "planned_departure": _iso(d3, "07:28"),
-                "planned_arrival": _iso(d3, "11:58"),
-                "platform": "Platform 11",
-                "coach": "Coach 31",
-                "seat": "Seat 82, window",
+                "destination": "Hamburg Hbf",
+                "train": "ICE 786",
+                "planned_departure": _iso(next_week, "09:17"),
+                "planned_arrival": _iso(next_week, "15:01"),
+                "platform": "Platform 22",
+                "coach": "Coach 25",
+                "seat": "Seat 84, aisle",
                 "travel_class": 2,
-                "price_eur": 99.90,
-                "purpose": "Workshop Cologne",
-            },
-            {
-                "trip_id": "DB-CGN-MUC",
-                "order_number": "MR4T9A",
-                "origin": "Köln Hbf",
-                "destination": "München Hbf",
-                "train": "ICE 517",
-                "planned_departure": _iso(today, "11:54"),
-                "planned_arrival": _iso(today, "16:29"),
-                "platform": "Platform 6",
-                "coach": "Coach 12",
-                "seat": "Seat 45, window",
-                "travel_class": 2,
-                "price_eur": 89.90,
-                "purpose": "Return from Cologne",
+                "price_eur": 109.90,
+                "purpose": "Partner workshop Hamburg",
             },
         ]
 
     if user_id == "u-erika-muster":
+        d2 = today + timedelta(days=5)
         return [
             {
                 "trip_id": "DB-FRA-HAM",
@@ -278,20 +316,37 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
     the hard constraint that the planner agent checks reroutes against.
     """
     today = today or date.today()
+    d2 = today + timedelta(days=7)
     d3 = today + timedelta(days=12)
 
     if user_id == "u-lucas-wild":
-        # The Berlin meeting sits on the demo date and is the hard constraint the
-        # planner checks the Munich → Berlin reroute against (see mock_data).
-        # Contact fields mirror the real Graph mapper schema
-        # (integrations/outlook/mapper.py) so the notice-email flow works in
-        # demo mode too; the client meeting matches fixtures/happy_path.json.
+        # Chronological: one morning event and the Berlin client meeting on the
+        # demo date (DEMO_DATE rebases to "today"), then two future events.
+        # The Berlin meeting is the hard constraint the planner checks the
+        # Munich → Berlin reroute against (see mock_data) — keep its date/time
+        # in sync with fixtures/happy_path.json. Contact fields mirror the real
+        # Graph mapper schema (integrations/outlook/mapper.py) so the
+        # notice-email flow works in demo mode too.
         return [
+            {
+                # Authored "now" is ~11:32 (departure 10:02 + 90 min lead), so
+                # this event always lands shortly after the app was started —
+                # the calendar preview shows a meeting in the demo window.
+                "title": "Team sync (Teams call)",
+                "location": "online",
+                "start": _iso(DEMO_DATE, "11:45"),
+                "end": _iso(DEMO_DATE, "12:15"),
+                "hard_constraint": False,
+                "organizer_name": "Lucas Wild",
+                "organizer_email": "lucas.wild@example.com",
+                "attendee_emails": ["team@example.com"],
+                "self_organized": True,
+            },
             {
                 "title": "Client meeting Berlin (on-site)",
                 "location": "Berlin Mitte, Friedrichstraße 100",
-                "start": _iso(DEMO_DATE, "14:00"),
-                "end": _iso(DEMO_DATE, "17:00"),
+                "start": _iso(DEMO_DATE, "14:45"),
+                "end": _iso(DEMO_DATE, "17:45"),
                 "hard_constraint": True,
                 "organizer_name": "Anna Client",
                 "organizer_email": "anna.client@example.com",
@@ -299,10 +354,10 @@ def outlook_events(user_id: str, today: date | None = None) -> list[dict]:
                 "self_organized": False,
             },
             {
-                "title": "Team sync (Teams call)",
+                "title": "Quarterly review (Teams call)",
                 "location": "online",
-                "start": _iso(DEMO_DATE, "10:30"),
-                "end": _iso(DEMO_DATE, "11:00"),
+                "start": _iso(d2, "09:30"),
+                "end": _iso(d2, "11:00"),
                 "hard_constraint": False,
                 "organizer_name": "Lucas Wild",
                 "organizer_email": "lucas.wild@example.com",

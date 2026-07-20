@@ -31,6 +31,17 @@
       <div class="topbar-account" id="topbar-account" hidden></div>
     </header>
 
+    <!-- Simulated incoming SMS: shows the verification code inside the UI,
+         like an iOS notification. Tapping it fills the code input. -->
+    <button class="sms-banner" id="sms-banner" type="button" hidden>
+      <span class="sms-icon" aria-hidden="true">💬</span>
+      <span class="sms-body">
+        <span class="sms-head">Messages · now</span>
+        <span class="sms-text">Journey Autopilot: your verification code is <b id="sms-code"></b></span>
+        <span class="sms-hint">Tap to fill it in</span>
+      </span>
+    </button>
+
     <!-- Onboarding progress -->
     <div class="progress" id="progress" hidden>
       <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
