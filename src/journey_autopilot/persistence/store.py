@@ -255,11 +255,27 @@ _PROPOSAL_COLUMNS = (
 _PROPOSAL_SELECT = f"SELECT {', '.join(_PROPOSAL_COLUMNS)} FROM reroute_proposals"
 
 
+# The live DB sidecar is the only non-reproducible reroute source: those cards
+# reflect a single moment (delays, seat availability) and must be revalidated —
+# and re-searched if stale — before booking. Every other ("mock_*"/offline)
+# source is static and reproducible, so such a proposal never goes stale: the
+# shown card stays bookable for the whole demo regardless of the TTL or a
+# supersession. See _proposal_row (expiry) and select/claim (status).
+_LIVE_PROPOSAL_SOURCE = "db_service_live"
+
+
+def _proposal_is_offline(payload: dict | None) -> bool:
+    """True if the shortlist came from static/mock data, not the live sidecar."""
+    return (payload or {}).get("source") != _LIVE_PROPOSAL_SOURCE
+
+
 def _proposal_row(row: tuple) -> dict:
     data = dict(zip(_PROPOSAL_COLUMNS, row))
     payload = json.loads(data["proposal"])
     expires_dt = datetime.fromisoformat(data["expires_at"])
-    expired = expires_dt <= datetime.now(timezone.utc)
+    # Offline/mock shortlists are reproducible and never expire; only live
+    # sidecar proposals age out after their TTL.
+    expired = (expires_dt <= datetime.now(timezone.utc)) and not _proposal_is_offline(payload)
     status = data["status"]
     return {
         "proposal_id": data["proposal_id"],
@@ -380,7 +396,12 @@ def select_reroute_option(
     item = get_reroute_proposal(user_id, proposal_id)
     if item is None or item["session_id"] != session_id:
         return {"error": "Reroute proposal not found for this chat."}
-    if item["expired"] or item["status"] not in ("active", "selected"):
+    # Offline/mock shortlists never expire and survive a supersession (their
+    # options are reproducible); live ones must still be unexpired and active.
+    if _proposal_is_offline(item.get("proposal")):
+        if item["status"] == "executed":
+            return {"error": "That reroute proposal was already used."}
+    elif item["expired"] or item["status"] not in ("active", "selected"):
         return {"error": "That reroute proposal is no longer active. Run a fresh search."}
     option = next(
         (
@@ -423,15 +444,34 @@ def set_reroute_proposal_status(user_id: str, proposal_id: str, status: str) -> 
 def claim_reroute_proposal_execution(
     user_id: str, proposal_id: str, option_id: str
 ) -> bool:
-    """Atomically consume a selected, unexpired proposal exactly once."""
+    """Atomically consume a selected proposal exactly once.
+
+    Live proposals must still be unexpired and active/selected. Offline/mock
+    proposals are reproducible and stay claimable regardless of TTL or
+    supersession — only a second execution of the same proposal is refused.
+    """
     now = _now()
     with _connect() as conn:
-        cursor = conn.execute(
-            "UPDATE reroute_proposals SET status = 'executed', updated_at = ? "
-            "WHERE user_id = ? AND proposal_id = ? AND selected_option_id = ? "
-            "AND status IN ('active', 'selected') AND expires_at > ?",
-            (now, user_id, proposal_id, option_id, now),
-        )
+        row = conn.execute(
+            f"{_PROPOSAL_SELECT} WHERE user_id = ? AND proposal_id = ?",
+            (user_id, proposal_id),
+        ).fetchone()
+        if row is None:
+            return False
+        if _proposal_is_offline(_proposal_row(row)["proposal"]):
+            cursor = conn.execute(
+                "UPDATE reroute_proposals SET status = 'executed', updated_at = ? "
+                "WHERE user_id = ? AND proposal_id = ? AND selected_option_id = ? "
+                "AND status != 'executed'",
+                (now, user_id, proposal_id, option_id),
+            )
+        else:
+            cursor = conn.execute(
+                "UPDATE reroute_proposals SET status = 'executed', updated_at = ? "
+                "WHERE user_id = ? AND proposal_id = ? AND selected_option_id = ? "
+                "AND status IN ('active', 'selected') AND expires_at > ?",
+                (now, user_id, proposal_id, option_id, now),
+            )
     return cursor.rowcount == 1
 
 

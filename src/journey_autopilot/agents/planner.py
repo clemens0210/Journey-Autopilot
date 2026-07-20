@@ -92,6 +92,11 @@ Procedure — follow all steps in order:
    - `current_arrival` = Monitoring's current `estimated_arrival` for staying on
      the disrupted itinerary, when available. This lets the tool reject a
      reroute that is slower than doing nothing and report minutes saved.
+     OMIT `current_arrival` entirely when the Orchestrator/Monitoring says the
+     itinerary is broken (a transfer already missed — no stay-aboard ETA
+     exists): "doing nothing" is impossible then, so no alternative may be
+     rejected for being slower than it; present every otherwise-eligible
+     option on its own merits.
    The tool returns eligible ``options`` separately from non-selectable
    ``fallback_options`` plus rejection reasons. Only ``options`` count as viable
    train choices; fallbacks exist solely to explain which limit would need to be
@@ -105,12 +110,16 @@ _STEP3_CALENDAR = """\
    `planned_departure` when the Orchestrator's message includes it. The tool
    checks EVERY option from step 2 against the calendar in one call (a
    30-minute station-to-appointment travel buffer is already included — do NOT
-   recompute times yourself) and returns one verdict per option. An option is
-   viable ONLY if its verdict says `viable: true` (no appointment with
-   `hard_constraint: true` in its conflicts). Clashes with soft appointments
-   do not gate viability but must be mentioned. NEVER check options one by
-   one, and call the tool again only if a later step adds NEW options
-   (ecosystem widening) that must be checked too.
+   recompute times yourself) and returns one verdict per option.
+
+   A `viable: false` verdict (a hard-constraint appointment clash) does NOT
+   remove the option from consideration — the traveler can still take that
+   train, just late for the clashing appointment. `finalize_reroute_options`
+   keeps such options selectable and annotates them with `calendar_clash`
+   (the clashing appointment(s) and their contact). Clashes with soft
+   appointments are informational only. NEVER check options one by one, and
+   call the tool again only if a later step adds NEW options (ecosystem
+   widening) that must be checked too.
 """
 
 _STEP3_NO_CALENDAR = """\
@@ -120,41 +129,47 @@ _STEP3_NO_CALENDAR = """\
    (max transfers, latest arrival home).
 """
 
-_STEP4_WIDENING_TRIGGER_CALENDAR = """\
-   - every train option fails the hard-constraint deadline (step 3), OR
-"""
-
 _STEP4_WIDENING = """\
 4. [CONDITIONAL — SKIP if at least one train option from step 2 is viable]
-   Trigger this widening step when ANY of the following is true:
-   - `find_reroute_options` returned an empty list, OR
-{extra_trigger}\
-   - every viable train option exceeds `preferences.max_transfers`, OR
-   - every viable train option arrives after `home.latest_arrival_home`
-     (the traveler cannot get home today without an overnight stay).
+   A hard-constraint calendar clash (step 3) alone does NOT trigger this step —
+   a late-but-reachable train is still a real option; do not search car/bike
+   sharing or hotels just because it misses one appointment.
 
-   When triggered, call the DB ecosystem tools based on the profile:
+   Trigger MOBILITY alternatives (car/bike sharing) when ANY of the following
+   is true:
+   - `find_reroute_options` returned an empty list, OR
+   - every viable train option exceeds `preferences.max_transfers`, OR
+   - every viable train option arrives after `home.latest_arrival_home`.
    - If `mobility.car_sharing_ok` is True (or absent): call
      `find_mobility_alternatives(location=<origin>, destination=<destination>)`
      for Flinkster (car, option_ids C#) and Call-a-Bike (bike, option_ids B#)
      options at the origin station.
-   - If `home.hotel_ok` is True: call `find_partner_hotels` for partner hotels
-     (option_ids H#, `check_in_date=<travel date>`). This covers the overnight
-     case — the traveler stays and continues the next day. Search the city
-     where the traveler ACTUALLY IS, NOT automatically the destination:
-       - Trip NOT YET STARTED (the Orchestrator says pre-trip, or the planned
-         departure still lies in the future): search the ORIGIN/start city —
-         `find_partner_hotels(location=<origin>, ...)`. A large delay before
-         departure strands the traveler at the start, so a destination hotel
-         would be useless (and, when the destination is home, absurd).
-       - EN ROUTE: search the traveler's CURRENT position that the Orchestrator
-         gives you (the station they are stranded at); fall back to the origin
-         when no current position was provided.
-       - Search the DESTINATION only when the traveler can still reach it today
-         but too late for the onward plan / an appointment the next morning.
-       - If you genuinely cannot tell where the traveler is (no phase and no
-         position given), ASK the user which city to search rather than guessing.
-   Do NOT call these tools when a good train option already clears the deadline.
+
+   Trigger a HOTEL search separately, and ONLY when the situation is genuinely
+   an overnight one: no train or mobility option reaches the destination at
+   all today, OR every option that does still arrives after
+   `home.latest_arrival_home`. Exceeding `preferences.max_transfers`, or a
+   calendar clash, is never by itself a reason to search hotels — the
+   traveler is still getting there today either way. When triggered and
+   `home.hotel_ok` is True: call `find_partner_hotels` for partner hotels
+   (option_ids H#, `check_in_date=<travel date>`). Search the city where the
+   traveler ACTUALLY IS, NOT automatically the destination:
+     - Trip NOT YET STARTED (the Orchestrator says pre-trip, or the planned
+       departure still lies in the future): search the ORIGIN/start city —
+       `find_partner_hotels(location=<origin>, ...)`. A large delay before
+       departure strands the traveler at the start, so a destination hotel
+       would be useless (and, when the destination is home, absurd).
+     - EN ROUTE: search the traveler's CURRENT position that the Orchestrator
+       gives you (the station they are stranded at); fall back to the origin
+       when no current position was provided.
+     - Search the DESTINATION only when the traveler can still reach it today
+       but too late for the onward plan / an appointment the next morning.
+     - If you genuinely cannot tell where the traveler is (no phase and no
+       position given), ASK the user which city to search rather than guessing.
+   Do NOT call `find_partner_hotels` when a train or mobility option already
+   reaches the destination before `home.latest_arrival_home` (or there is no
+   such limit configured and any option reaches it at all) — the finalizer
+   drops hotels in that case regardless, so proposing one would be misleading.
 """
 
 _STEP5_FINALIZE = """\
@@ -170,13 +185,18 @@ _STEP5_FINALIZE = """\
 """
 
 _RANKING_CALENDAR = """\
-Ranking: the hard-constraint calendar deadline is the gating FILTER — options
-that miss it are not placed in the main list. Among viable options (all modes),
-the recommendation follows the PROFILE: weigh delay vs. transfers by the
-speed-vs-comfort value, drop options exceeding max-transfers (train only),
-respect latest_arrival_home. Hotels are a last-resort suggestion when no
-same-day option can make the destination. Never let a preference override a
-hard deadline.
+Ranking: a hard-constraint calendar clash does NOT remove an option from the
+main list — the traveler can still take a train that arrives late for one
+appointment. Options are gated only by real constraint_violations (cancelled,
+too many transfers, mode disabled, arrives after `home.latest_arrival_home`);
+a `calendar_clash` is a flag, not a disqualifier. Among the options that
+remain, the recommendation follows the PROFILE (weigh delay vs. transfers by
+the speed-vs-comfort value) — and, all else being close, prefer an option that
+clears every hard-constraint appointment over one that doesn't. Hotels stay a
+genuine last resort: only propose one if `finalize_reroute_options` actually
+returned one (it only does when nothing reaches the destination before
+`home.latest_arrival_home`) — never as a stand-in for a late-but-reachable
+train.
 
 In your answer you MUST explicitly mention BOTH the calendar check and the
 profile fit:
@@ -187,15 +207,14 @@ profile fit:
   that contact. If the event has `self_organized: true`, the organizer is the
   traveler themself — then also list `attendee_emails` as the counterpart
   contacts.
-- State for each option whether it meets the hard deadline or not.
+- State for each option whether it meets the hard deadline or not (its
+  `calendar_clash` field — absent/empty means clear).
 - Justify the recommendation with calendar compatibility AND profile.
 
-If NO option can reach a hard-constraint appointment in time, do not present a
-constraint-breaking fallback as bookable. Explain the earliest realistic disabled
-fallback and the limit it violates, then propose relaxing that limit and/or
-rescheduling the appointment (give the event id and its tentative/confirmed
-status) and informing its participants by email (name them). This hands the
-downstream step everything it needs to act while preserving the user's veto.
+If the recommended (or every) option carries a `calendar_clash`, present it as
+possible AND propose the companion action: rescheduling the affected
+appointment (give the event id and its tentative/confirmed status) and
+informing its participants by email (name them). 
 """
 
 _RANKING_NO_CALENDAR = """\
@@ -237,13 +256,15 @@ card, so do not duplicate every option field in the prose.
   (e.g. "change in Leipzig Hbf, 14 min transfer") — never invent stops that
   are not in the legs. Lead with the recommended option.
   DO NOT collapse to a single option — the user must be able to choose.
-  Keep non-viable options only as a brief "rejected" note. If the finalizer
-  returned a disabled fallback, explain which limits it violates but do not ask
-  the user to select it.
+  `fallback_options` entries are truly disqualified (cancelled, too many
+  transfers, mode disabled, after latest_arrival_home) — keep those to a brief
+  "rejected" note and do not ask the user to select one. A `calendar_clash` on
+  an otherwise-selectable option is NOT a rejection — present it normally and
+  flag the conflict inline.
   For ecosystem options (C#/B#/H#) note they are NOT same-day alternatives
   unless their new_arrival clears the deadline.
 - For every non-hotel option, state its **added cost** in EUR (the
-  ``added_cost_eur`` field; 0 means a free rebooking). When ``cost_status`` is
+  ``added_cost_eur`` field; 0 means no booking required). When ``cost_status`` is
   ``unknown`` or ``estimate``, say that explicitly and never turn it into zero.
   Do not quote or invent prices for hotel options when the source cannot check
   rates.
@@ -251,8 +272,11 @@ card, so do not duplicate every option field in the prose.
   compensation claim can only be assessed once the trip has actually
   concluded, and that the app will automatically prepare a draft for the user
   to review at that point. Do not invent a figure or a legal basis.
-- If NO option at all meets the hard deadline: state this clearly. If only hotel
-  or long-detour options remain, say so and list the least bad options.
+- If NO option at all meets the hard deadline: state this clearly, but still
+  present the earliest/best-reachable options as possible — pair that with the
+  notify-participants proposal. If only hotel or long-detour
+  options remain (no same-day arrival at all, or every arrival is after
+  `home.latest_arrival_home`), say so and list the least bad options.
 - State each tool's data source. If it starts with `mock_`, disclose that demo
   fallback data was used (live DB sidecar or real API unavailable).
 
@@ -268,9 +292,7 @@ def _build_instruction(has_calendar: bool) -> str:
         "\n",
         _STEP3_CALENDAR if has_calendar else _STEP3_NO_CALENDAR,
         "\n",
-        _STEP4_WIDENING.format(
-            extra_trigger=_STEP4_WIDENING_TRIGGER_CALENDAR if has_calendar else ""
-        ),
+        _STEP4_WIDENING,
         "\n",
         _STEP5_FINALIZE,
         "\n",

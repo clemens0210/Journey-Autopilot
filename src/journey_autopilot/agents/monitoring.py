@@ -66,6 +66,10 @@ B) EN ROUTE (a trip is already running; you are given a trip_id):
         `earliest_reroute_departure` exactly from live status; the Planner uses
         them to compare a reroute against staying aboard and avoid searching
         from a station already passed.
+      - `itinerary_broken: true` means a transfer is already definitively
+        missed: the booked itinerary can no longer be completed, so there IS
+        no stay-aboard ETA (`estimated_arrival` is null). Report this fact
+        explicitly and never invent an arrival time for the broken itinerary.
    4. Check the `arrived` field on the live status:
       - `arrived: true` -> the trip is OVER. Its `current_delay_minutes` is the
         FINAL, CONFIRMED delay — not a forecast, and there is nothing left to
@@ -89,6 +93,10 @@ Answer briefly and structured:
   exact `earliest_reroute_departure` from live status.
 - Current estimated arrival (en route only): copy `estimated_arrival` exactly
   and label it as the ETA if the traveler stays on the current itinerary.
+  If `itinerary_broken` is true, state instead: "Itinerary broken — a transfer
+  is already missed; there is no arrival time for staying on the booked
+  connection." The reroute step must then evaluate alternatives WITHOUT a
+  stay-aboard baseline.
 - Current position (en route only): where the trip currently is, from the live
   status `current_position` (e.g. "between Munich Hbf and Augsburg Hbf"), when
   reported — the reroute step needs it to place an overnight hotel correctly.

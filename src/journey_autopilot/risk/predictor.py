@@ -106,6 +106,44 @@ def _real_time(planned: datetime, leg: dict) -> datetime:
     return planned + timedelta(minutes=int(leg.get("current_delay_minutes") or 0))
 
 
+def _transfer_gaps(legs: list[dict]):
+    """Scheduled and real minutes at each change station, both legs' delays applied."""
+    for prev_leg, leg in zip(legs, legs[1:]):
+        prev_arrival = _planned(prev_leg.get("destination"))
+        next_departure = _planned(leg.get("origin"))
+        if prev_arrival is None or next_departure is None:
+            continue
+        scheduled_minutes = round((next_departure - prev_arrival).total_seconds() / 60)
+        real_minutes = round(
+            (_real_time(next_departure, leg) - _real_time(prev_arrival, prev_leg)).total_seconds() / 60
+        )
+        station = (prev_leg.get("destination") or {}).get("name", "the transfer station")
+        yield prev_leg, leg, station, scheduled_minutes, real_minutes
+
+
+def _missed_warning(prev_leg: dict, leg: dict, station: str, real_minutes: int) -> str:
+    return (
+        f"{leg.get('train')} leaves {station} {-real_minutes} min before "
+        f"{prev_leg.get('train')} gets in — that connection is missed."
+    )
+
+
+def missed_connections(legs: list[dict]) -> list[str]:
+    """Transfers that are DEFINITIVELY gone: the connecting train leaves before
+    the feeder gets in, with both ends shifted by their own live delay.
+
+    A non-empty result means the booked itinerary can no longer be completed as
+    planned — there is no "stay aboard" arrival time anymore, only the missed
+    fact. At-risk-but-still-possible transfers are deliberately not included;
+    those remain a forecast, not a fact.
+    """
+    return [
+        _missed_warning(prev_leg, leg, station, real_minutes)
+        for prev_leg, leg, station, _scheduled, real_minutes in _transfer_gaps(legs)
+        if real_minutes < 0
+    ]
+
+
 def live_connection_risks(legs: list[dict]) -> list[str]:
     """Transfer warnings from the REAL gap at each change station.
 
@@ -122,21 +160,9 @@ def live_connection_risks(legs: list[dict]) -> list[str]:
     timetable always intended is not flagged: nothing went wrong there.
     """
     warnings: list[str] = []
-    for prev_leg, leg in zip(legs, legs[1:]):
-        prev_arrival = _planned(prev_leg.get("destination"))
-        next_departure = _planned(leg.get("origin"))
-        if prev_arrival is None or next_departure is None:
-            continue
-        scheduled_minutes = round((next_departure - prev_arrival).total_seconds() / 60)
-        real_minutes = round(
-            (_real_time(next_departure, leg) - _real_time(prev_arrival, prev_leg)).total_seconds() / 60
-        )
-        station = (prev_leg.get("destination") or {}).get("name", "the transfer station")
+    for prev_leg, leg, station, scheduled_minutes, real_minutes in _transfer_gaps(legs):
         if real_minutes < 0:
-            warnings.append(
-                f"{leg.get('train')} leaves {station} {-real_minutes} min before "
-                f"{prev_leg.get('train')} gets in — that connection is missed."
-            )
+            warnings.append(_missed_warning(prev_leg, leg, station, real_minutes))
         elif real_minutes <= _TIGHT_TRANSFER_MINUTES and real_minutes < scheduled_minutes:
             warnings.append(
                 f"Only {real_minutes} min left to change to {leg.get('train')} at "

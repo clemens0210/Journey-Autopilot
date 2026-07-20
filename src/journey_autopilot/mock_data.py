@@ -191,6 +191,7 @@ _STATION_ALIASES: dict[str, str] = {
     "frankfurt": "Frankfurt (Main) Hbf",
     "hamburg":   "Hamburg Hbf",
     "nürnberg":  "Nürnberg Hbf", "nuremberg": "Nürnberg Hbf",
+    "nürnberg hbf": "Nürnberg Hbf", "nuremberg hbf": "Nürnberg Hbf",
     "stuttgart": "Stuttgart Hbf",
     "bonn":      "Bonn Hbf",
     "hannover":  "Hannover Hbf",
@@ -303,15 +304,21 @@ PLANNED_CONNECTIONS: dict = _by_route(_FX["planned_connections"], "connection")
 
 def _demo_event_fields() -> dict:
     """Build the DisruptionEvent fields from the loaded fixture (scenario-agnostic)."""
-    route = (DEMO_TRIP["origin"], DEMO_TRIP["destination"])
-    reroutes = REROUTE_OPTIONS.get(route, [])
+    status = LIVE_TRIP_STATUS.get(DEMO_TRIP["trip_id"], {})
+    # Curated reroutes are keyed by the station the traveler actually rebooks
+    # from (the en-route next boardable station, e.g. Nuremberg), not the trip
+    # origin — that's where R1/R2 board. Fall back to the trip origin for a
+    # pre-trip scenario with no en-route status.
+    boarding = status.get("next_boardable_station") or DEMO_TRIP["origin"]
+    # lookup_route (not a bare dict .get) so the English "Nuremberg Hbf" from
+    # the live status aliases onto the German-canonical fixture key.
+    reroutes = lookup_route(REROUTE_OPTIONS, boarding, DEMO_TRIP["destination"])
     first = reroutes[0] if reroutes else None
 
     date = DEMO_TRIP.get("planned_arrival", "")[:10]
     meetings = USER_CALENDAR.get(date, [])
     meeting_time = meetings[0]["start"][11:16] if meetings else ""
 
-    status = LIVE_TRIP_STATUS.get(DEMO_TRIP["trip_id"], {})
     if first is not None:
         reroute_summary = (
             f"Change at Erfurt to ICE 1008 toward Berlin "

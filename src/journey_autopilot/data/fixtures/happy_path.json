@@ -31,7 +31,7 @@
       "connection_risk": "The booked Nuremberg connection cannot be reached — without rebooking, the arrival slips roughly two hours behind schedule and past the confirmed on-site client meeting in Berlin (check the calendar for the exact start). Rebooking from Nuremberg Hbf is required",
       "next_boardable_station": "Nuremberg Hbf",
       "earliest_reroute_departure": "2026-06-19T12:05:00",
-      "estimated_arrival": "2026-06-19T16:10:00",
+      "itinerary_broken": true,
       "data_timestamp": "2026-06-19T11:30:00"
     },
     "DB-FRA-MUC": {
@@ -65,12 +65,12 @@
   },
   "reroute_options": [
     {
-      "origin": "Munich Hbf",
+      "origin": "Nürnberg Hbf",
       "destination": "Berlin Hbf",
       "options": [
         {
           "option_id": "R1",
-          "description": "Stay on the delayed ICE 528 to Nuremberg, then the next direct ICE to Berlin",
+          "description": "Next direct ICE from Nuremberg to Berlin",
           "departure": "2026-06-19T12:31:00",
           "new_arrival": "2026-06-19T15:36:00",
           "transfers": 0,
@@ -95,7 +95,7 @@
           "new_arrival": "2026-06-19T15:57:00",
           "transfers": 1,
           "added_delay_minutes": 107,
-          "added_cost_eur": 59.0,
+          "added_cost_eur": 0.0,
           "trains": ["ICE 1704", "ICE 808"],
           "legs": [
             {
@@ -113,7 +113,7 @@
               "arrival": "2026-06-19T15:57:00"
             }
           ],
-          "comfort": "One transfer via Leipzig; +59 EUR fare difference. Also arrives after the client meeting starts."
+          "comfort": "One transfer via Leipzig; free rebooking. Also arrives after the client meeting starts."
         }
       ]
     }
