@@ -2188,7 +2188,8 @@ def get_passenger_rights(
         bahncard_type:  User's BahnCard: "keine" | "bc25" | "bc50" | "bc100".
 
     Returns:
-        Dict with calculated compensation claim and legal context.
+        Dict with calculated compensation claim, legal context chunks, and
+        the bahn.de source URLs those chunks came from (``legal_sources``).
     """
     # 1. Deterministic calculation — no LLM, no network
     compensation = calculate_compensation(
@@ -2199,7 +2200,8 @@ def get_passenger_rights(
         bahncard_type=bahncard_type,
     )
 
-    # 2. RAG context for the agent — semantically matching chunks
+    # 2. RAG context for the agent — semantically matching chunks, with the
+    # bahn.de page each one came from so the claim can cite a source.
     try:
         rag = _get_or_build_rag()
         chunks = rag.retrieve_for_case(
@@ -2207,14 +2209,17 @@ def get_passenger_rights(
             ticket_type=ticket_type,
             bahncard_type=bahncard_type,
         )
-        legal_context = "\n\n--- Next Section ---\n".join(chunks)
+        legal_context = "\n\n--- Next Section ---\n".join(c["text"] for c in chunks)
+        legal_sources = sorted({c["source"] for c in chunks if c.get("source")})
     except Exception:
         legal_context = "Knowledge base temporarily unavailable."
+        legal_sources = []
 
     result = {
         "delay_minutes": delay_minutes,
         **compensation,
         "legal_context": legal_context,
+        "legal_sources": legal_sources,
     }
     global _LAST_RIGHTS
     _LAST_RIGHTS = result

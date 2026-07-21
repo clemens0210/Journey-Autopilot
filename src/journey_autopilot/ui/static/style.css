@@ -742,6 +742,13 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
   font-size: 13px;
 }
 .complaint-notes li { margin-bottom: 4px; }
+.complaint-sources {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.complaint-sources a { display: block; font-size: 12px; color: var(--ink-soft); word-break: break-all; }
+.complaint-context-note { margin: 0 0 10px; font-size: 12px; font-style: italic; }
 
 /* --- Trip chat ------------------------------------------------------------- */
 

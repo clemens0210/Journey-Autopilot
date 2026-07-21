@@ -11,6 +11,42 @@ CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(BASE_DIR / "data" / "chromadb"))
 # Multilingual model because of German texts
 EMBEDDING_MODEL = "paraphrase-multilingual-mpnet-base-v2"
 
+# Cosine-distance cutoff for "close enough to be worth citing". Calibrated
+# against this (narrow, fahrgastrechte-only) corpus: on-topic queries land
+# around 0.18-0.23, a clearly off-topic query (e.g. bike storage) around
+# 0.48-0.52 — 0.3 sits in the gap between the two.
+MAX_RELEVANCE_DISTANCE = 0.3
+
+# Substrings that identify the bahn.de clause matching each ticket type. Used
+# as a content pre-filter (Chroma ``where_document``) so semantic search only
+# ranks chunks that literally carry the right ticket-type language. Without it
+# the nearest neighbour is almost always the generic "ab 60 Minuten"/Zeitkarten
+# passage — it shares the compensation vocabulary with every query and so wins
+# the ranking even for a single ticket it does not apply to. Case-sensitive
+# (Chroma ``$contains`` is), so the strings match the crawled corpus casing.
+# einzelticket also covers bc25/bc50: the single-ticket percentage rule applies
+# to them (compensation is on the price actually paid) — see rights_service.
+_TICKET_TYPE_KEYWORDS: dict[str, list[str]] = {
+    "einzelticket": ["des gezahlten Fahrpreises"],
+    "zeitkarte_fv": ["Zeitfahrkarten des Fernverkehrs", "Zeitkarten des Fernverkehrs"],
+    "zeitkarte_nv": ["Zeitfahrkarten des Nahverkehrs", "Zeitkarten des Nahverkehrs"],
+    "bc100": ["BahnCard 100"],
+    # The Deutschland-Ticket's compensation is the Nahverkehr-Zeitkarte rule, so
+    # cite that clause too, not just chunks that name the ticket in passing.
+    "deutschland_ticket": ["Deutschland-Ticket", "Zeitfahrkarten des Nahverkehrs"],
+}
+
+
+def _ticket_type_filter(ticket_type: str) -> dict | None:
+    """Chroma ``where_document`` clause restricting retrieval to the chunks
+    that carry this ticket type's language, or ``None`` for an unknown type."""
+    keywords = _TICKET_TYPE_KEYWORDS.get(ticket_type)
+    if not keywords:
+        return None
+    if len(keywords) == 1:
+        return {"$contains": keywords[0]}
+    return {"$or": [{"$contains": kw} for kw in keywords]}
+
 
 def _build_embedding_fn():
     """Load the embedding model, preferring the local Hugging Face cache.
@@ -111,29 +147,61 @@ class FahrgastrechteRAG:
     # QUERY (on every delay)
     # -------------------------
 
-    def retrieve(self, query: str, n_results: int = 3) -> list[str]:
+    def retrieve(
+        self,
+        query: str,
+        n_results: int = 1,
+        max_distance: float = MAX_RELEVANCE_DISTANCE,
+        where_document: dict | None = None,
+    ) -> list[dict]:
         """
-        Finds the most relevant chunks for a query.
+        Finds the most relevant chunk(s) for a query.
         Runs in ~50ms because ChromaDB is local.
-        """
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=n_results
-        )
 
-        # Return only the texts, not the metadata
-        return results["documents"][0]
-    
+        ``where_document`` (a Chroma content filter) narrows the candidate set
+        to chunks that literally contain the caller's required language before
+        semantic ranking — the difference between citing this ticket type's
+        clause and citing whichever passage happens to share the most
+        compensation vocabulary.
+
+        Chroma returns ``n_results`` matches regardless of fit, so a chunk
+        that only vaguely relates to the query would otherwise be cited just
+        as confidently as a genuinely on-topic one. Dropping anything past
+        ``max_distance`` (cosine distance — lower is closer) means an empty
+        result is possible and expected when nothing in the index is
+        actually close to the query, not just when the index is empty.
+
+        Returns ``[{"text": ..., "source": <bahn.de URL>}, ...]`` so callers
+        can cite where a chunk came from, not just its text.
+        """
+        query_kwargs: dict = {"query_texts": [query], "n_results": n_results}
+        if where_document:
+            query_kwargs["where_document"] = where_document
+        results = self.collection.query(**query_kwargs)
+
+        docs = results["documents"][0]
+        metas = results["metadatas"][0]
+        dists = results["distances"][0]
+        return [
+            {"text": doc, "source": meta.get("source")}
+            for doc, meta, dist in zip(docs, metas, dists)
+            if dist <= max_distance
+        ]
+
     def retrieve_for_case(
         self,
         delay_minutes: int,
         ticket_type: str,
         bahncard_type: str,
-        n_results: int = 3,
-    ) -> list[str]:
+        n_results: int = 1,
+    ) -> list[dict]:
         query = (
             f"compensation delay {delay_minutes} minutes "
             f"ticket type: {ticket_type} "
             f"BahnCard: {bahncard_type}"
         )
-        return self.retrieve(query, n_results=n_results)
+        return self.retrieve(
+            query,
+            n_results=n_results,
+            where_document=_ticket_type_filter(ticket_type),
+        )
