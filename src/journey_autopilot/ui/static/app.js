@@ -1090,6 +1090,25 @@ const renderers = {
         ${(c.notes || []).length ? `<ul class="complaint-notes">${c.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>` : ""}
       </div>
 
+      ${c.legal_context ? `
+        <div class="card">
+          <h2 style="margin-top:0;font-size:15px">Legal context</h2>
+          <p class="muted complaint-context-note">${c.legal_context_translated
+            ? "Translated from DB's official passenger-rights pages (German original linked below):"
+            : "Quoted from DB's official passenger-rights pages (German):"}</p>
+          ${c.legal_context.split("\n\n--- Next Section ---\n").map((chunk) =>
+            `<p class="muted" style="white-space:pre-line">${escapeHtml(chunk.trim())}</p>`
+          ).join("")}
+          ${(c.legal_sources || []).length ? `
+            <div class="complaint-sources">
+              ${c.legal_sources.map((url) =>
+                `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`
+              ).join("")}
+            </div>
+          ` : ""}
+        </div>
+      ` : ""}
+
       ${c.status === "draft" ? `
         <p class="muted" style="padding: 0 6px">This is a draft prepared by the autopilot. Nothing is filed until you tap Submit below.</p>
         <button class="btn primary block" id="complaint-submit" type="button">Submit complaint</button>

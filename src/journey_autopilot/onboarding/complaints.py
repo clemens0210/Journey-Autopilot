@@ -52,6 +52,13 @@ def build_complaint_payload(
         "reason": rights.get("reason") or "",
         "claim_via": rights.get("claim_via") or "",
         "notes": list(rights.get("notes") or []),
+        "legal_context": rights.get("legal_context") or "",
+        # Whether ``legal_context`` above is the English translation or the raw
+        # German bahn.de quote. Set to True by create_draft_complaint after a
+        # successful translation; left False here so the UI can label a
+        # German-quote fallback honestly.
+        "legal_context_translated": False,
+        "legal_sources": list(rights.get("legal_sources") or []),
         "submitted_at": None,
     }
 
@@ -117,6 +124,18 @@ def create_draft_complaint(
         existing = store.find_open_complaint(user_id, trip_id, travel_date)
         if existing:
             return None
+
+    # Only now — for a draft we are actually about to persist — render the
+    # German bahn.de legal context in English. Doing it here (not in
+    # get_passenger_rights) keeps the LLM call off the agent's hot path: it
+    # runs once per stored complaint, not on every rights check. Best-effort:
+    # the German original is kept if translation is unavailable.
+    if payload.get("legal_context"):
+        from ..integrations.rights_rag.translate import translate_to_english
+
+        english, translated = translate_to_english(payload["legal_context"])
+        payload["legal_context"] = english
+        payload["legal_context_translated"] = translated
 
     complaint_id = f"cmp-{secrets.token_urlsafe(9)}"
     return store.create_complaint(user_id, complaint_id, payload)
