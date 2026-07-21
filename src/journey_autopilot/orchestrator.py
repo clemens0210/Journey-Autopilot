@@ -21,6 +21,7 @@ from __future__ import annotations
 from google.adk.agents import LlmAgent
 from google.adk.tools.agent_tool import AgentTool
 
+from . import request_context
 from .config import ORCHESTRATOR_MODEL
 from .agents.communicator import build_email_communicator_agent
 from .agents.monitoring import build_monitoring_agent
@@ -32,6 +33,40 @@ monitoring_agent = build_monitoring_agent()
 planner_agent = build_planner_agent()
 communicator_agent = build_email_communicator_agent()
 executor_agent = build_executor_agent()
+
+
+def _make_subagent_trace_callbacks(agent_name: str):
+    """Tool callbacks that record a specialist's own actions into the chat trace.
+
+    The Orchestrator's calls to the specialists surface in the main ADK event
+    stream, but each specialist runs inside its own ``AgentTool`` runner whose
+    events never reach the web layer. These callbacks push the specialist's tool
+    call/result into the request-scoped trace sink (see request_context). They
+    run synchronously within the specialist's turn — which happens between the
+    Orchestrator's ``call`` and ``result`` events — so the entries land nested
+    under that call, in order. Returning ``None`` leaves tool behaviour
+    unchanged; this only observes.
+    """
+
+    def before_tool(tool, args, tool_context):
+        request_context.record_trace(
+            {"kind": "subcall", "author": agent_name, "name": tool.name}
+        )
+        return None
+
+    def after_tool(tool, args, tool_context, tool_response):
+        request_context.record_trace(
+            {"kind": "subresult", "author": agent_name, "name": tool.name}
+        )
+        return None
+
+    return before_tool, after_tool
+
+
+for _sub in (monitoring_agent, planner_agent, communicator_agent, executor_agent):
+    _sub.before_tool_callback, _sub.after_tool_callback = _make_subagent_trace_callbacks(
+        _sub.name
+    )
 
 ORCHESTRATOR_INSTRUCTION = """\
 You are the **Orchestrator** of the "Journey Autopilot" system. You do not solve
@@ -142,9 +177,10 @@ the result, think again:
      companion action — drafting a
      heads-up email to its contact — as OFFERS the user can accept or decline
      (the email follows the opt-in flow in step 6; never draft it unprompted).
-     Choosing that option will ask the traveler to explicitly confirm the
-     clash before it goes through (see step 8 below) — mention that once,
-     don't ask for it yourself beforehand.
+     Choosing that option goes straight through — the Executor applies the
+     reroute and reports a clash notice; it does NOT stop to ask the traveler to
+     confirm the clash. So pair the choice with the reschedule/notify offer
+     above rather than asking for a clash confirmation yourself.
    - Only when the Planner reports genuinely disabled `fallback_options` (no
      option at all reaches the destination, or every one violates a real limit
      — too many transfers, cancelled, arrives after the traveler's own
@@ -159,8 +195,9 @@ the result, think again:
      the calendar event + its tentative/confirmed status, the compensation,
      and who to notify. The Executor and write tool revalidate the proposal
      and apply the policy: some actions run automatically, others come back as
-     needing explicit approval. only a
-     hard-constraint calendar clash or a paid option asks first.
+     needing explicit approval. A paid option (or one with unknown cost) asks
+     first; a free reroute — even one that arrives after a hard-constraint
+     appointment — runs automatically and reports the clash as a notice.
    - If the Executor reports actions as `veto_required`, relay exactly what needs
      approval and ask the user once.
    - If it reports `revalidation_failed`, nothing was finalized. Tell the user

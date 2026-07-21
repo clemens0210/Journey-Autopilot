@@ -1938,6 +1938,9 @@ function renderTrace(trace) {
   const lines = trace.map((t) => {
     if (t.kind === "call") return `<div class="trace-line"><span class="ag">${escapeHtml(t.author)}</span> → calls <b>${escapeHtml(t.name)}()</b></div>`;
     if (t.kind === "result") return `<div class="trace-line"><span class="ag">${escapeHtml(t.author)}</span> ← result of <b>${escapeHtml(t.name)}</b></div>`;
+    // Sub-agent actions: nested one level under the Orchestrator's call to them.
+    if (t.kind === "subcall") return `<div class="trace-line trace-sub"><span class="ag">${escapeHtml(t.author)}</span> → calls <b>${escapeHtml(t.name)}()</b></div>`;
+    if (t.kind === "subresult") return `<div class="trace-line trace-sub"><span class="ag">${escapeHtml(t.author)}</span> ← result of <b>${escapeHtml(t.name)}</b></div>`;
     return `<div class="trace-line"><span class="ag">${escapeHtml(t.author)}</span>: ${escapeHtml(t.text)}</div>`;
   }).join("");
   return `<details class="chat-trace"><summary>Agent trace (${trace.length})</summary>${lines}</details>`;

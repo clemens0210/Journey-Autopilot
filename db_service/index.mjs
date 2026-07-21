@@ -53,7 +53,12 @@ const HOST = process.env.DB_SERVICE_HOST || '127.0.0.1'
 const USER_AGENT = process.env.DB_USER_AGENT || 'journey-autopilot (self-hosted db-vendo-client)'
 
 const client = createClient({ ...profile, randomizeUserAgent: true }, USER_AGENT)
-const app = Fastify({ logger: true })
+// DB/HAFAS refresh tokens are long opaque blobs (hundreds of chars) that ride
+// in the /journeys/refresh/:token path. find-my-way's default maxParamLength of
+// 100 makes every real token 404 ("route not found"), which surfaces on the
+// Python side as a revalidation failure and blocks live reroute booking. Lift
+// the cap well above the largest tokens we see (~900 chars).
+const app = Fastify({ logger: true, routerOptions: { maxParamLength: 10000 } })
 
 // Query strings arrive as strings; db-vendo-client expects real Dates, numbers
 // and booleans for its options. Coerce the well-known option keys, pass the

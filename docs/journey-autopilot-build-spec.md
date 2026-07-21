@@ -76,8 +76,8 @@ The **Communicator brackets execution**: it presents options and captures the ve
 | **Orchestrator** | control | Sequences workers, enforces the autonomy policy, owns error/fallback policy, checkpoints state. | `load_context`, `route_workers`, `enforce_policy`, `handle_errors`, `checkpoint_state` |
 | **Monitoring** | read-only | Detects risk before it materializes; mostly deterministic (poll → features → model → threshold). | `get_current_trip`, `get_disruption_data`, `get_weather`, `get_large_events`, `get_historical_data`, `call_risk_model`, `evaluate_threshold` |
 | **Planner** | read-only | Generates and ranks rerouting options under hard + soft constraints; flags compensation eligibility. | `get_alternative_connections` (incl. Sprinter, Flinkster, Call-a-Bike, hotel), `get_passenger_rights` (RAG), `rank_options` |
-| **Communicator** | write | Talks to the traveler in their style; the channel through which the veto arrives; notifies participants. | `draft_message`, `apply_style_profile`, `send_whatsapp_to_user`, `send_email_to_participants`, `present_options_capture_veto` |
-| **Executor** | write | Executes the approved option; every action runs through the policy. | `book_alternative_connection`, `book_hotel`, `reschedule_outlook_event`, `file_compensation_claim` |
+| **Communicator** | write | Talks to the traveler in their style; the channel through which the veto arrives; notifies participants. | `draft_message`, `apply_style_profile`, `send_whatsapp_to_user`, `present_options_capture_veto` |
+| **Executor** | write | Executes the approved option; every action runs through the policy. | `book_alternative_connection`, `book_hotel`, `file_compensation_claim` |
 
 ---
 

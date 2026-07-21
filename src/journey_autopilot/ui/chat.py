@@ -343,6 +343,11 @@ async def chat_turn(
         trace.clear()
         result = ""
         context_tokens = request_context.bind(user_id, session_id)
+        # Sub-agents append their own tool calls to this same list via callbacks
+        # (see orchestrator._make_subagent_trace_callbacks). Their AgentTool
+        # runner runs synchronously between the Orchestrator's call and result
+        # events, so those entries interleave in the right nested order.
+        sink_token = request_context.set_trace_sink(trace)
         try:
             async for event in runner.run_async(
                 user_id=user_id, session_id=session_id, new_message=new_message
@@ -354,6 +359,7 @@ async def chat_turn(
                     continue
                 trace.extend(_describe(event))
         finally:
+            request_context.reset_trace_sink(sink_token)
             request_context.reset(context_tokens)
         return result
 

@@ -42,7 +42,7 @@ from azure.identity import (
 logger = logging.getLogger(__name__)
 
 # Calendars.Read — reading events.  Calendars.ReadWrite would be needed to
-# add/modify events (reschedule_outlook_event); left out for now so the
+# add/modify events; left out for now so the
 # consent screen matches the actual permission request.
 # User.Read — read the signed-in user's own profile (mail, display name) so the
 # app shows/uses the ACTUAL connected Microsoft account instead of a hardcoded
