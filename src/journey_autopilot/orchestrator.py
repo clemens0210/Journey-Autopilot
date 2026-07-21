@@ -177,9 +177,10 @@ the result, think again:
      companion action — drafting a
      heads-up email to its contact — as OFFERS the user can accept or decline
      (the email follows the opt-in flow in step 6; never draft it unprompted).
-     Choosing that option will ask the traveler to explicitly confirm the
-     clash before it goes through (see step 8 below) — mention that once,
-     don't ask for it yourself beforehand.
+     Choosing that option goes straight through — the Executor applies the
+     reroute and reports a clash notice; it does NOT stop to ask the traveler to
+     confirm the clash. So pair the choice with the reschedule/notify offer
+     above rather than asking for a clash confirmation yourself.
    - Only when the Planner reports genuinely disabled `fallback_options` (no
      option at all reaches the destination, or every one violates a real limit
      — too many transfers, cancelled, arrives after the traveler's own
@@ -194,8 +195,9 @@ the result, think again:
      the calendar event + its tentative/confirmed status, the compensation,
      and who to notify. The Executor and write tool revalidate the proposal
      and apply the policy: some actions run automatically, others come back as
-     needing explicit approval. only a
-     hard-constraint calendar clash or a paid option asks first.
+     needing explicit approval. A paid option (or one with unknown cost) asks
+     first; a free reroute — even one that arrives after a hard-constraint
+     appointment — runs automatically and reports the clash as a notice.
    - If the Executor reports actions as `veto_required`, relay exactly what needs
      approval and ask the user once.
    - If it reports `revalidation_failed`, nothing was finalized. Tell the user

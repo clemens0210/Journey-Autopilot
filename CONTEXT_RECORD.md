@@ -138,7 +138,6 @@ A locked snapshot of all decisions, constraints, and open questions captured dur
 #### Decisions
 - **Communication is the Communicator Agent's job (implemented):** the Communicator (`src/journey_autopilot/agents/communicator.py`) drafts role-appropriate messages; `src/journey_autopilot/integrations/whatsapp.py` sends them via Twilio with an approval queue (5-min timeout). The Communicator is also the channel through which the user's veto comes back (YES/NO/EDIT via the webhook). It brackets execution: before the veto it presents options and captures the decision; after execution it confirms to traveler and meeting participants.
 - **Multi-stakeholder negotiation is out of active scope (Future Work):** agent-to-agent coordination between travelers heading to the same meeting is the most speculative, hardest-to-evaluate part. The Negotiator agent is dropped from the active setup — it lives in Future Work, not in the current code.
-- **`send_email_to_participants` defaults to `ask`:** hits third parties in a professional context — never without asking, per the autonomy matrix.
 
 #### Constraints
 - All outbound messages to non-traveler recipients go through the approval workflow.
@@ -167,7 +166,6 @@ A locked snapshot of all decisions, constraints, and open questions captured dur
   | `reschedule_outlook_event` | `auto` if tentative, `ask` if confirmed | Reversibility decides: tentative is reversible, confirmed is not. |
   | `book_alternative_connection` | `ask > threshold` | Autonomous below a cost threshold, ask above. Threshold is open. |
   | `book_hotel` | `ask` | Cost + overnight stay = high commitment — always ask. |
-  | `send_email_to_participants` | `ask` | Hits third parties in a professional context — never without asking. |
 
 - **Veto per action, globally adjustable:** the default is approval per write action, but the Policy-Layer can dial it up (everything asks) or down (more auto). This is the concrete expression of the autonomy spectrum.
 

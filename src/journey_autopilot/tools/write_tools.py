@@ -346,10 +346,10 @@ async def _fresh_calendar_clash(option: dict, proposal: dict) -> dict | list[str
     """Recheck the option's arrival against hard-constraint appointments.
 
     Returns a clash dict (``hard_conflicts``, ``conflicts``) — a hard-constraint
-    clash no longer blocks the booking outright, since the traveler can still
-    take a train that arrives late for one appointment; the caller uses this
-    to require the traveler's explicit confirmation before booking, the same
-    way an unknown fare does. Only a genuine revalidation failure (calendar
+    clash no longer blocks the booking, since the traveler can still take a train
+    that arrives late for one appointment; the caller surfaces this as a notice on
+    the executed reroute (``clash_note``) so the traveler can decide whether to
+    reschedule or notify anyone. Only a genuine revalidation failure (calendar
     unreadable right now) still fails closed — returned as a violations list
     so the caller treats it like any other execution-constraint failure,
     since a clash can't be safely confirmed as absent without a fresh read.
@@ -382,9 +382,9 @@ async def _revalidate_selected_option(
 
     The fifth element of the success tuple is the fresh calendar-clash detail
     (``{"hard_conflicts": int, "conflicts": [...]}``) or ``None`` when there is
-    nothing to check — callers that book a same-day arrival use it to require
-    the traveler's explicit confirmation before booking into a clash, rather
-    than silently refusing or silently booking through it.
+    nothing to check — callers that book a same-day arrival use it to attach a
+    notice to the executed reroute when it lands after a hard-constraint
+    appointment, rather than silently refusing or silently booking through it.
     """
     loaded = _selected_proposal_option(proposal_id, option_id)
     if isinstance(loaded, dict):
@@ -495,30 +495,6 @@ def send_whatsapp_to_user(message: str, user_approved: bool = False) -> dict:
     )
 
 
-def send_email_to_participants(
-    subject: str, body: str, participants: str, user_approved: bool = False
-) -> dict:
-    """Sends an email to meeting participants / third parties (e.g. a client).
-
-    Affects third parties in a professional context — gated by the policy layer.
-
-    Args:
-        subject: Email subject line.
-        body: Email body.
-        participants: Comma-separated recipients (names or addresses).
-        user_approved: Set to true ONLY after the user explicitly approved.
-
-    Returns:
-        ``status="executed"`` on send, or ``status="veto_required"`` if the
-        policy requires the user's approval first.
-    """
-    name = "send_email_to_participants"
-    summary = f"Email to {participants} — subject: {subject!r}"
-    if policy.resolve(name, profile=_profile()) == "ask" and not user_approved:
-        return _veto(name, summary, subject=subject, body=body, participants=participants)
-    return _done(name, summary, subject=subject, participants=participants)
-
-
 async def book_alternative_connection(
     proposal_id: str,
     option_id: str,
@@ -563,20 +539,27 @@ async def book_alternative_connection(
         else f"Choose connection {option_id} ({description}) — additional cost {cost_label}"
     )
     hard_conflicts = calendar_clash.get("hard_conflicts") if calendar_clash else 0
+    clash_note = None
     if hard_conflicts:
         titles = ", ".join(
             c.get("title") or "an appointment" for c in calendar_clash.get("conflicts") or []
         )
         summary += f" — arrives after hard-constraint appointment(s): {titles}"
-    # A free train reroute needs no cost/autonomy veto — riding a different train
-    # on the same ticket is not a purchase decision. The calendar-clash veto below
-    # still applies: the traveler must knowingly accept missing a hard-constraint
-    # appointment (the companion reschedule/notify step is a separate action).
+        clash_note = (
+            f"This connection arrives after your hard-constraint appointment(s): "
+            f"{titles}. The reroute was applied anyway — flag this to the traveler "
+            f"and offer to reschedule the appointment or notify its contact."
+        )
+    # A calendar clash no longer blocks the reroute: it is surfaced as a notice on
+    # the executed result (clash_note), not a veto. A free train reroute is not a
+    # purchase decision, so with the clash downgraded it needs no veto at all; a
+    # paid reroute still goes through the normal cost/autonomy veto. The companion
+    # reschedule/notify step remains a separate, independently gated action.
     if is_free_train_reroute:
-        needs_veto = bool(hard_conflicts)
+        needs_veto = False
     else:
         resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
-        needs_veto = cost_status != "known" or resolution == "ask" or hard_conflicts
+        needs_veto = cost_status != "known" or resolution == "ask"
     if needs_veto and not user_approved:
         return _veto(
             name,
@@ -611,6 +594,7 @@ async def book_alternative_connection(
         revalidation=evidence,
         booking_ref=f"SIM-{proposal_id}-{option_id}",
         calendar_clash=calendar_clash,
+        clash_note=clash_note,
     )
 
 
@@ -673,38 +657,6 @@ async def book_hotel(
     )
 
 
-def reschedule_outlook_event(
-    event_id: str,
-    title: str,
-    new_start: str,
-    status: str = "confirmed",
-    user_approved: bool = False,
-) -> dict:
-    """Reschedules an Outlook calendar event affected by the delay.
-
-    Tied to reversibility: a ``tentative`` event may be moved autonomously, a
-    ``confirmed`` one asks first (it is not freely reversible).
-
-    Args:
-        event_id: The calendar event id.
-        title: Event title (for the summary shown to the user).
-        new_start: New start time (ISO "YYYY-MM-DDTHH:MM:SS").
-        status: ``"tentative"`` or ``"confirmed"`` — drives the policy decision.
-        user_approved: Set to true ONLY after the user explicitly approved.
-
-    Returns:
-        ``status="executed"`` on reschedule, or ``status="veto_required"``.
-    """
-    name = "reschedule_outlook_event"
-    summary = f"Move '{title}' ({status}) to {new_start}"
-    if (
-        policy.resolve(name, profile=_profile(), event_status=status) == "ask"
-        and not user_approved
-    ):
-        return _veto(name, summary, event_id=event_id, new_start=new_start, event_status=status)
-    return _done(name, summary, event_id=event_id, new_start=new_start, event_status=status)
-
-
 def file_compensation_claim(
     delay_minutes: int, amount_eur: float = 0.0, user_approved: bool = False
 ) -> dict:
@@ -736,9 +688,7 @@ def file_compensation_claim(
 
 WRITE_TOOLS = [
     send_whatsapp_to_user,
-    send_email_to_participants,
     book_alternative_connection,
     book_hotel,
-    reschedule_outlook_event,
     file_compensation_claim,
 ]
