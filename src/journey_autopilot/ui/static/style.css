@@ -865,6 +865,8 @@ input[type="range"] { flex: 1; accent-color: var(--db-red); }
 .trace-line { font-size: 11.5px; color: var(--ink-soft); margin-top: 5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 .trace-line .ag { color: var(--coral); }
 .trace-line b { color: var(--ink); font-weight: 700; }
+/* Sub-agent actions, nested under the Orchestrator's call to that specialist. */
+.trace-line.trace-sub { margin-left: 12px; padding-left: 9px; border-left: 2px solid var(--line); opacity: 0.9; }
 
 .chat-input {
   display: flex;

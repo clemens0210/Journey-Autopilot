@@ -21,6 +21,7 @@ from __future__ import annotations
 from google.adk.agents import LlmAgent
 from google.adk.tools.agent_tool import AgentTool
 
+from . import request_context
 from .config import ORCHESTRATOR_MODEL
 from .agents.communicator import build_email_communicator_agent
 from .agents.monitoring import build_monitoring_agent
@@ -32,6 +33,40 @@ monitoring_agent = build_monitoring_agent()
 planner_agent = build_planner_agent()
 communicator_agent = build_email_communicator_agent()
 executor_agent = build_executor_agent()
+
+
+def _make_subagent_trace_callbacks(agent_name: str):
+    """Tool callbacks that record a specialist's own actions into the chat trace.
+
+    The Orchestrator's calls to the specialists surface in the main ADK event
+    stream, but each specialist runs inside its own ``AgentTool`` runner whose
+    events never reach the web layer. These callbacks push the specialist's tool
+    call/result into the request-scoped trace sink (see request_context). They
+    run synchronously within the specialist's turn — which happens between the
+    Orchestrator's ``call`` and ``result`` events — so the entries land nested
+    under that call, in order. Returning ``None`` leaves tool behaviour
+    unchanged; this only observes.
+    """
+
+    def before_tool(tool, args, tool_context):
+        request_context.record_trace(
+            {"kind": "subcall", "author": agent_name, "name": tool.name}
+        )
+        return None
+
+    def after_tool(tool, args, tool_context, tool_response):
+        request_context.record_trace(
+            {"kind": "subresult", "author": agent_name, "name": tool.name}
+        )
+        return None
+
+    return before_tool, after_tool
+
+
+for _sub in (monitoring_agent, planner_agent, communicator_agent, executor_agent):
+    _sub.before_tool_callback, _sub.after_tool_callback = _make_subagent_trace_callbacks(
+        _sub.name
+    )
 
 ORCHESTRATOR_INSTRUCTION = """\
 You are the **Orchestrator** of the "Journey Autopilot" system. You do not solve
