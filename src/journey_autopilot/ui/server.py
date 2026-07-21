@@ -113,6 +113,14 @@ _PENDING_PHONE: dict[str, tuple[str, str]] = {}
 # after a device flow and would trigger a second interactive flow).
 _OUTLOOK_AUTH: dict[str, dict] = {}
 
+# Demo chats warmed ahead of a presentation: user_id -> [turn result + trip].
+# Deliberately in memory, next to the ADK sessions they point at: the whole
+# point is to survive a `reset_demo.py` DB wipe (so onboarding can be shown
+# from scratch while the expensive first chat turn is already done) while
+# dying with the server, since a restart kills the InMemoryRunner sessions
+# these transcripts reference. Populated by POST /api/demo/preload.
+_PRELOADED_CHATS: dict[str, list[dict]] = {}
+
 
 # --- Request models ---------------------------------------------------------------
 
@@ -140,6 +148,12 @@ class ChatRequest(BaseModel):
     trip: dict | None = None
     proposal_id: str | None = None
     selected_option_id: str | None = None
+
+
+class PreloadRequest(BaseModel):
+    trip_ids: list[str] | None = None   # None/empty => every imported trip
+    message: str = ""                   # falls back to DEMO_MONITOR_PROMPT
+    notify: bool = False                # send the proactive WhatsApp during preload
 
 
 class ComplaintPatchRequest(BaseModel):
@@ -212,7 +226,27 @@ def db_login(body: LoginRequest) -> dict:
 
     token = secrets.token_urlsafe(24)
     _SESSIONS[token] = account["user_id"]
-    return {"token": token, "account": account, "trips": trips, "profile": profile, "complaints": store.get_complaints(account["user_id"])}
+    return {
+        "token": token,
+        "account": account,
+        "trips": trips,
+        "profile": profile,
+        **_chat_bootstrap(account["user_id"]),
+    }
+
+
+def _chat_bootstrap(user_id: str) -> dict:
+    """Chat bookkeeping the browser needs before it can render conversations.
+
+    ``preloaded_chats`` hands over any conversations warmed by
+    scripts/preload_demo_chats.py. Returned by both /api/me and the login
+    response, because a fresh demo tab logs in rather than booting with an
+    existing token.
+    """
+    return {
+        "complaints": store.get_complaints(user_id),
+        "preloaded_chats": _PRELOADED_CHATS.get(user_id, []),
+    }
 
 
 @app.get("/api/me")
@@ -222,7 +256,7 @@ def me(authorization: str | None = Header(default=None)) -> dict:
         "account": store.get_account(user_id),
         "profile": store.get_profile(user_id),
         "trips": store.get_trips(user_id),
-        "complaints": store.get_complaints(user_id),
+        **_chat_bootstrap(user_id),
     }
 
 
@@ -914,6 +948,96 @@ async def chat_endpoint(
             "trace": [],
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+# --- Demo preload -------------------------------------------------------------------
+
+
+# Kept in sync with MONITOR_PROMPT in ui/static/app.js, which sends the same
+# text when a trip chat is opened live. A drift between the two only changes
+# the wording of the preloaded first turn, never correctness.
+DEMO_MONITOR_PROMPT = (
+    "Monitor my trip: check the live status and current disruption risk, "
+    "and tell me if I need to do anything."
+)
+
+
+@app.post("/api/demo/preload")
+async def preload_demo_chats_endpoint(
+    body: PreloadRequest, authorization: str | None = Header(default=None)
+) -> dict:
+    """Warm the expensive first chat turn for one or more trips, ahead of a demo.
+
+    Runs exactly what opening a trip chat would run, then parks the result in
+    ``_PRELOADED_CHATS`` so the browser can adopt the finished conversation
+    instead of waiting on the orchestrator during a presentation. The ADK
+    session created here stays live in this process, so the chat can be
+    *continued* — the agent keeps its memory for the rest of the server's life.
+
+    Driven by ``scripts/preload_demo_chats.py``; see that script for the demo
+    preparation sequence.
+    """
+    user_id = _user_id(authorization)
+    account = store.get_account(user_id)
+    profile = store.get_profile(user_id) or {}
+    # The proactive WhatsApp alert is opt-in here: preloading happens *before*
+    # the presentation, so firing it by default would send the notice to the
+    # presenter's phone during setup and spend the demo moment early.
+    notify_phone = (profile.get("notifications") or {}).get("phone") if body.notify else None
+
+    wanted = set(body.trip_ids or [])
+    selected = [t for t in store.get_trips(user_id) if not wanted or t["trip_id"] in wanted]
+    missing = sorted(wanted - {t["trip_id"] for t in selected})
+    if not selected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No matching trips to preload (unknown ids: {missing})." if missing
+            else "No trips imported for this account yet.",
+        )
+
+    preloaded: list[dict] = []
+    failures: list[dict] = []
+    for trip in selected:
+        try:
+            result = await chat.chat_turn(
+                None,  # fresh ADK session, so chat_turn seeds the trip context
+                body.message or DEMO_MONITOR_PROMPT,
+                trip,
+                account,
+                notify_phone=notify_phone,
+                user_id=user_id,
+            )
+            created = complaints.maybe_create_from_last_rights(user_id, trip)
+            if created:
+                result["complaint_created"] = created
+        except Exception as exc:
+            failures.append({"trip_id": trip["trip_id"], "error": f"{type(exc).__name__}: {exc}"})
+            continue
+        result["trip"] = trip
+        result["trip_id"] = trip["trip_id"]
+        preloaded.append(result)
+
+    # Replace only the trips just warmed, so preloading one trip doesn't discard
+    # a conversation warmed by an earlier run.
+    fresh_ids = {entry["trip_id"] for entry in preloaded}
+    kept = [e for e in _PRELOADED_CHATS.get(user_id, []) if e["trip_id"] not in fresh_ids]
+    _PRELOADED_CHATS[user_id] = kept + preloaded
+
+    return {
+        "preloaded": [
+            {
+                "trip_id": entry["trip_id"],
+                "session_id": entry.get("session_id"),
+                "risk_band": entry.get("risk_band"),
+                "reply_chars": len(entry.get("reply") or ""),
+                "options": len(entry.get("options") or []),
+                "complaint_created": bool(entry.get("complaint_created")),
+            }
+            for entry in preloaded
+        ],
+        "failures": failures,
+        "total_cached": len(_PRELOADED_CHATS[user_id]),
+    }
 
 
 # --- Static UI ----------------------------------------------------------------------------

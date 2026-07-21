@@ -12,13 +12,17 @@ Typical demo preparation:
 
     python scripts/check_outlook.py --login   # once: cache the MS login
     python scripts/reset_demo.py              # wipe profile/trips/complaints
-    python run_onboarding.py                  # restart the web app
+    python run_onboarding.py                  # restart the web app, leave running
+    python scripts/preload_demo_chats.py      # optional: warm the slow chats
     # then open http://127.0.0.1:8000 in a FRESH browser tab
 
 The server restart clears the in-memory sessions; the fresh tab clears the
 sessionStorage token and any persisted chat. Do NOT press "Disconnect" on the
 Outlook connection during rehearsal — that clears the token cache and the next
 connect needs the full device-code flow again.
+
+Run this BEFORE preload_demo_chats.py, never after: the preloaded conversation
+references a complaint draft that this script would delete.
 """
 
 from __future__ import annotations

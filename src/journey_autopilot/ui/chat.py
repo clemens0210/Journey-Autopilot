@@ -234,7 +234,9 @@ async def chat_turn(
 
     Args:
         session_id: ADK session id from a previous turn, or ``None`` to start a
-            new conversation.
+            new conversation. An id the runner no longer knows (the usual cause
+            is a server restart, which empties the InMemoryRunner) is treated
+            as ``None``, so the turn still completes — see ``session_restarted``.
         message: The user's chat message.
         trip: The selected trip (added as context on the first turn only).
         account: The logged-in account — its BahnCard is added to the first-turn
@@ -246,8 +248,9 @@ async def chat_turn(
         selected_option_id: Eligible option selected from that proposal.
 
     Returns:
-        ``{"session_id", "reply", "trace", "risk_band", "alert"}`` — the (new or
-        reused) session id, the orchestrator's final answer, the agent/tool
+        ``{"session_id", "session_restarted", "reply", "trace", "risk_band",
+        "alert"}`` — the (new or reused) session id, whether a dead session was
+        silently replaced, the orchestrator's final answer, the agent/tool
         trace, the detected risk band, and the disruption-alert result (or
         ``None`` when no alert was attempted).
     """
@@ -269,6 +272,26 @@ async def chat_turn(
             read_tools.clear_reroute_options(user_id, session_id)
     except Exception:
         read_tools = None  # type: ignore[assignment]
+
+    # The ADK session lives in the process-local InMemoryRunner, so a server
+    # restart invalidates every session id the browser still holds. Detect that
+    # here instead of letting run_async raise SessionNotFoundError: falling
+    # through to the create path below gives the caller a fresh, trip-seeded
+    # session and the conversation simply continues. The agent has genuinely
+    # forgotten the earlier turns, which ``session_restarted`` lets the UI say
+    # out loud rather than looking inexplicably forgetful.
+    session_restarted = False
+    if session_id:
+        known = await runner.session_service.get_session(
+            app_name=APP_NAME, user_id=user_id, session_id=session_id
+        )
+        if known is None:
+            logger.info(
+                "ADK session %s no longer exists (server restart?) — opening a fresh one",
+                session_id,
+            )
+            session_id = None
+            session_restarted = True
 
     if not session_id:
         session = await runner.session_service.create_session(
@@ -444,6 +467,7 @@ async def chat_turn(
 
     return {
         "session_id": session_id,
+        "session_restarted": session_restarted,
         "reply": reply,
         "trace": trace,
         "risk_band": risk_band,

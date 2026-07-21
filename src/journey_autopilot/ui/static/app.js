@@ -20,10 +20,16 @@ const state = {
   complaints: [],
   complaintId: null, // active detail view
   outlookEvents: [],
+  // The onboarding Outlook step ignores a pre-set connection (a demo can
+  // pre-connect Outlook so the warm-up runs the real calendar flow) and shows
+  // just the sign-in button until the presenter completes it here. This flips
+  // true only when the connect flow finishes in this session.
+  outlookConnectedThisStep: false,
   step: "welcome",
   editReturn: null, // "profile" = return target after editing
   phone: { sent: false, verifiedThisSession: false },
-  chat: null, // { sessionId, trip, messages: [...], busy } when a trip chat is open
+  chats: {}, // every conversation, keyed by chatKey(trip) — see "Chat persistence"
+  chat: null, // the open conversation: a reference into state.chats, or null
   tripDetail: null, // { trip, data, error } when the trip-detail screen is open
   book: null, // { from, to, departure, results, error } for the Book tab
 };
@@ -451,6 +457,9 @@ const renderers = {
         state.trips = data.trips;
         state.complaints = data.complaints || [];
         updateTopbarAccount();
+        // A fresh demo tab arrives here rather than through boot(), so this is
+        // where preloaded chats get picked up for a live onboarding run.
+        adoptPreloadedChats(data.preloaded_chats);
         toast(`Welcome, ${data.account.first_name}! ${data.trips.length} trips imported.`);
         // Anyone who already finished onboarding lands straight in the dashboard.
         go(data.profile.onboarding_completed ? "dashboard" : "trips");
@@ -539,7 +548,11 @@ const renderers = {
 
   // -- 4: Outlook calendar -----------------------------------------------------------
   outlook() {
-    const connected = state.profile?.connections?.outlook;
+    // Deliberately NOT state.profile.connections.outlook: a demo pre-connects
+    // Outlook so the warm-up runs the real calendar flow, but the wizard should
+    // still show the sign-in from scratch and only flip to "connected" once the
+    // presenter runs it here (which reuses the cached login instantly).
+    const connected = state.outlookConnectedThisStep;
     const events = state.outlookEvents.map((e) => `
       <div class="event-row">
         <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
@@ -571,6 +584,7 @@ const renderers = {
         const data = await api("/api/connect/outlook", { method: "DELETE" });
         state.profile = data.profile;
         state.outlookEvents = [];
+        state.outlookConnectedThisStep = false;
         renderers.outlook();
       });
     } else {
@@ -1001,8 +1015,10 @@ const renderers = {
       if (!confirm("Really delete all data? This cannot be undone.")) return;
       await api("/api/profile", { method: "DELETE" });
       sessionStorage.removeItem("ja_token");
-      sessionStorage.removeItem(CHAT_STORAGE_KEY);
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], complaints: [], complaintId: null, outlookEvents: [], editReturn: null, chat: null });
+      // Must run before state.account is cleared — chatStorageKey() reads it.
+      sessionStorage.removeItem(chatStorageKey());
+      sessionStorage.removeItem(LEGACY_CHAT_STORAGE_KEY);
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], complaints: [], complaintId: null, outlookEvents: [], outlookConnectedThisStep: false, editReturn: null, chats: {}, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -1488,37 +1504,64 @@ const renderers = {
 // Chat: send messages to the orchestrator and render the conversation
 // ---------------------------------------------------------------------------
 
-function openChat(trip = null) {
+// The automatic first turn of a trip chat. Kept as constants because
+// scripts/preload_demo_chats.py runs the same turn ahead of a demo and
+// adoptPreloadedChats() rebuilds the transcript from them — the preloaded
+// conversation must be indistinguishable from a live one. DEMO_MONITOR_PROMPT
+// in ui/server.py is the server-side copy of MONITOR_PROMPT.
+const MONITOR_PROMPT =
+  "Monitor my trip: check the live status and current disruption risk, and tell me if I need to do anything.";
+const MONITOR_NOTICE = {
+  role: "notice",
+  text: "Automatic check — the autopilot is monitoring this trip (live status, risk, calendar).",
+};
+
+function chatGreeting(trip) {
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  const greeting = trip
+  return trip
     ? `Hi ${state.account.first_name}! I'm keeping an eye on your ${trip.origin} → ${trip.destination} trip — `
       + `running a live check for you now. Ask me anything in the meantime.`
     : `Hi ${state.account.first_name}! I'm your monitoring assistant. Describe any trip — e.g. `
       + `"risk for an ICE from Cologne Hbf to Hamburg Hbf on ${tomorrow} at 09:00" — and I'll check the `
       + `delay risk, reroute options, and your calendar deadlines. No booking needed.`;
-  if (state.chat && state.chat.trip && trip && state.chat.trip.trip_id === trip.trip_id) {
-    go("chat");
-    return;
-  }
-  state.chat = {
+}
+
+function newChat(trip) {
+  const key = chatKey(trip);
+  state.chats[key] = {
+    key,
     sessionId: null,
     trip,
     busy: false,
-    messages: [{ role: "assistant", text: greeting }],
+    messages: [{ role: "assistant", text: chatGreeting(trip) }],
+    lastActiveAt: Date.now(),
   };
-  persistChat();
+  return state.chats[key];
+}
+
+function openChat(trip = null) {
+  const existing = state.chats[chatKey(trip)];
+  if (existing) {
+    // Resume: keep the transcript and the ADK session id, refresh the trip
+    // snapshot (live status may have moved since), and skip the greeting and
+    // the automatic monitoring turn below. A chat adopted from the demo
+    // preload lands here too — already complete, so nothing is re-run.
+    if (trip) existing.trip = trip;
+    existing.lastActiveAt = Date.now();
+    state.chat = existing;
+    persistChats();
+    go("chat");
+    return;
+  }
+  state.chat = newChat(trip);
+  persistChats();
   go("chat");
   // Trip chats start with an automatic monitoring turn: opening the chat IS
   // the "monitor my trip" intent, so the live status/risk check (and, on a
   // detected risk band, the proactive WhatsApp notice) runs without the user
   // having to type anything. Only once per freshly opened chat — reopening or
   // restoring a conversation never re-triggers it.
-  if (trip) {
-    runChatTurn(
-      "Monitor my trip: check the live status and current disruption risk, and tell me if I need to do anything.",
-      { display: { role: "notice", text: "Automatic check — the autopilot is monitoring this trip (live status, risk, calendar)." } },
-    );
-  }
+  if (trip) runChatTurn(MONITOR_PROMPT, { display: MONITOR_NOTICE });
 }
 
 // ---------------------------------------------------------------------------
@@ -1754,59 +1797,143 @@ function journeyHTML(data, { past = false } = {}) {
 // Chat persistence: survive a page reload within the same tab
 // ---------------------------------------------------------------------------
 
-// Chat state (sessionId, trip, messages) is mirrored into sessionStorage on
-// every render, so a full page reload within the same browser tab resumes
-// the conversation exactly where it left off — same pattern as the "ja_token"
-// auth token below.
-const CHAT_STORAGE_KEY = "ja_chat";
+// All conversations are mirrored into sessionStorage on every render, so opening
+// a second chat and coming back — or reloading the page — resumes each one
+// exactly where it left off. One entry per trip, plus one for the trip-less
+// "ask the autopilot" chat.
+//
+// sessionStorage, not localStorage, is deliberate: a transcript is only useful
+// while the agent still remembers it, and its memory lives in the server's
+// InMemoryRunner (ui/chat.py). Tying chats to the tab keeps the two roughly in
+// step and means a fresh tab is genuinely a fresh start — which is what
+// scripts/reset_demo.py assumes. Warm chats that must outlive the tab come from
+// the server instead (see adoptPreloadedChats).
+//
+// They can still fall out of step — a server restart with the tab open leaves
+// dead session ids behind. chat_turn() handles that by opening a fresh,
+// trip-seeded session and flagging ``session_restarted``; real continuity would
+// need the DatabaseSessionService in persistence/checkpointer.py.
+const CHAT_STORAGE_PREFIX = "ja_chats:";
+// Pre-multi-chat single-chat key. Never read, but "delete all data" wipes it.
+const LEGACY_CHAT_STORAGE_KEY = "ja_chat";
+const MAX_STORED_CHATS = 20;
 
-function persistChat() {
-  try {
-    if (state.chat) {
-      sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
-        sessionId: state.chat.sessionId,
-        trip: state.chat.trip,
-        messages: state.chat.messages,
+// Chats are per-account; "anon" can only occur before /api/me has resolved,
+// which is never a state we persist from.
+function chatStorageKey() {
+  return CHAT_STORAGE_PREFIX + (state.account?.user_id || "anon");
+}
+
+// One conversation per trip; the trip-less chat gets its own fixed slot.
+function chatKey(trip) {
+  return trip && trip.trip_id ? `trip:${trip.trip_id}` : "general";
+}
+
+// ``busy`` is deliberately not persisted — a turn interrupted by a reload must
+// not come back as a permanently disabled input.
+function serializeChat(chat) {
+  return {
+    key: chat.key,
+    sessionId: chat.sessionId,
+    trip: chat.trip,
+    messages: chat.messages,
+    lastActiveAt: chat.lastActiveAt || 0,
+  };
+}
+
+function persistChats() {
+  const storageKey = chatStorageKey();
+  // Most-recently-used first, so both the cap and the quota fallback below drop
+  // the least interesting conversations.
+  const ordered = Object.values(state.chats)
+    .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))
+    .slice(0, MAX_STORED_CHATS);
+  const activeKey = state.chat ? state.chat.key : null;
+  // Agent traces make transcripts bulky, so a write can blow the quota. Retry
+  // with progressively fewer conversations (oldest dropped first) until one
+  // fits: keeping recent history beats the all-or-nothing of a single attempt.
+  for (let keep = ordered.length; keep > 0; keep = Math.floor(keep / 2)) {
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify({
+        activeKey,
+        chats: ordered.slice(0, keep).map(serializeChat),
       }));
-    } else {
-      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+      return;
+    } catch {
+      // Over quota, or storage unavailable — narrow the payload and retry.
     }
+  }
+  try {
+    // Nothing fits (or storage is unusable): drop the key rather than leave a
+    // stale payload that would restore as a silently truncated conversation.
+    sessionStorage.removeItem(storageKey);
   } catch {
-    // sessionStorage can be unavailable or quota-limited; chat should still work.
+    // Private mode: chat keeps working in memory, it just won't survive a reload.
   }
 }
 
-// Rehydrates a chat that survived a page reload (called once from boot()).
-// Returns true if a chat was restored, so boot() can land on it directly
-// instead of the dashboard.
-function restoreChatState() {
-  const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
-  if (!raw) return false;
+// Rehydrates every stored conversation (called once from boot()). Returns true
+// if one of them was the active chat, so boot() can land on it directly instead
+// of the dashboard.
+function restoreChats() {
+  state.chats = {};
+  state.chat = null;
   let saved;
   try {
-    saved = JSON.parse(raw);
+    saved = JSON.parse(sessionStorage.getItem(chatStorageKey()) || "null");
   } catch {
     saved = null;
   }
-  if (!saved || !saved.trip || !saved.trip.trip_id || !Array.isArray(saved.messages)) {
-    sessionStorage.removeItem(CHAT_STORAGE_KEY);
+  if (!saved || !Array.isArray(saved.chats)) {
+    sessionStorage.removeItem(chatStorageKey());
     return false;
   }
-  // Prefer the freshly-fetched trip (from /api/me) over the stored snapshot;
-  // fall back to the snapshot if the trip is no longer in the current list.
-  const freshTrip = state.trips.find((t) => t.trip_id === saved.trip.trip_id);
-  state.chat = {
-    sessionId: saved.sessionId || null,
-    trip: freshTrip || saved.trip,
-    busy: false,
-    messages: saved.messages,
-  };
-  return true;
+  for (const entry of saved.chats) {
+    if (!entry || !entry.key || !Array.isArray(entry.messages)) continue;
+    // Prefer the freshly-fetched trip (from /api/me) over the stored snapshot;
+    // fall back to the snapshot if the trip is no longer in the current list.
+    const freshTrip = entry.trip?.trip_id
+      ? state.trips.find((t) => t.trip_id === entry.trip.trip_id)
+      : null;
+    state.chats[entry.key] = {
+      key: entry.key,
+      sessionId: entry.sessionId || null,
+      trip: freshTrip || entry.trip || null,
+      busy: false,
+      messages: entry.messages,
+      lastActiveAt: entry.lastActiveAt || 0,
+    };
+  }
+  state.chat = (saved.activeKey && state.chats[saved.activeKey]) || null;
+  return Boolean(state.chat);
 }
 
-// Reopening the trip you were already chatting about resumes that
-// conversation instead of starting over; opening a different trip still
-// starts fresh (only one conversation is kept active at a time).
+
+function adoptPreloadedChats(entries) {
+  let adopted = 0;
+  for (const entry of entries || []) {
+    if (!entry || !entry.trip || !entry.session_id || entry.error) continue;
+    const key = chatKey(entry.trip);
+    if (state.chats[key]) continue;
+    const freshTrip = state.trips.find((t) => t.trip_id === entry.trip.trip_id) || entry.trip;
+    const chat = newChat(freshTrip);
+    chat.sessionId = entry.session_id;
+    chat.messages.push(MONITOR_NOTICE, assistantMessage(entry));
+    if (entry.complaint_created) {
+      // No toast here (unlike a live turn): the complaint is already in the
+      // list /api/me just returned, so announcing it on boot would be noise.
+      chat.messages.push({
+        role: "notice",
+        text: `Drafted a complaint for this trip — est. ${fmtEur(entry.complaint_created.compensation_eur)} compensation.`,
+        complaintId: entry.complaint_created.complaint_id,
+      });
+    }
+    adopted++;
+  }
+  if (adopted) persistChats();
+  return adopted;
+}
+
 function renderTrace(trace) {
   const lines = trace.map((t) => {
     if (t.kind === "call") return `<div class="trace-line"><span class="ag">${escapeHtml(t.author)}</span> → calls <b>${escapeHtml(t.name)}()</b></div>`;
@@ -1908,7 +2035,7 @@ function renderMarkdown(src) {
 }
 
 function renderChatLog() {
-  persistChat();
+  persistChats();
   const log = $("#chat-log");
   if (!log) return;
   const parts = state.chat.messages.map((m, messageIndex) => {
@@ -2124,6 +2251,24 @@ async function onChatSubmit(ev) {
   await runChatTurn(text);
 }
 
+// Builds the assistant bubble from a /api/chat response. Shared with
+// adoptPreloadedChats() so a preloaded conversation renders identically to a
+// live one — option cards, trace, proposal id and all.
+function assistantMessage(data) {
+  return {
+    role: "assistant",
+    text: data.reply,
+    trace: data.trace,
+    options: data.options || null,
+    fallbackOptions: data.fallback_options || null,
+    optionsSource: data.options_source || null,
+    recommendedOptionId: data.recommended_option_id || null,
+    rejectedSummary: data.rejected_summary || null,
+    proposalId: data.proposal_id || null,
+    proposalExpiresAt: data.proposal_expires_at || null,
+  };
+}
+
 // One chat turn against the orchestrator. ``display`` overrides the bubble
 // shown for this turn (the auto-monitor turn shows a notice instead of a
 // fake user message); the ``text`` is what the agent actually receives.
@@ -2131,6 +2276,7 @@ async function runChatTurn(text, { display = null, selection = null } = {}) {
   if (state.chat.busy) return;
   state.chat.messages.push(display || { role: "user", text });
   state.chat.busy = true;
+  state.chat.lastActiveAt = Date.now(); // keeps the MRU order used when pruning
   if ($("#chat-send")) $("#chat-send").disabled = true;
   renderChatLog();
 
@@ -2147,6 +2293,17 @@ async function runChatTurn(text, { display = null, selection = null } = {}) {
       },
     });
     if (data.session_id) chat.sessionId = data.session_id;
+    // chat_turn() silently opened a fresh ADK session because the old one died
+    // with a server restart, and re-seeded it with this trip. The transcript
+    // above is still ours, but the agent no longer remembers it — say so
+    // rather than letting it look inexplicably forgetful.
+    if (data.session_restarted) {
+      chat.messages.push({
+        role: "notice",
+        text: "The server restarted, so the autopilot lost the earlier conversation. "
+          + "It picked this trip's details back up and answered from there.",
+      });
+    }
     if (data.error) {
       chat.messages.push({ role: "error", text: data.error });
     } else {
@@ -2165,18 +2322,7 @@ async function runChatTurn(text, { display = null, selection = null } = {}) {
           toast(`⚠️ Could not send WhatsApp notice: ${data.alert.error}`, 7000);
         }
       }
-      chat.messages.push({
-        role: "assistant",
-        text: data.reply,
-        trace: data.trace,
-        options: data.options || null,
-        fallbackOptions: data.fallback_options || null,
-        optionsSource: data.options_source || null,
-        recommendedOptionId: data.recommended_option_id || null,
-        rejectedSummary: data.rejected_summary || null,
-        proposalId: data.proposal_id || null,
-        proposalExpiresAt: data.proposal_expires_at || null,
-      });
+      chat.messages.push(assistantMessage(data));
       if (data.complaint_created) {
         handleComplaintCreated(data.complaint_created);
         chat.messages.push({
@@ -2190,6 +2336,10 @@ async function runChatTurn(text, { display = null, selection = null } = {}) {
     chat.messages.push({ role: "error", text: err.message });
   } finally {
     chat.busy = false;
+    // Persist unconditionally: if the user opened another conversation while
+    // this turn was in flight, renderChatLog() below won't run, and the reply
+    // would otherwise live only in memory until the next reload dropped it.
+    persistChats();
     if (state.chat === chat) {
       if ($("#chat-send")) $("#chat-send").disabled = false;
       renderChatLog();
@@ -2268,6 +2418,7 @@ async function pollOutlookStatus(container) {
       if (data.status === "complete") {
         state.profile = data.profile;
         state.outlookEvents = data.events || [];
+        state.outlookConnectedThisStep = true;
         toast(`✓ Outlook connected — ${(data.events || []).length} events detected`);
         renderers[state.step]?.();
         return;
@@ -2428,10 +2579,12 @@ async function onDeleteTripClick(ev) {
   try {
     const data = await api(`/api/trips/${encodeURIComponent(tripId)}`, { method: "DELETE" });
     state.trips = data.trips;
-    // If the deleted trip was the one open in the chat, drop the chat too.
-    if (state.chat && state.chat.trip && state.chat.trip.trip_id === tripId) {
-      state.chat = null;
-      persistChat();
+    // The deleted trip's conversation goes with it; other chats are untouched.
+    const deletedKey = chatKey({ trip_id: tripId });
+    if (state.chats[deletedKey]) {
+      if (state.chat === state.chats[deletedKey]) state.chat = null;
+      delete state.chats[deletedKey];
+      persistChats();
     }
     toast("✓ Trip deleted");
     // Trash buttons only appear on the dashboard (trips page); stay there.
@@ -2495,9 +2648,14 @@ async function boot() {
       // Active session: users who finished onboarding land in the dashboard,
       // everyone else continues after the login step. A chat in progress
       // (this browser tab, same session) takes priority over the dashboard.
+      // Stored chats win over preloaded ones; adopt runs second and only fills
+      // trips the browser has no conversation for.
       if (state.profile.onboarding_completed) {
-        go(restoreChatState() ? "chat" : "dashboard");
+        const resumed = restoreChats();
+        adoptPreloadedChats(data.preloaded_chats);
+        go(resumed ? "chat" : "dashboard");
       } else {
+        adoptPreloadedChats(data.preloaded_chats);
         go("trips");
       }
       return;
