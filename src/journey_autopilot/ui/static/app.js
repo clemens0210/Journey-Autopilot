@@ -20,6 +20,11 @@ const state = {
   complaints: [],
   complaintId: null, // active detail view
   outlookEvents: [],
+  // The onboarding Outlook step ignores a pre-set connection (a demo can
+  // pre-connect Outlook so the warm-up runs the real calendar flow) and shows
+  // just the sign-in button until the presenter completes it here. This flips
+  // true only when the connect flow finishes in this session.
+  outlookConnectedThisStep: false,
   step: "welcome",
   editReturn: null, // "profile" = return target after editing
   phone: { sent: false, verifiedThisSession: false },
@@ -543,7 +548,11 @@ const renderers = {
 
   // -- 4: Outlook calendar -----------------------------------------------------------
   outlook() {
-    const connected = state.profile?.connections?.outlook;
+    // Deliberately NOT state.profile.connections.outlook: a demo pre-connects
+    // Outlook so the warm-up runs the real calendar flow, but the wizard should
+    // still show the sign-in from scratch and only flip to "connected" once the
+    // presenter runs it here (which reuses the cached login instantly).
+    const connected = state.outlookConnectedThisStep;
     const events = state.outlookEvents.map((e) => `
       <div class="event-row">
         <span class="event-when">${fmtDate(e.start).slice(0, 10)}<br>${fmtTime(e.start)}</span>
@@ -575,6 +584,7 @@ const renderers = {
         const data = await api("/api/connect/outlook", { method: "DELETE" });
         state.profile = data.profile;
         state.outlookEvents = [];
+        state.outlookConnectedThisStep = false;
         renderers.outlook();
       });
     } else {
@@ -1008,7 +1018,7 @@ const renderers = {
       // Must run before state.account is cleared — chatStorageKey() reads it.
       sessionStorage.removeItem(chatStorageKey());
       sessionStorage.removeItem(LEGACY_CHAT_STORAGE_KEY);
-      Object.assign(state, { token: null, account: null, profile: null, trips: [], complaints: [], complaintId: null, outlookEvents: [], editReturn: null, chats: {}, chat: null });
+      Object.assign(state, { token: null, account: null, profile: null, trips: [], complaints: [], complaintId: null, outlookEvents: [], outlookConnectedThisStep: false, editReturn: null, chats: {}, chat: null });
       updateTopbarAccount();
       toast("All data deleted. See you soon!");
       go("welcome");
@@ -2408,6 +2418,7 @@ async function pollOutlookStatus(container) {
       if (data.status === "complete") {
         state.profile = data.profile;
         state.outlookEvents = data.events || [];
+        state.outlookConnectedThisStep = true;
         toast(`✓ Outlook connected — ${(data.events || []).length} events detected`);
         renderers[state.step]?.();
         return;

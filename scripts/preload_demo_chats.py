@@ -22,6 +22,16 @@ after this script: it would delete the complaint draft the preloaded chat
 refers to. Restarting the server also discards the warm-up (the ADK sessions
 die with the process); just run this script again.
 
+Before warming, this script also connects Outlook (calendar + mail), reusing
+the cached Microsoft login so the connect is silent — no device-code round
+trip. That is what makes the warm-up run the *real* calendar check and
+notice-email flow instead of the mock fallback (the agent only reads the live
+calendar when ``profile.connections.outlook`` is set). This pre-connection is
+invisible in the wizard: the Outlook step still starts from the "Sign in with
+Microsoft" button and only shows "Connected" + the detected events once the
+presenter runs the sign-in there (which reuses the cached login instantly).
+Pass --no-connect-outlook to skip this and warm against the mock calendar.
+
 By default the proactive WhatsApp notice is NOT sent, so the alert isn't spent
 during setup — pass --notify if you want it fired now instead.
 """
@@ -30,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 _SRC = Path(__file__).resolve().parents[1] / "src"
@@ -59,6 +70,73 @@ DEFAULT_TRIP_IDS = [DEMO_TRIP_ID, "DB-FRA-MUC"]
 # A warm-up turn runs the whole agent graph; the LLM backend makes this slow.
 PRELOAD_TIMEOUT_S = 600.0
 
+# The cached Microsoft login makes the connect instant, but poll a little in
+# case the server is momentarily busy identifying the signed-in account.
+OUTLOOK_CONNECT_TIMEOUT_S = 60.0
+
+
+def connect_outlook(client: httpx.Client, token: str) -> None:
+    """Connect Outlook (calendar + mail) on the server before warming chats.
+
+    The agent only reads the *live* calendar (and drafts the notice email
+    against the real organizer) when ``profile.connections.outlook`` is set —
+    otherwise it falls back to the mock calendar. Connecting here therefore
+    makes the warm-up exercise the same Graph calendar/Mail.Send path as the
+    live demo. Relies on a cached Microsoft login (``scripts/check_outlook.py
+    --login`` or an earlier onboarding run) so the connect completes silently.
+    """
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        start = client.post("/api/connect/outlook/start", headers=headers)
+    except httpx.HTTPError as exc:
+        print(f"  ! Outlook connect skipped (request failed: {exc}).")
+        return
+    if start.status_code != 200:
+        print(f"  ! Outlook connect skipped ({start.status_code}): {start.text}")
+        return
+    mode = start.json().get("mode")
+
+    if mode == "simulated":
+        # No Entra app configured — grant the simulated consent so the flag is
+        # set and the warm-up still runs with Outlook "on" (mock calendar).
+        resp = client.post(
+            "/api/connect/outlook", headers=headers, json={"consent": True}
+        )
+        if resp.status_code == 200:
+            print("  ✓ Outlook connected (simulated — no Entra app configured).")
+        else:
+            print(f"  ! Outlook connect failed ({resp.status_code}): {resp.text}")
+        return
+
+    if mode != "cached":
+        # No cached login to reuse: /start began a real device-code flow that
+        # needs a human at microsoft.com, which defeats unattended preloading.
+        print("  ! No cached Microsoft login — Outlook needs an interactive "
+              "sign-in. Run `python scripts/check_outlook.py --login` first, "
+              "then re-run this script (or pass --no-connect-outlook).")
+        return
+
+    # Cached login reused — poll /status until the connection completes.
+    deadline = time.monotonic() + OUTLOOK_CONNECT_TIMEOUT_S
+    while time.monotonic() < deadline:
+        status = client.get("/api/connect/outlook/status", headers=headers)
+        if status.status_code != 200:
+            print(f"  ! Outlook status failed ({status.status_code}): {status.text}")
+            return
+        data = status.json()
+        state = data.get("status")
+        if state == "complete":
+            account = (data.get("account") or {}).get("email") or "connected account"
+            events = len(data.get("events") or [])
+            print(f"  ✓ Outlook connected as {account} — {events} calendar event(s) visible.")
+            return
+        if state in ("error", "expired", "none"):
+            print(f"  ! Outlook connect did not complete (status={state}"
+                  + (f": {data['error']}" if data.get("error") else "") + ").")
+            return
+        time.sleep(1.0)
+    print("  ! Outlook connect timed out — warm-up will use the mock calendar.")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -83,6 +161,13 @@ def main() -> int:
         help="Send the proactive WhatsApp notice now (off by default, so the "
              "alert isn't spent before the demo starts).",
     )
+    parser.add_argument(
+        "--no-connect-outlook",
+        action="store_true",
+        help="Skip pre-connecting Outlook. By default the script connects the "
+             "calendar + mail (reusing a cached MS login) so the warm-up runs "
+             "the real calendar/email flow instead of the mock fallback.",
+    )
     args = parser.parse_args()
 
     base = args.base_url.rstrip("/")
@@ -103,6 +188,10 @@ def main() -> int:
         data = login.json()
         token = data["token"]
         print(f"Logged in as {data['account']['display_name']} — {len(data['trips'])} trips imported.")
+
+        if not args.no_connect_outlook:
+            print("Connecting Outlook (calendar + mail) so the warm-up uses the real flow…")
+            connect_outlook(client, token)
 
         targets = trip_ids or [t["trip_id"] for t in data["trips"]]
         print(f"Warming {len(targets)} chat(s): {', '.join(targets)}")
