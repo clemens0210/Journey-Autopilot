@@ -2,24 +2,27 @@
 
 The write-side agent that talks to the traveler and participants. Two shapes:
 
-- ``build_communicator_agent(role)`` — the WhatsApp drafter, parametrized by
-  recipient ``role`` and driven directly (its own ``InMemoryRunner``) rather
-  than wrapped as an ``AgentTool`` on the Orchestrator — that draft is
-  bracketed by the WhatsApp veto gate, not chosen inside the ReAct loop.
-- ``build_email_communicator_agent()`` — the notice-email drafter, wrapped as
-  an ``AgentTool`` on the Orchestrator. Its veto gate lives in the write
-  tools: ``propose_appointment_notice_email`` stages a draft (shown to the
-  user in the chat) and ``send_approved_notice_email`` fires only with the
+- ``build_email_communicator_agent()`` — the notice-email drafter and the
+  Communicator of the architecture diagram: wrapped as an ``AgentTool`` on the
+  Orchestrator, holding the Outlook Mail capability. Its veto gate lives in the
+  write tools: ``propose_appointment_notice_email`` stages a draft (shown to
+  the user in the chat) and ``send_approved_notice_email`` fires only with the
   approval id AFTER the user said yes.
+- ``build_communicator_agent(role)`` — a second, standalone drafter for the
+  WhatsApp *approval-queue* demo. It is deliberately NOT on the Orchestrator:
+  that flow is bracketed by the queue's own YES/NO/EDIT veto rather than chosen
+  inside the ReAct loop, and it is driven directly by ``scenarios/happy_path.py``
+  through its own ``InMemoryRunner``.
 
-The remaining functionality (Twilio sending, approval/veto queue) lives in
+Not to be confused with the Orchestrator's ``send_whatsapp_to_user``: that is a
+one-way push to the traveler themselves and needs no draft or approval, because
+the traveler is both the recipient and the channel the veto arrives through.
+The Twilio sender and the approval/veto queue live in
 ``integrations/whatsapp.py``; inbound YES/NO/EDIT traffic is handled by
 ``integrations/whatsapp_webhook.py``.
 """
 
 from __future__ import annotations
-
-import asyncio
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import InMemoryRunner
@@ -27,10 +30,7 @@ from google.genai import types
 
 from ..config import DRAFTER_MODEL
 from ..integrations.whatsapp_models import DisruptionEvent, Recipient
-from ..tools.write_tools import (
-    propose_appointment_notice_email,
-    send_approved_notice_email,
-)
+from ..tools.write_tools import COMMUNICATOR_WRITE_TOOLS
 
 _APP_NAME = "whatsapp_drafter"
 _USER_ID = "drafter"
@@ -113,9 +113,11 @@ STRICT RULES:
 def build_email_communicator_agent() -> LlmAgent:
     """Creates the email Communicator LlmAgent (draft -> user veto -> send).
 
-    Wrapped as an ``AgentTool`` on the Orchestrator. Holds the only two write
-    tools in the system; the propose/approve split in ``tools/write_tools.py``
-    enforces the veto gate regardless of what the LLM does.
+    Wrapped as an ``AgentTool`` on the Orchestrator. It is the only agent that
+    can reach a third party; the propose/approve split in
+    ``tools/write_tools.py`` enforces the veto gate regardless of what the LLM
+    does, because the send tool needs an approval id that only a staged draft
+    produces.
     """
     return LlmAgent(
         name="communicator_agent",
@@ -127,10 +129,7 @@ def build_email_communicator_agent() -> LlmAgent:
             "never sends unasked."
         ),
         instruction=EMAIL_COMMUNICATOR_INSTRUCTION,
-        tools=[
-            propose_appointment_notice_email,
-            send_approved_notice_email,
-        ],
+        tools=list(COMMUNICATOR_WRITE_TOOLS),
     )
 
 
@@ -170,6 +169,3 @@ async def draft_message_async(event: DisruptionEvent, recipient: Recipient) -> s
     return draft.strip()
 
 
-def draft_message(event: DisruptionEvent, recipient: Recipient) -> str:
-    """Synchronous wrapper — only call from a pure sync context."""
-    return asyncio.run(draft_message_async(event, recipient))

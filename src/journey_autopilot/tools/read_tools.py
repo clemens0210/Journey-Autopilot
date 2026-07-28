@@ -25,7 +25,10 @@ from .. import mock_data, risk
 from . import risk_model
 from ..config import REROUTE_MAX_ADDED_DELAY_MINUTES, REROUTE_MAX_OPTIONS
 from ..errors import with_resilience, with_resilience_async
-from ..integrations.rights_rag.rights_service import calculate_compensation
+from ..integrations.rights_rag.rights_service import (
+    calculate_compensation,
+    evaluate_travel_rights,
+)
 from ..integrations import db_ops as db_api
 from ..integrations import hotels as hotels_api
 from ..integrations import stations
@@ -818,11 +821,6 @@ def _profile_reroute_preferences() -> dict:
         return dict(_REROUTE_PREFERENCE_DEFAULTS)
 
 
-def _profile_max_transfers(default: int = 2) -> int:
-    """Backward-compatible accessor used by focused checks and callers."""
-    return _profile_reroute_preferences().get("max_transfers", default)
-
-
 def _reroute_sort_key(opt: dict) -> tuple:
     """Order discovery candidates by earliest arrival, then transfers/cost.
 
@@ -1461,11 +1459,11 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     if not (_calendar_configured() and _outlook_connected()):
         return {"date": date, "events": mock_events, "source": "mock"}
 
-    # Short-lived cache: the Planner reads the calendar once for the overview
-    # and once more per reroute option (get_calendar_conflicts) — all within
-    # one planning run and all for the same date. Serving those from a 60s
-    # cache turns N+1 Graph round-trips into one; failed fetches are never
-    # cached so a Graph hiccup can recover on the next call.
+    # Short-lived cache: within one turn the same date is read by the batched
+    # option check, and again by the Executor's fresh clash revalidation at
+    # execution time. Serving those from a 60s cache turns repeated Graph
+    # round-trips into one; failed fetches are never cached so a Graph hiccup
+    # can recover on the next call.
     try:
         from journey_autopilot.request_context import current_user_id
 
@@ -1537,8 +1535,10 @@ def _classify_window_conflicts(
     Returns ``None`` when no usable arrival estimate was given; otherwise a
     dict with ``conflicts`` (events tagged ``during_trip`` /
     ``at_risk_if_delayed``), ``hard_conflicts``, ``unparsed_events``, and
-    ``departure_known``. Used by ``get_calendar_conflicts`` (one window) and
-    ``check_options_against_calendar`` (one window per reroute option).
+    ``departure_known``. Shared by ``check_options_against_calendar`` (one
+    window per reroute option, at discovery time) and
+    ``write_tools._fresh_calendar_clash`` (one window, at execution time), so
+    the two can't diverge on what counts as a clash.
     """
     departure = _parse_trip_time(date, planned_departure)
     expected = _parse_trip_time(date, expected_arrival)
@@ -1573,93 +1573,6 @@ def _classify_window_conflicts(
     }
 
 
-async def get_calendar_conflicts(
-    date: str,
-    planned_departure: str = "",
-    expected_arrival: str = "",
-    latest_arrival: str = "",
-    user_email: str | None = None,
-) -> dict:
-    """Checks the user's calendar for appointments that clash with a trip.
-
-    Deterministically compares each appointment on the travel date against a
-    trip window — use it to gate a planned trip or a single reroute option on
-    the appointments the traveler would miss because of the arrival time or
-    its delay. Reads the same calendar source as ``get_user_calendar``
-    (Outlook when connected, mock otherwise).
-
-    Classification per appointment (a travel buffer of 30 minutes from the
-    station to the appointment is applied):
-      - ``during_trip``: starts after the departure but before the expected
-        arrival + buffer — missed even without additional delay.
-      - ``at_risk_if_delayed``: reachable at the expected arrival, but missed
-        at the unfavorable (latest) arrival.
-      - Appointments before the departure or reachable even in the unfavorable
-        case are counted as clear and not listed.
-
-    Args:
-        date: Travel date in "YYYY-MM-DD" format, e.g. "2026-06-19".
-        planned_departure: Planned departure — ISO datetime or "HH:MM".
-        expected_arrival: Typical expected arrival (planned arrival + expected
-            delay) — ISO datetime or "HH:MM".
-        latest_arrival: Unfavorable-case arrival (e.g. planned arrival + p90
-            delay) — ISO datetime or "HH:MM". Optional; defaults to
-            ``expected_arrival``.
-        user_email: Optional email of another user whose calendar to query.
-
-    Returns:
-        A dict with ``conflicts`` (each clashing appointment incl. its
-        ``clash`` kind and ``hard_constraint`` flag), ``hard_conflicts``
-        (count of clashing non-negotiable appointments), ``events_checked``,
-        ``clear_events``, ``buffer_minutes``, and the calendar ``source``.
-        Contains "error" if no usable arrival estimate was provided.
-    """
-    calendar = await get_user_calendar(date, user_email)
-    events = calendar.get("events", [])
-
-    classified = _classify_window_conflicts(
-        events, date, planned_departure, expected_arrival, latest_arrival
-    )
-    if classified is None:
-        return {
-            "date": date,
-            "events_checked": len(events),
-            "error": (
-                "No usable arrival estimate — pass expected_arrival (and ideally "
-                "latest_arrival) as ISO datetime or HH:MM."
-            ),
-            "source": calendar.get("source"),
-        }
-    conflicts = classified["conflicts"]
-    unparsed = classified["unparsed_events"]
-
-    result = {
-        "date": date,
-        "trip_window": {
-            "planned_departure": planned_departure or None,
-            "expected_arrival": expected_arrival or None,
-            "latest_arrival": latest_arrival or None,
-        },
-        "buffer_minutes": CALENDAR_TRAVEL_BUFFER_MINUTES,
-        "events_checked": len(events),
-        "conflicts": conflicts,
-        "hard_conflicts": classified["hard_conflicts"],
-        "clear_events": len(events) - len(conflicts) - unparsed,
-        "source": calendar.get("source"),
-    }
-    if unparsed:
-        result["unparsed_events"] = unparsed
-    if not classified["departure_known"] and events:
-        result["warning"] = (
-            "planned_departure was not provided — appointments before the "
-            "trip could not be excluded and may be misclassified as "
-            "during_trip. Pass the departure time for a reliable result."
-        )
-    if calendar.get("error"):
-        result["calendar_error"] = calendar["error"]
-    return result
-
-
 async def check_options_against_calendar(
     date: str,
     planned_departure: str = "",
@@ -1667,10 +1580,9 @@ async def check_options_against_calendar(
 ) -> dict:
     """Checks ALL reroute options found this turn against the calendar at once.
 
-    Call this ONCE after ``find_reroute_options`` (and any ecosystem tools)
-    instead of checking options one by one with ``get_calendar_conflicts``.
-    It reads the options gathered in this planning turn, fetches the calendar
-    a single time, and returns a per-option verdict.
+    Call this ONCE after ``find_reroute_options`` (and any ecosystem tools),
+    not once per option. It reads the options gathered in this planning turn,
+    fetches the calendar a single time, and returns a per-option verdict.
 
     Args:
         date: Travel date in "YYYY-MM-DD" format, e.g. "2026-06-19".
@@ -2119,25 +2031,6 @@ def get_user_profile() -> dict:
     return profile
 
 
-def get_upcoming_trips() -> dict:
-    """Returns the user's upcoming trips imported during onboarding.
-
-    Returns:
-        A dict with the list of monitored trips (trip_id, origin, destination,
-        train, scheduled times). Falls back to the demo trip if onboarding has
-        not been completed yet.
-    """
-    try:
-        from journey_autopilot.persistence import store
-
-        profile = store.any_profile()
-        if profile is not None:
-            return {"trips": store.get_trips(profile["user_id"])}
-    except Exception:
-        pass
-    return {"trips": [mock_data.DEMO_TRIP], "note": "Fallback: demo trip (no onboarding profile)."}
-
-
 # get_passenger_rights is a Planner tool, and the Planner is only reachable
 # through an AgentTool (the orchestrator calls it as a nested agent). ADK's
 # AgentTool runs the wrapped agent in its own internal Runner and forwards
@@ -2156,7 +2049,13 @@ _LAST_RIGHTS: dict | None = None
 
 
 def last_passenger_rights() -> dict | None:
-    """Returns the most recent get_passenger_rights result, or None."""
+    """Returns the most recent settled rights result, or None.
+
+    Only a ``trip_concluded=True`` lookup lands here. A mid-trip entitlement
+    check (Zugbindung and friends) deliberately does not, so neither the
+    automatic complaint draft nor the Executor's claim can ever be built from a
+    delay the traveler has not actually experienced.
+    """
     return _LAST_RIGHTS
 
 
@@ -2166,42 +2065,8 @@ def clear_passenger_rights() -> None:
     _LAST_RIGHTS = None
 
 
-def get_passenger_rights(
-    delay_minutes: int,
-    ticket_type: str = "einzelticket",
-    price_paid: float = 0.0,
-    travel_class: int = 2,
-    bahncard_type: str = "keine",
-) -> dict:
-    """Determines passenger rights and calculates the concrete compensation claim.
-
-    Combines two sources:
-      1. Deterministic rule logic (rights_service) → exact EUR amount
-      2. RAG search in ChromaDB → legal context chunks from bahn.de
-
-    Args:
-        delay_minutes:  Expected arrival delay at destination in minutes.
-        ticket_type:    Ticket type: "einzelticket" | "zeitkarte_fv" |
-                        "zeitkarte_nv" | "bc100" | "deutschland_ticket".
-        price_paid:     Ticket price paid in EUR (relevant for single tickets).
-        travel_class:   Travel class, 1 or 2 (default: 2).
-        bahncard_type:  User's BahnCard: "keine" | "bc25" | "bc50" | "bc100".
-
-    Returns:
-        Dict with calculated compensation claim, legal context chunks, and
-        the bahn.de source URLs those chunks came from (``legal_sources``).
-    """
-    # 1. Deterministic calculation — no LLM, no network
-    compensation = calculate_compensation(
-        delay_minutes=delay_minutes,
-        ticket_type=ticket_type,
-        price_paid=price_paid,
-        travel_class=travel_class,
-        bahncard_type=bahncard_type,
-    )
-
-    # 2. RAG context for the agent — semantically matching chunks, with the
-    # bahn.de page each one came from so the claim can cite a source.
+def _legal_context(delay_minutes: int, ticket_type: str, bahncard_type: str) -> tuple[str, list[str]]:
+    """RAG context chunks plus the bahn.de pages they came from."""
     try:
         rag = _get_or_build_rag()
         chunks = rag.retrieve_for_case(
@@ -2209,18 +2074,102 @@ def get_passenger_rights(
             ticket_type=ticket_type,
             bahncard_type=bahncard_type,
         )
-        legal_context = "\n\n--- Next Section ---\n".join(c["text"] for c in chunks)
-        legal_sources = sorted({c["source"] for c in chunks if c.get("source")})
+        return (
+            "\n\n--- Next Section ---\n".join(c["text"] for c in chunks),
+            sorted({c["source"] for c in chunks if c.get("source")}),
+        )
     except Exception:
-        legal_context = "Knowledge base temporarily unavailable."
-        legal_sources = []
+        return "Knowledge base temporarily unavailable.", []
 
-    result = {
+
+def get_passenger_rights(
+    delay_minutes: int,
+    ticket_type: str = "einzelticket",
+    price_paid: float = 0.0,
+    travel_class: int = 2,
+    bahncard_type: str = "keine",
+    trip_concluded: bool = False,
+    last_train_of_day: bool = False,
+) -> dict:
+    """Looks up the traveler's passenger rights for a delay. Files nothing.
+
+    This is the READ half of passenger rights — it tells the traveler what they
+    are entitled to. Actually filing a compensation claim is a separate,
+    policy-gated Executor action (``file_compensation_claim``); this tool never
+    files anything and never needs approval.
+
+    What it returns depends on where the trip is:
+
+    - **Trip still running** (``trip_concluded=False``, the default): the
+      entitlements that govern the reroute decision — above all whether the
+      ticket's Zugbindung (train binding) has been lifted, so the existing
+      ticket is valid on another connection. NO compensation amount: the delay
+      is still a forecast, and a forecast cannot be settled.
+    - **Trip concluded** (``trip_concluded=True``, a confirmed final delay):
+      additionally the exact compensation the traveler can claim, computed
+      deterministically from the fare. Only this branch produces the figure the
+      Executor later files a claim with.
+
+    Args:
+        delay_minutes:  Arrival delay at the destination in minutes — expected
+                        while running, confirmed/final once concluded.
+        ticket_type:    "einzelticket" | "sparpreis" | "super_sparpreis" |
+                        "zeitkarte_fv" | "zeitkarte_nv" | "bc100" |
+                        "deutschland_ticket".
+        price_paid:     Ticket price paid in EUR (relevant for single tickets).
+        travel_class:   Travel class, 1 or 2 (default: 2).
+        bahncard_type:  User's BahnCard: "keine" | "bc25" | "bc50" | "bc100".
+        trip_concluded: True ONLY when the trip is over and the delay above is
+                        the confirmed final one. Leave False while en route.
+        last_train_of_day: True when the delayed connection is the last
+                        scheduled one of the day (widens taxi/hotel cover).
+
+    Returns:
+        Dict with ``entitlements`` (train binding, refund, taxi/hotel cover),
+        ``legal_context`` chunks, the bahn.de ``legal_sources`` they came from,
+        and — only when ``trip_concluded`` — the ``compensation`` block.
+    """
+    entitlements = evaluate_travel_rights(
+        delay_minutes=delay_minutes,
+        ticket_type=ticket_type,
+        last_train_of_day=last_train_of_day,
+    )
+    legal_context, legal_sources = _legal_context(delay_minutes, ticket_type, bahncard_type)
+
+    result: dict = {
         "delay_minutes": delay_minutes,
-        **compensation,
+        "trip_concluded": trip_concluded,
+        "entitlements": entitlements,
         "legal_context": legal_context,
         "legal_sources": legal_sources,
     }
+
+    if not trip_concluded:
+        result["compensation"] = {
+            "assessable": False,
+            "note": (
+                "The trip is still running, so this delay is a forecast — a "
+                "compensation claim can only be assessed once the trip has "
+                "actually concluded. Do not quote an amount."
+            ),
+        }
+        return result
+
+    # Deterministic calculation — no LLM, no network. Flattened into the result
+    # as well as nested, because the complaint builder reads the flat keys.
+    compensation = calculate_compensation(
+        delay_minutes=delay_minutes,
+        ticket_type=ticket_type,
+        price_paid=price_paid,
+        travel_class=travel_class,
+        bahncard_type=bahncard_type,
+    )
+    result["compensation"] = {"assessable": True, **compensation}
+    result.update(compensation)
+
+    # Only a concluded trip may seed the automatic complaint draft; stashing a
+    # mid-trip forecast here would let the app file a claim for a delay the
+    # traveler has not experienced yet (see onboarding/complaints.py).
     global _LAST_RIGHTS
     _LAST_RIGHTS = result
     return result

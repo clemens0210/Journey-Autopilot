@@ -32,13 +32,18 @@ import os
 from pathlib import Path
 from typing import Literal
 
+from .state import PolicyMode
+
 logger = logging.getLogger(__name__)
 
 Resolution = Literal["auto", "ask"]
-PolicyMode = Literal["conservative", "balanced", "aggressive"]
 
-# The canonical set of write (side-effecting) tools, gated by this layer.
-WRITE_TOOLS = (
+# The canonical set of side-effecting actions this layer knows how to resolve.
+# These are POLICY action names, not Python tool functions — most map 1:1 onto a
+# tool in ``tools/write_tools.py``, but ``send_email_to_participants`` covers the
+# Communicator's propose/send pair. (The tool objects themselves are grouped in
+# write_tools as EXECUTOR_/ORCHESTRATOR_/COMMUNICATOR_WRITE_TOOLS.)
+GATED_ACTIONS = (
     "send_whatsapp_to_user",
     "send_email_to_participants",
     "book_alternative_connection",
@@ -172,7 +177,7 @@ def resolve(
     """Resolve a write tool to ``auto`` or ``ask`` (the veto gate decision).
 
     Args:
-        tool_name: One of ``WRITE_TOOLS``.
+        tool_name: One of ``GATED_ACTIONS``.
         profile: The user profile (carries ``autonomy`` and the ``policy`` block
             the UI writes). Usually ``store.any_profile()``.
         policy_mode: Explicit global level override (used by the eval sweep); wins

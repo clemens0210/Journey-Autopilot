@@ -287,9 +287,9 @@ notifications & autonomy level → summary → dashboard.
   station suggestions come live from the DB API (green dot), otherwise a
   static fallback list is used.
 - **Persistence:** SQLite under `src/journey_autopilot/data/journey_autopilot.db`. The agents read
-  the profile via the `get_user_profile` / `get_upcoming_trips` tools — the
-  Planner weighs reroute options using it. GDPR deletion with one click in the
-  dashboard.
+  the profile via the `get_user_profile` tool — the Planner weighs reroute
+  options using it, and the policy layer reads the autonomy settings from it.
+  GDPR deletion with one click in the dashboard.
 
 ### Webhook server (receive WhatsApp replies)
 
@@ -338,13 +338,23 @@ is deliberately mocked.
   interfaces.
 - **Persistence** (`persistence/store.py`) — SQLite profile/constraints/trips.
 - **Policy layer / veto gate** (`policy.py`, `tools/write_tools.py`,
-  `agents/executor.py`) — `policy.resolve()` maps each write tool to `auto`/`ask`
+  `agents/executor.py`) — `policy.resolve()` maps each write action to `auto`/`ask`
   from `config/policy.yaml`, shifted by a global autonomy level and overridden by
   the user's profile (`policy` block, set in the "Automation & veto" UI). The
-  Executor holds the (simulated) write tools; a gated action returns
-  `veto_required` and only fires after the user approves in the chat.
-- **Scaffolds** (target architecture, not yet wired): `state.py`, `errors.py`,
-  `persistence/checkpointer.py`, plus `scenarios/`, `baseline/`, `eval/`.
+  Executor holds the plan-changing write tools (reroute, hotel, calendar
+  reschedule, compensation claim); a gated action returns `veto_required` and
+  only fires after the user approves in the chat. None of them accepts a cost,
+  a delay, or an appointment's firmness from conversation text — each reads it
+  from authoritative state (`proposal_id`, the settled rights result, the
+  calendar itself).
+- **Outbound channels** — the two edges that leave the agent graph both belong
+  to the Orchestrator: its chat reply, and `send_whatsapp_to_user`, a real
+  Twilio push to the traveler's verified number. It is never policy-gated (the
+  traveler is the recipient *and* the veto channel) but is limited to one send
+  per turn by the tool itself. Email to a third party is the Communicator's,
+  behind its propose → approve → send gate.
+- **Scaffolds** (target architecture, not yet wired): `errors.py`, plus
+  `scenarios/`, `baseline/`.
 - **Docker** (`Dockerfile`, `docker-compose.yml`, `docker_entrypoint.py`) —
   containerized web app + DB sidecar; see "Onboarding, Profile & Trip Chat".
 - **Model Configuration** (`config.py`) — a single place where the model is set
@@ -353,25 +363,27 @@ is deliberately mocked.
 ### File Layout
 
 ```
-config/                        # policy.yaml, settings.yaml (scaffold)
+config/                        # policy.yaml (veto gate), settings.yaml (models, gate threshold)
 data/                          # sqlite + chromadb (gitignored)
 docs/adr/                      # architecture decision records
-scenarios/                     # happy_path.py + edge/failure stubs
-scripts/                       # check_db, calendar_demo, run_crawler, build_*
-baseline/  eval/               # naive baseline + eval harness (stubs)
+scenarios/                     # happy_path.py, no_train_alternative.py
+scripts/                       # check_db, check_outlook, calendar_demo, run_crawler, build_*
+baseline/                      # naive single-shot baseline (no agents, no tools)
 src/journey_autopilot/
   __init__.py                  # package marker (adk discovery)
   agent.py                     # shim: re-exports root_agent for adk
-  orchestrator.py              # Orchestrator (root_agent, ReAct)
-  state.py  errors.py        # context record + error policy (scaffold)
-  policy.py                  # veto gate: resolves write tools auto/ask (active)
+  orchestrator.py              # Orchestrator (root_agent, ReAct) + its WhatsApp output
+  state.py                   # shared typed vocabulary (ToolFailure, PolicyMode)
+  errors.py                  # retry -> fallback -> degrade wrapper
+  policy.py                  # veto gate: resolves write actions auto/ask (active)
+  request_context.py         # per-turn identity, phone, and result sinks
   config.py  mock_data.py
   agents/      monitoring.py  planner.py  communicator.py  executor.py
   tools/       read_tools.py  write_tools.py  risk_model.py
   integrations/  db_ops.py  stations.py  outlook/  whatsapp.py  whatsapp_webhook.py
                  whatsapp_models.py  rights_rag/
-  persistence/   store.py  checkpointer.py(stub)
-  onboarding/    accounts.py
+  persistence/   store.py
+  onboarding/    accounts.py  complaints.py
   ui/            server.py  chat.py  static/
 run_onboarding.py              # launches the web app
 ```

@@ -1831,7 +1831,7 @@ function journeyHTML(data, { past = false } = {}) {
 // They can still fall out of step — a server restart with the tab open leaves
 // dead session ids behind. chat_turn() handles that by opening a fresh,
 // trip-seeded session and flagging ``session_restarted``; real continuity would
-// need the DatabaseSessionService in persistence/checkpointer.py.
+// need ADK's DatabaseSessionService instead of the InMemoryRunner in ui/chat.py.
 const CHAT_STORAGE_PREFIX = "ja_chats:";
 // Pre-multi-chat single-chat key. Never read, but "delete all data" wipes it.
 const LEGACY_CHAT_STORAGE_KEY = "ja_chat";

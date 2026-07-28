@@ -25,7 +25,7 @@ A locked snapshot of all decisions, constraints, and open questions captured dur
 - **DB account login and trip import are simulated** (`onboarding/accounts.py`) behind realistic API contracts (`POST /api/auth/db-login` returns account + booked trips). A real integration would swap only this module. Same for Outlook OAuth consent and SMS verification (no registered Microsoft app / SMS gateway in a uni project).
 - **Mandatory vs. voluntary:** DB account login is mandatory (source of trips = the product's reason to exist). Mobile number verification and Outlook calendar are optional/skippable; travel preferences, home constraints, notifications and autonomy level have sensible defaults so the wizard is never blocking.
 - **Onboarding captures:** DB account (+BahnCard/BahnBonus), upcoming trips, verified mobile number, Outlook calendar consent, class, seat (window/aisle, open/compartment, quiet zone), speed-vs-comfort (0–100 slider), max transfers, home station (live DB autocomplete via db_service sidecar), latest arrival home, hotel/taxi acceptance, notification channels + quiet hours, autonomy level (notify-only / approve-each / auto-within-limits).
-- **Persistence:** SQLite (`src/journey_autopilot/data/journey_autopilot.db`, `persistence/store.py`), profile as JSON blob (prototype-friendly, no migrations). Agents read it via `get_user_profile` / `get_upcoming_trips` tools — the Planner ranks reroute options against the onboarded profile.
+- **Persistence:** SQLite (`src/journey_autopilot/data/journey_autopilot.db`, `persistence/store.py`), profile as JSON blob (prototype-friendly, no migrations). Agents read it via the `get_user_profile` tool — the Planner ranks reroute options against the onboarded profile, and `policy.resolve` reads the autonomy block from the same store.
 - **GDPR:** one-click full deletion (`DELETE /api/profile`) and a privacy note on the welcome screen.
 
 #### Constraints
@@ -116,8 +116,8 @@ A locked snapshot of all decisions, constraints, and open questions captured dur
 **Description:** Read the calendar for meeting times/locations, private appointments; add new routes to the calendar.
 
 #### Decisions
-- **Outlook via MS Graph (Entra device-code flow):** implemented in `calendar/` (`auth.py`, `client.py`, `mapper.py`); reads events and maps the Outlook category `Journey-Autopilot/Hard` to the internal `hard_constraint` flag the Planner respects.
-- **Reschedule distinction (planned, Executor):** `reschedule_outlook_event` is `auto` for `tentative` events (reversible) and `ask` for `confirmed` events (not reversible) — the event's verbindlichkeit decides the autonomy mode.
+- **Outlook via MS Graph (Entra device-code flow):** implemented in `integrations/outlook/` (`auth.py`, `client.py`, `mapper.py`); reads events and maps the Outlook category `Journey-Autopilot/Hard` to the internal `hard_constraint` flag the Planner respects. The mapper also carries the event `id`, `end`, and a `tentative`/`confirmed` `status` — the write side needs both to address and to gate a move.
+- **Reschedule distinction (implemented, Executor):** `reschedule_outlook_event` is `auto` for `tentative` events (reversible) and `ask` for `confirmed` events (not reversible) — the event's verbindlichkeit decides the autonomy mode. The status is **read from the calendar**, never accepted as a tool argument: letting the model assert an appointment is tentative would let it talk its way past its own veto. The Graph write-back itself is still simulated; the policy decision is not.
 
 #### Constraints
 - Reading is autonomous (read tool); writing (reschedule) is a write tool gated by the Policy-Layer.

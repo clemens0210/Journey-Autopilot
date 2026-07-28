@@ -1,13 +1,17 @@
-"""Passenger Rights Service — compensation calculation without LLM.
+"""Passenger Rights Service — rule logic without LLM.
 
-This module contains the pure calculation logic for compensation claims.
-It is deliberately separated from the RAG layer:
+This module contains the pure calculation logic for passenger rights. It is
+deliberately separated from the RAG layer, and split along the same line the
+agent graph is split along:
 
-  - ``calculate_compensation()`` → deterministic rule logic, testable without LLM
-  - ``FahrgastrechteRAG``       → semantic search for context chunks
-
-The Planner Agent combines both: it receives from ``get_passenger_rights()``
-in tools/read_tools.py both the calculated amount and the legal context chunks.
+  - ``evaluate_travel_rights()``  → what the traveler may DO right now
+    (train binding lifted, higher train category allowed, taxi/hotel cover).
+    Read-only entitlement info the **Planner** needs *during* a disruption to
+    judge whether a reroute is even permitted on the existing ticket.
+  - ``calculate_compensation()``  → the EUR amount owed AFTER the trip.
+    Deterministic input for the **Executor**, which files the claim through
+    the policy/veto gate.
+  - ``FahrgastrechteRAG``         → semantic search for legal context chunks.
 
 Sources of rule logic (as of June 2026):
   - EU Regulation 2021/782 (passenger rights in rail transport)
@@ -22,6 +26,52 @@ from dataclasses import dataclass, field
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+
+# --- Entitlement thresholds (DB Fahrgastrechte / EU 2021/782) ----------------
+# Minutes of *expected* arrival delay at which each right kicks in. Expected, not
+# final: these are exactly the rights that matter while the traveler is still en
+# route and deciding whether to reroute — unlike compensation, which can only be
+# settled once the trip is over.
+TRAIN_BINDING_LIFTED_MINUTES = 20   # Zugbindung drops; any other train may be used
+CONTINUE_OR_ABANDON_MINUTES = 60    # continue, or abandon + full fare refund
+COMPENSATION_MINUTES = 60           # 25% of fare
+COMPENSATION_HIGH_MINUTES = 120     # 50% of fare
+TAXI_COVER_EUR = 120.0              # cover for the last leg in the night window
+
+# Ticket types that carry a Zugbindung in the first place. A flexible fare
+# (Flexpreis) or a season ticket is valid on any train anyway, so "the binding
+# is lifted" would be a meaningless statement for them.
+_TRAIN_BOUND_TICKETS = ("einzelticket", "sparpreis", "super_sparpreis")
+
+
+@dataclass
+class TravelRights:
+    """What the traveler may do RIGHT NOW, given an expected delay.
+
+    Deliberately carries no EUR figure: an expected delay is not an experienced
+    one, and quoting compensation on a forecast is exactly the failure mode the
+    agent instructions guard against.
+    """
+
+    delay_minutes: int
+    train_binding_lifted: bool
+    may_use_higher_category: bool
+    may_abandon_for_full_refund: bool
+    hotel_or_taxi_cover: bool
+    entitlements: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "delay_minutes": self.delay_minutes,
+            "train_binding_lifted": self.train_binding_lifted,
+            "may_use_higher_category": self.may_use_higher_category,
+            "may_abandon_for_full_refund": self.may_abandon_for_full_refund,
+            "hotel_or_taxi_cover": self.hotel_or_taxi_cover,
+            "entitlements": self.entitlements,
+            "notes": self.notes,
+        }
+
 
 @dataclass
 class CompensationResult:
@@ -46,6 +96,94 @@ class CompensationResult:
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
+
+def evaluate_travel_rights(
+    delay_minutes: int,
+    ticket_type: str = "einzelticket",
+    *,
+    last_train_of_day: bool = False,
+) -> dict:
+    """What the traveler is entitled to do with an EXPECTED delay of this size.
+
+    This is the reroute-relevant half of passenger rights: whether the ticket's
+    Zugbindung (train binding) still applies, whether a higher train category
+    may be used, whether the journey may be abandoned for a full refund, and
+    whether onward transport/accommodation is covered. It answers "may I take a
+    different train?", not "what am I owed?" — so it is valid while the trip is
+    still running, where a compensation figure would not be.
+
+    Args:
+        delay_minutes: Expected arrival delay at the destination in minutes.
+        ticket_type: ``einzelticket`` | ``sparpreis`` | ``super_sparpreis`` |
+            ``zeitkarte_fv`` | ``zeitkarte_nv`` | ``bc100`` |
+            ``deutschland_ticket``. Only train-bound fares can have a binding
+            lifted; the rest are valid on any train to begin with.
+        last_train_of_day: True when the delayed connection is the last
+            scheduled one of the day — widens the taxi/accommodation cover.
+
+    Returns:
+        Dict with ``train_binding_lifted``, ``may_use_higher_category``,
+        ``may_abandon_for_full_refund``, ``hotel_or_taxi_cover``, a
+        plain-language ``entitlements`` list, and ``notes``.
+    """
+    train_bound = ticket_type in _TRAIN_BOUND_TICKETS
+    lifted = train_bound and delay_minutes >= TRAIN_BINDING_LIFTED_MINUTES
+    abandon = delay_minutes >= CONTINUE_OR_ABANDON_MINUTES
+    cover = abandon and last_train_of_day
+
+    entitlements: list[str] = []
+    notes: list[str] = []
+
+    if not train_bound:
+        notes.append(
+            f"Ticket type '{ticket_type}' is not bound to a specific train — "
+            "any connection to the destination may be used regardless of delay."
+        )
+    elif lifted:
+        entitlements.append(
+            f"Train binding (Zugbindung) is lifted from "
+            f"{TRAIN_BINDING_LIFTED_MINUTES} min expected delay — the existing "
+            "ticket is valid on another connection to the same destination "
+            "without rebooking."
+        )
+        entitlements.append(
+            "A higher train category may be used; the surcharge is refundable."
+        )
+    else:
+        notes.append(
+            f"Expected delay {delay_minutes} min is below the "
+            f"{TRAIN_BINDING_LIFTED_MINUTES} min threshold — the train binding "
+            "still applies, so switching connections would need a rebooking."
+        )
+
+    if abandon:
+        entitlements.append(
+            f"From {CONTINUE_OR_ABANDON_MINUTES} min expected delay the journey "
+            "may be abandoned instead of continued, against a full refund of "
+            "the unused fare (including a return to the origin)."
+        )
+    if cover:
+        entitlements.append(
+            f"As the last scheduled connection of the day, onward transport is "
+            f"covered up to {TAXI_COVER_EUR:.0f} EUR, and reasonable "
+            "accommodation is covered if the destination cannot be reached today."
+        )
+
+    notes.append(
+        "Entitlements only — no compensation amount is assessable from an "
+        "expected delay; that follows once the trip has actually concluded."
+    )
+
+    return TravelRights(
+        delay_minutes=delay_minutes,
+        train_binding_lifted=lifted,
+        may_use_higher_category=lifted,
+        may_abandon_for_full_refund=abandon,
+        hotel_or_taxi_cover=cover,
+        entitlements=entitlements,
+        notes=notes,
+    ).to_dict()
+
 
 def calculate_compensation(
     delay_minutes: int,
@@ -79,12 +217,15 @@ def _calculate(
     bahncard_type: str,
 ) -> CompensationResult:
 
-    # --- Under 60 minutes: no claim ---
-    if delay_minutes < 60:
+    # --- Below the compensation threshold: no claim ---
+    if delay_minutes < COMPENSATION_MINUTES:
         return CompensationResult(
             eligible=False,
             compensation_eur=0.0,
-            reason=f"Delay {delay_minutes} min — claim only from 60 minutes onwards.",
+            reason=(
+                f"Delay {delay_minutes} min — claim only from "
+                f"{COMPENSATION_MINUTES} minutes onwards."
+            ),
         )
 
     # --- BahnCard 100 / Mobility BahnCard 100 ---
@@ -147,23 +288,23 @@ def _calculate(
             ],
         )
 
-    # --- Standard single ticket ---
-    if ticket_type == "einzelticket":
-        if price_paid <= 0:
-            percentage = 0.50 if delay_minutes >= 120 else 0.25
-            return CompensationResult(
-                eligible=True,
-                compensation_eur=0.0,
-                reason=(
-                    f"Single ticket, {delay_minutes} min delay — compensation is {int(percentage*100)}% "
-                    "of the fare paid (minimum 4€). Provide price_paid to calculate the exact amount."
-                ),
-                notes=[
-                    f"Rule of thumb: {int(percentage*100)}% of fare paid (min 4€).",
-                ],
-            )
-
-        percentage = 0.50 if delay_minutes >= 120 else 0.25
+    # --- Standard single ticket (Sparpreis fares settle the same way) ---
+    if ticket_type in _TRAIN_BOUND_TICKETS:
+        if price_paid <= 0:
+            percentage = 0.50 if delay_minutes >= COMPENSATION_HIGH_MINUTES else 0.25
+            return CompensationResult(
+                eligible=True,
+                compensation_eur=0.0,
+                reason=(
+                    f"Single ticket, {delay_minutes} min delay — compensation is {int(percentage*100)}% "
+                    "of the fare paid (minimum 4€). Provide price_paid to calculate the exact amount."
+                ),
+                notes=[
+                    f"Rule of thumb: {int(percentage*100)}% of fare paid (min 4€).",
+                ],
+            )
+
+        percentage = 0.50 if delay_minutes >= COMPENSATION_HIGH_MINUTES else 0.25
         amount = round(price_paid * percentage, 2)
         # Minimum threshold
         if amount < 4.0:
@@ -201,5 +342,8 @@ def _calculate(
         eligible=False,
         compensation_eur=0.0,
         reason=f"Unknown ticket type '{ticket_type}' — please check manually.",
-        notes=["Valid types: einzelticket, zeitkarte_fv, zeitkarte_nv, bc100, deutschland_ticket"],
+        notes=[
+            "Valid types: einzelticket, sparpreis, super_sparpreis, "
+            "zeitkarte_fv, zeitkarte_nv, bc100, deutschland_ticket"
+        ],
     )

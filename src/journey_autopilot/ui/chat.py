@@ -52,38 +52,20 @@ def detect_risk_band(text: str | None) -> str | None:
     return match.group(1).upper() if match else None
 
 
-def _is_high_risk(reply: str, trace: list[dict]) -> bool:
-    """True if the final reply or any intermediate agent text flags HIGH risk.
+def _highest_risk_band(reply: str, trace: list[dict]) -> str | None:
+    """Worst risk band mentioned in the final reply or any intermediate text.
 
     Scanning the trace too (not just the final answer) catches the case where the
     monitoring agent reported HIGH but the orchestrator softened the summary.
+    Used only to LABEL the conversation for the browser — the decision to alert
+    the traveler belongs to the Orchestrator's `send_whatsapp_to_user` tool, not
+    to this parser.
     """
-    candidates = [reply]
-    candidates += [t.get("text", "") for t in trace if t.get("kind") == "text"]
-    return any(detect_risk_band(text) == "HIGH" for text in candidates)
+    rank = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
+    texts = [reply] + [t.get("text", "") for t in trace if t.get("kind") == "text"]
+    bands = [band for band in map(detect_risk_band, texts) if band]
+    return max(bands, key=lambda b: rank[b]) if bands else None
 
-
-def _alert_body(trip: dict | None, reply: str, risk_band: str | None = None) -> str:
-    """Compose the WhatsApp notice (kept short for messaging).
-
-    The header reflects the detected band: a HIGH-risk warning, a plain trip
-    update with the band, or a generic update when no band was parsed.
-    """
-    if risk_band == "HIGH":
-        header = "⚠️ Journey Autopilot — HIGH disruption risk"
-    elif risk_band:
-        header = f"🚆 Journey Autopilot — trip update (risk: {risk_band})"
-    else:
-        header = "🚆 Journey Autopilot — trip update"
-    if trip:
-        when = (trip.get("planned_departure") or "")[:10]
-        route = f"{trip.get('origin')} → {trip.get('destination')}"
-        line = " · ".join(p for p in (trip.get("train"), when) if p)
-        header += f"\n{route}" + (f" ({line})" if line else "")
-    summary = reply.strip()
-    if len(summary) > 900:  # keep the WhatsApp body manageable
-        summary = summary[:900].rstrip() + "…"
-    return f"{header}\n\n{summary}"
 
 # A single in-memory runner is created lazily and reused across requests; ADK
 # keeps the per-chat conversation history in its session service. A server
@@ -241,8 +223,10 @@ async def chat_turn(
         trip: The selected trip (added as context on the first turn only).
         account: The logged-in account — its BahnCard is added to the first-turn
             context for accurate passenger-rights checks.
-        notify_phone: The traveler's saved number. When monitoring comes back
-            HIGH risk, a proactive WhatsApp disruption alert is sent here.
+        notify_phone: The traveler's verified number. Bound into the request
+            context so the Orchestrator's ``send_whatsapp_to_user`` tool can
+            reach them; it is never passed to the model, which decides only
+            whether to send, not to whom. ``None`` makes that tool a no-op.
         user_id: Authenticated application user owning the ADK session/proposal.
         proposal_id: Authoritative proposal selected by a structured option card.
         selected_option_id: Eligible option selected from that proposal.
@@ -251,8 +235,9 @@ async def chat_turn(
         ``{"session_id", "session_restarted", "reply", "trace", "risk_band",
         "alert"}`` — the (new or reused) session id, whether a dead session was
         silently replaced, the orchestrator's final answer, the agent/tool
-        trace, the detected risk band, and the disruption-alert result (or
-        ``None`` when no alert was attempted).
+        trace, the risk band parsed out of it as a label, and the delivery
+        result of the WhatsApp notice the Orchestrator chose to send (or
+        ``None`` when it sent none), plus the reroute option/proposal fields.
     """
     from google.genai import types
     from journey_autopilot.tools.read_tools import clear_passenger_rights
@@ -336,18 +321,29 @@ async def chat_turn(
     trace: list[dict] = []
     reply = ""
 
+    whatsapp_sends: list[dict] = []
+
     async def _run_turn() -> str:
         """One pass through the orchestrator; rebuilds the trace from scratch."""
         from journey_autopilot import request_context
 
         trace.clear()
+        # NOT cleared on a retry: it is the record of what physically left the
+        # system, and the send tool reads it to refuse a second notice.
         result = ""
-        context_tokens = request_context.bind(user_id, session_id)
+        # The traveler's number is bound here, not passed to the model: the
+        # Orchestrator decides *whether* to push a WhatsApp notice, never *to
+        # whom*. send_whatsapp_to_user reads it from this context.
+        context_tokens = request_context.bind(user_id, session_id, notify_phone)
         # Sub-agents append their own tool calls to this same list via callbacks
         # (see orchestrator._make_subagent_trace_callbacks). Their AgentTool
         # runner runs synchronously between the Orchestrator's call and result
         # events, so those entries interleave in the right nested order.
         sink_token = request_context.set_trace_sink(trace)
+        # The send tool's own result is inside the ADK stream, but the browser
+        # needs the delivery outcome to toast it — collect it here instead of
+        # re-parsing events.
+        whatsapp_token = request_context.set_whatsapp_sink(whatsapp_sends)
         try:
             async for event in runner.run_async(
                 user_id=user_id, session_id=session_id, new_message=new_message
@@ -359,6 +355,7 @@ async def chat_turn(
                     continue
                 trace.extend(_describe(event))
         finally:
+            request_context.reset_whatsapp_sink(whatsapp_token)
             request_context.reset_trace_sink(sink_token)
             request_context.reset(context_tokens)
         return result
@@ -367,8 +364,10 @@ async def chat_turn(
     # (typically long multi-line arguments like an email body); ADK's parser
     # then raises JSONDecodeError. That's transient model output, not app
     # state — one retry usually clears it (error policy: recover inside the
-    # loop, don't crash the turn). Write tools stay safe under the replay:
-    # the email approval_id is single-use, so a send can never fire twice.
+    # loop, don't crash the turn). Write tools stay safe under the replay: the
+    # email approval_id is single-use, a reroute proposal can only be claimed
+    # once, and the WhatsApp notice refuses to fire twice for the same turn
+    # (it checks the send record, which is deliberately not reset on retry).
     for attempt in (1, 2):
         try:
             reply = await _run_turn()
@@ -389,33 +388,23 @@ async def chat_turn(
 
     reply = reply or "(no response)"
 
-    # Proactive notice: push a one-way WhatsApp message to the traveler's saved
-    # number (via Twilio) on every MONITORING turn — i.e. whenever the reply
-    # carries a risk band, not only on HIGH. Turns without a band (greetings,
-    # email approvals, follow-up questions) send nothing (alert=None), so the
-    # traveler isn't spammed on every message. Twilio's client is blocking, so
-    # it runs off the event loop.
-    high = _is_high_risk(reply, trace)
-    risk_band = "HIGH" if high else detect_risk_band(reply)
-    alert: dict | None = None
-    if risk_band is not None:
-        import asyncio
+    # The proactive WhatsApp notice is the Orchestrator's own decision, taken
+    # inside the ReAct loop via send_whatsapp_to_user (see orchestrator.py) —
+    # not something this layer infers from the answer text afterwards. All that
+    # happens here is reading back what it sent, so the browser can toast the
+    # delivery result. The risk band is still parsed, but only as a LABEL for
+    # the conversation; it no longer triggers anything.
+    risk_band = _highest_risk_band(reply, trace)
+    alert: dict | None = whatsapp_sends[-1] if whatsapp_sends else None
 
-        from journey_autopilot.integrations import whatsapp
-
-        alert = await asyncio.to_thread(
-            whatsapp.send_disruption_alert,
-            notify_phone or "",
-            _alert_body(trip, reply, risk_band),
-        )
-
-    # Always log the outcome so "no alert" is diagnosable (band detected, phone
-    # present, send result) — not just silence.
+    # Log the outcome so a missing notice is diagnosable (band detected, phone
+    # present, whether the agent chose to send) — not just silence.
     logger.info(
-        "chat turn: session=%s risk_band=%s phone=%s alert=%s",
+        "chat turn: session=%s risk_band=%s phone=%s whatsapp_sends=%d alert=%s",
         session_id,
         risk_band,
         notify_phone or "(none)",
+        len(whatsapp_sends),
         alert,
     )
     # Pick up only the finalized structured shortlist. Discovery candidates are

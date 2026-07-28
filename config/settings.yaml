@@ -15,14 +15,15 @@
 # If this file or PyYAML is missing, config.py falls back to these same defaults.
 
 models:
-  # All roles share the Uni-GPT endpoint by default; switch individual roles to
-  # bedrock_claude (Sonnet 4.6, stronger) for higher capacity, or bedrock_haiku
-  # (Haiku 4.5, faster/cheaper) for high-frequency roles
-  # — e.g. planner: bedrock_claude, monitoring: bedrock_haiku.
+  # One entry per agent in the graph. All roles share the Uni-GPT endpoint by
+  # default; switch individual roles to bedrock_claude (Sonnet 4.6, stronger)
+  # for higher capacity, or bedrock_haiku (Haiku 4.5, faster/cheaper) for
+  # high-frequency roles — e.g. planner: bedrock_claude, monitoring: bedrock_haiku.
   orchestrator: uni_gpt
   monitoring:   uni_gpt  # runs frequently/in a loop -> prefer the cheap tier
   planner:      uni_gpt  # most demanding reasoning -> prefer the stronger tier
   communicator: uni_gpt
+  executor:     uni_gpt  # write path -> prefer the stronger tier for reliability
 
 model_params:
   # Optional per-role tuning, forwarded to the model as LiteLLM completion
@@ -39,11 +40,11 @@ model_params:
   #   reasoning_effort: medium
 
 thresholds:
-  # Monitoring flips at_risk when the risk band reaches this level.
+  # The "if risk of disruption" gate: at this band and above, the Orchestrator
+  # stops at an all-clear and hands the trip to the Planner for reroute options.
+  # Below it, the trip is reported as fine and no planning happens.
+  # Read by config.AT_RISK_BAND and built into the Orchestrator's instruction.
   at_risk_band: MEDIUM      # LOW | MEDIUM | HIGH
-
-monitoring:
-  poll_interval_seconds: 300   # how often the monitoring loop would re-check
 
 reroute:
   # Deterministic pre-filter for the LIVE journey search (find_reroute_options).
