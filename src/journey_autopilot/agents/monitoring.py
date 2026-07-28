@@ -22,11 +22,11 @@ from google.adk.agents import LlmAgent
 
 from ..config import MONITORING_MODEL
 from ..tools.read_tools import (
-    get_connection_delay_history,
-    get_connection_delay_reference,
+    get_historical_delay_baseline,
     get_live_trip_status,
     get_network_disruptions,
     get_planned_connection,
+    get_recent_delay_history,
 )
 
 MONITORING_INSTRUCTION = """\
@@ -37,18 +37,18 @@ you make NO bookings.
 You cover two situations — pick the one that fits the request:
 
 A) PRE-TRIP (the journey has NOT started; you are given a planned connection):
-   1. `get_connection_delay_reference` — pre-trip risk forecast from historical
-      punctuality data: expected delay, risk level (LOW/MEDIUM/HIGH), risk score
-      0-100, and confidence based on sample size.
-   2. `get_connection_delay_history` — the CURRENT situation (arrivals of the
+   1. `get_historical_delay_baseline` — pre-trip risk forecast from the
+      multi-month punctuality archive: expected delay, risk level
+      (LOW/MEDIUM/HIGH), risk score 0-100, and confidence based on sample size.
+   2. `get_recent_delay_history` — the CURRENT situation (arrivals of the
       last few hours): shows whether unusual disruptions are occurring today.
    3. `get_planned_connection` — the planned scheduled arrival as the ETA anchor.
    4. Interpret:
       - Risk level comes directly from the historical forecast: LOW, MEDIUM, or HIGH.
       - Risk score 0-100: how unreliable the connection is historically.
       - Expected delay: the forecast's expected_delay_minutes from historical norms.
-      - If today's history (get_connection_delay_history) shows much worse
-        performance, raise the risk level or score accordingly.
+      - If today's history (get_recent_delay_history) shows much worse
+        performance than the baseline, raise the risk level or score accordingly.
       - ETA: planned arrival + expected delay (give a typical value based on
         the forecast, plus a worst-case if risk is HIGH).
       - Confidence: the forecast includes a confidence score; cite it if low.
@@ -70,16 +70,22 @@ B) EN ROUTE (a trip is already running; you are given a trip_id):
         missed: the booked itinerary can no longer be completed, so there IS
         no stay-aboard ETA (`estimated_arrival` is null). Report this fact
         explicitly and never invent an arrival time for the broken itinerary.
+        This applies while the trip is EN ROUTE. If the trip has also ARRIVED
+        (see B.4), the broken itinerary is history, not an open problem — do
+        NOT say the connection "cannot be completed" about a trip that is
+        over. Name it only as the REASON the final delay is unknown.
    4. Check the `arrived` field on the live status:
       - `arrived: true` -> the trip is OVER. Its `current_delay_minutes` is the
         FINAL, CONFIRMED delay — not a forecast, and there is nothing left to
         reroute. State clearly: "Status: ARRIVED — confirmed final delay of
         <N> minutes."
       - `arrived: true` but `current_delay_minutes` is null -> the trip is
-        over, but no live data confirmed the final delay (see the `note`).
-        State clearly: "Status: ARRIVED — final delay unknown (no live
-        confirmation)." Never invent a delay figure; a compensation claim
-        cannot be assessed from this result.
+        over, but nothing confirmed the final delay — either no live data, or
+        a missed transfer meaning the booked arrival never happened. The
+        `note` says which. State clearly: "Status: ARRIVED — final delay
+        unknown", give the reason from the `note` in one clause, and never
+        invent a delay figure: a compensation claim cannot be assessed from
+        this result, and no other figure in the result is that delay.
       - Otherwise -> the trip is still EN ROUTE. Its delay is a live forecast
         that can still change. State clearly: "Status: EN ROUTE — current
         delay <N> minutes (forecast, not final)."
@@ -124,8 +130,8 @@ def build_monitoring_agent() -> LlmAgent:
         tools=[
             get_live_trip_status,
             get_network_disruptions,
-            get_connection_delay_reference,
-            get_connection_delay_history,
+            get_historical_delay_baseline,
+            get_recent_delay_history,
             get_planned_connection,
         ],
     )

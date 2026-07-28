@@ -1,8 +1,11 @@
 """Agent tools, classified by side effect (read/write separation is the backbone).
 
-- ``read_tools``  — safe, runs autonomously: live status, delay history,
+- ``read``        — safe, runs autonomously: live status, delay history,
                     reroute discovery, calendar checks, profile, and the
-                    passenger-rights lookup.
+                    passenger-rights lookup. One module per concern
+                    (``monitoring``, ``reroute``, ``calendar``, ``rights``,
+                    ``pretrip_risk``); ``read_tools`` re-exports the whole
+                    surface and stays the import path everything else uses.
 - ``write_tools`` — side-effectful, every one gated by ``policy.resolve``.
                     Grouped by the agent that holds them:
                     ``EXECUTOR_WRITE_TOOLS`` (reroute, hotel, reschedule,

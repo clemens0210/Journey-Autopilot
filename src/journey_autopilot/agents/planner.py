@@ -21,7 +21,7 @@ The veto control stays with the user. Write tools belong exclusively to the
 Executor Agent; they are deliberately unavailable to this read-only Planner.
 
 The instruction is an ADK instruction *provider* (a callable), resolved per
-call: when no calendar is connected (``read_tools.calendar_connected()``),
+call: when no calendar is connected (``read_tools.is_calendar_connected()``),
 every calendar step is dropped from the prompt, so the agent spends no LLM
 round-trip — and no tool call — on appointments the user never provided. The
 calendar check itself is a single batched tool call
@@ -38,7 +38,6 @@ from google.adk.agents import LlmAgent
 
 from ..config import PLANNER_MODEL
 from ..tools.read_tools import (
-    calendar_connected,
     check_options_against_calendar,
     finalize_reroute_options,
     find_mobility_alternatives,
@@ -46,6 +45,7 @@ from ..tools.read_tools import (
     find_reroute_options,
     get_passenger_rights,
     get_user_profile,
+    is_calendar_connected,
 )
 
 _PREAMBLE = """\
@@ -339,7 +339,7 @@ def planner_instruction(_ctx) -> str:
     server), so the connected/not-connected variant is chosen per call, not
     at agent build time.
     """
-    return _build_instruction(calendar_connected())
+    return _build_instruction(is_calendar_connected())
 
 
 def build_planner_agent() -> LlmAgent:

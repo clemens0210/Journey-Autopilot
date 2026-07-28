@@ -159,7 +159,10 @@ the result, think again:
    if available, the recommended plan (from Planner) incl. calendar check.
    Whenever the summary contains a risk assessment, its FIRST line must be
    exactly `Risk: LOW`, `Risk: MEDIUM`, or `Risk: HIGH` — the app reads this
-   line to label the conversation.
+   line to label the conversation. On a trip that has ARRIVED the line still
+   has to be there, but say in your first sentence that it describes the
+   disruption that actually happened, not a forecast — there is nothing left
+   to predict for a trip that is over.
    When the band is %(at_risk_bands)s and the trip has not concluded, ALSO call
    `send_whatsapp_to_user` once with a short version of that situation (trip,
    band, delay, and what you recommend) so the traveler learns about it on

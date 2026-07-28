@@ -50,9 +50,9 @@ from .constraints import (
 )
 from .read_tools import (
     PSEUDO_OUTLOOK_ALIAS_RE,
-    _classify_window_conflicts,
-    calendar_connected,
+    classify_window_conflicts,
     get_user_calendar,
+    is_calendar_connected,
 )
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,7 @@ async def send_approved_notice_email(approval_id: str) -> dict:
 
     to_address = pending["to_address"]
 
-    if not calendar_connected():
+    if not is_calendar_connected():
         logger.info("email send simulated (Outlook not connected): to=%s", to_address)
         return {
             "status": "simulated",
@@ -374,14 +374,14 @@ async def _fresh_calendar_clash(option: dict, proposal: dict) -> dict | list[str
     so the caller treats it like any other execution-constraint failure,
     since a clash can't be safely confirmed as absent without a fresh read.
     """
-    if not calendar_connected() or not option.get("new_arrival"):
+    if not is_calendar_connected() or not option.get("new_arrival"):
         return {"hard_conflicts": 0, "conflicts": []}
     payload = proposal.get("proposal") or {}
     travel_date = payload.get("travel_date") or str(option.get("new_arrival"))[:10]
     calendar = await get_user_calendar(travel_date)
     if calendar.get("error"):
         return ["calendar_revalidation_unavailable"]
-    classified = _classify_window_conflicts(
+    classified = classify_window_conflicts(
         calendar.get("events") or [],
         travel_date,
         planned_departure=option.get("departure"),
@@ -871,10 +871,10 @@ def file_compensation_claim(user_approved: bool = False) -> dict:
         policy asks first, or ``status="revalidation_failed"`` when no settled
         rights result backs the claim.
     """
-    from .read_tools import last_passenger_rights
+    from .read_tools import turn_rights_result
 
     name = "file_compensation_claim"
-    rights = last_passenger_rights()
+    rights = turn_rights_result()
     no_claim_hint = (
         "Do not claim anything was filed. Ask the Planner for a passenger-rights "
         "lookup on the concluded trip first, then try again."

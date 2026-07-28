@@ -2643,6 +2643,10 @@ $("#ms-accept").addEventListener("click", async () => {
     const data = await api("/api/connect/outlook", { method: "POST", body: { consent: true } });
     state.profile = data.profile;
     state.outlookEvents = data.events;
+    // Same flag the device-code path sets: the onboarding step renders from
+    // outlookConnectedThisStep, not from the profile flag, so without this the
+    // simulated consent would leave the step showing "Sign in with Microsoft".
+    state.outlookConnectedThisStep = true;
     toast(`✓ Outlook connected — ${data.events.length} events detected`);
     renderers[state.step]?.();
   } catch (err) {
