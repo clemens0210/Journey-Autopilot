@@ -1,18 +1,23 @@
 """Risk tools: the pre-trip delay assessment (before a journey has started).
 
 Three complementary sources, and the Monitoring agent is meant to combine them:
-the multi-month historical baseline (``get_historical_delay_baseline``, via
-``journey_autopilot.risk``), today's actual situation on the route
-(``get_recent_delay_history``, via ``tools.risk_model``), and the scheduled
+the multi-month historical baseline (``get_historical_delay_baseline``), today's
+actual situation on the route (``get_recent_delay_history``), and the scheduled
 times that anchor the ETA (``get_planned_connection``). Every one of them is
 live-first with a simulated fallback, and reports which it used in ``source``.
+
+All three compute nothing themselves — the statistics live in the ``risk``
+package (``risk.predictor`` for the baseline, ``risk.live_stats`` for the
+board aggregation); this module is only the live-or-mock wrapper that turns
+them into agent tools.
 """
 
 from __future__ import annotations
 
-from ... import mock_data, risk
+from ... import risk
+from ...demo import mock_data
 from ...errors import with_resilience
-from .. import risk_model
+from ...risk import live_stats
 
 
 def get_historical_delay_baseline(origin: str, destination: str, train: str = "") -> dict:
@@ -87,7 +92,7 @@ def recent_delay_history(
     scenario; the agent-facing tool keeps it off to stay context-lean.
     """
     def _primary() -> dict:
-        stats = risk_model.connection_delay_history(
+        stats = live_stats.connection_delay_history(
             origin, destination, train=train, details=details
         )
         stats["source"] = "db_service_live"
@@ -164,7 +169,7 @@ def get_planned_connection(origin: str, destination: str, departure: str = "") -
         "error" if no connection was found.
     """
     def _primary() -> dict | None:
-        conn = risk_model.scheduled_connection(origin, destination, departure or None)
+        conn = live_stats.scheduled_connection(origin, destination, departure or None)
         if conn:
             conn["source"] = "db_service_live"
         return conn  # None (no journey found) is rejected -> fall back

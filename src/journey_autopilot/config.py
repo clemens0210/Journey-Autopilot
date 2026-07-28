@@ -168,8 +168,8 @@ def _model_for(role: str) -> LiteLlm:
 
 # Per-role models, resolved from config/settings.yaml. One per agent in the
 # graph, so the cost/quality trade-off is a config edit rather than a code
-# change. (No RISK_MODEL: risk scoring is a deterministic statistic in
-# tools/risk_model.py, never an LLM.)
+# change. (No RISK_MODEL: risk scoring is a deterministic statistic in the
+# risk/ package, never an LLM.)
 MONITORING_MODEL = _model_for("monitoring")
 PLANNER_MODEL = _model_for("planner")
 ORCHESTRATOR_MODEL = _model_for("orchestrator")

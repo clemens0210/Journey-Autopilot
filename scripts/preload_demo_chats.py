@@ -56,7 +56,7 @@ except ImportError:
 
 import httpx  # noqa: E402
 
-from journey_autopilot.onboarding.accounts import DEMO_TRIP_ID  # noqa: E402
+from journey_autopilot.demo.accounts import DEMO_TRIP_ID  # noqa: E402
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_EMAIL = "lucas.wild@example.com"

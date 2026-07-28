@@ -12,16 +12,19 @@ be reproducible (build spec §3.3).
 Every external integration sits behind an interface in `integrations/`, with a
 mock/simulated implementation and a single swap point for the real one:
 
-- `db_ops` / `stations` — DB live data via the `db_service` (Node) sidecar; tools
-  fall back to `mock_data` and tag the result with `source`.
-- `outlook` — Outlook/Microsoft Graph; falls back to mock calendar without Entra
-  credentials.
-- `whatsapp` / `whatsapp_webhook` — Twilio sender + approval queue; dry-run
-  prints without Twilio config.
-- `rights_rag` — passenger-rights knowledge base (crawler + Chroma RAG) +
+- `db/` (`ops`, `stations`) — DB live data via the `db_service` (Node) sidecar;
+  tools fall back to `demo.mock_data` and tag the result with `source`.
+- `outlook/` — Outlook/Microsoft Graph; falls back to mock calendar without Entra
+  credentials. The interactive device-code connect is `outlook/device_flow.py`,
+  so no MSAL or AADSTS detail leaks into the web layer.
+- `whatsapp/` (`messaging`, `models`, `webhook`) — Twilio sender + approval
+  queue + reply webhook; dry-run prints without Twilio config.
+- `rights_rag/` — passenger-rights knowledge base (crawler + Chroma RAG) +
   deterministic compensation rules.
-- `onboarding/accounts` — simulated bahn.de login / trip import / SMS / Outlook
-  consent, behind realistic API contracts.
+- `demo/accounts` — simulated bahn.de login / trip import / SMS / Outlook
+  consent, behind realistic API contracts. It sits in `demo/` rather than
+  `integrations/` because it is *data*, not a protocol client, and shares a
+  clock with `demo/mock_data.py`.
 
 ## Consequences
 - The demo is honest and the path to production is clear: each mock module is the

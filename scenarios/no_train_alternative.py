@@ -54,7 +54,7 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types
 
 from journey_autopilot.agent import root_agent
-from journey_autopilot.mock_data import DEMO_TRIP
+from journey_autopilot.demo.mock_data import DEMO_TRIP
 
 APP_NAME = "journey_autopilot"
 USER_ID = "lucas"

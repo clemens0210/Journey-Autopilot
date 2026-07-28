@@ -26,7 +26,7 @@ from pathlib import Path
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
 
-from .whatsapp_models import DisruptionEvent, Recipient
+from .models import DisruptionEvent, Recipient
 
 logger = logging.getLogger(__name__)
 

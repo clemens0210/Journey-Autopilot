@@ -12,16 +12,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ... import mock_data, risk
-from ...integrations import db_ops as db_api
-from ...integrations import stations
+from ... import risk
+from ...demo import mock_data
+from ...integrations.db import ops as db_api
+from ...integrations.db import stations
 from ..constraints import parse_datetime
 
 
 def _find_trip_context(trip_id: str) -> dict | None:
     """Find imported trip metadata for a tool call that only receives trip_id."""
     try:
-        from journey_autopilot.persistence import store
+        from ...persistence import store
 
         profile = store.any_profile()
         if profile is not None:

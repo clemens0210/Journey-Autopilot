@@ -10,12 +10,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from journey_autopilot import mock_data, risk
-from journey_autopilot.integrations import db_ops as db_api
-from journey_autopilot.integrations import stations as db_api_stations
-from journey_autopilot.onboarding import accounts, complaints
-from journey_autopilot.persistence import store
-
+from ... import risk
+from ...demo import accounts, mock_data
+from ...integrations.db import ops as db_api
+from ...integrations.db import stations as db_api_stations
+from ...onboarding import complaints
+from ...persistence import store
 from .deps import current_user_id
 
 router = APIRouter(tags=["trips"])
@@ -45,7 +45,7 @@ def _live_leg_delays(trip: dict) -> dict[str, int]:
     Trips booked via the journey search (``BK-…`` ids) are not in the simulated
     ``LIVE_TRIP_STATUS``, so their live delay has to come from real DB data.
     Re-runs the connection search, matches the trip's exact itinerary (full
-    train sequence + planned departure, see ``db_ops.match_booked_journey``),
+    train sequence + planned departure, see ``db.ops.match_booked_journey``),
     and returns ``{train_name: delay_minutes}``. Returns ``{}`` on any sidecar
     miss or when the exact booked connection is not found — never the delays
     of a different journey.

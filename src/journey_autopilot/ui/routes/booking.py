@@ -16,11 +16,10 @@ import secrets
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from journey_autopilot.integrations import db_ops as db_api
-from journey_autopilot.integrations.stations import resolve_eva_or_id
-from journey_autopilot.onboarding import accounts
-from journey_autopilot.persistence import store
-
+from ...demo import accounts
+from ...integrations.db import ops as db_api
+from ...integrations.db.stations import resolve_eva_or_id
+from ...persistence import store
 from .deps import current_user_id
 
 router = APIRouter(tags=["booking"])
@@ -50,7 +49,7 @@ def stations(query: str = "") -> dict:
 
 
 def _journey_to_trip(journey: dict, purpose: str | None = None) -> dict:
-    """Convert a normalized db_ops journey option into the booked-trip shape.
+    """Convert a normalized db.ops journey option into the booked-trip shape.
 
     Times are truncated to naive local ISO (DB times are German local) so the
     booked trip renders like the imported demo trips. Coach/seat are mocked —

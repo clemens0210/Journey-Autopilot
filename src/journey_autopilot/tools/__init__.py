@@ -13,13 +13,16 @@
                     notice-email propose/send pair) and
                     ``ORCHESTRATOR_WRITE_TOOLS`` (the WhatsApp push to the
                     traveler — never gated, it carries the veto itself).
-- ``risk_model``  — deterministic delay statistics exposed to Monitoring as a tool
-                    (risk scoring is a model/heuristic, never an LLM judgment).
 - ``constraints`` — no tools, no I/O: the pure eligibility rules (transfers,
                     cancellation, mobility opt-outs, latest-arrival-home) that
                     the read side applies when building the shortlist and the
                     write side reapplies before executing the chosen option.
                     Shared so the two cannot silently diverge.
+
+No domain model lives here. The delay statistics behind the risk tools are the
+``risk`` package's job (``risk.predictor`` for the historical baseline,
+``risk.live_stats`` for today's arrival board); ``read/pretrip_risk`` only wraps
+them in the live-or-mock fallback every tool follows.
 
 Passenger rights straddle the line on purpose: looking up what the traveler is
 entitled to is a read (Planner), filing the claim is a write (Executor).

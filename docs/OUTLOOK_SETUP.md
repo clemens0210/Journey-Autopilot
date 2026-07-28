@@ -164,4 +164,4 @@ successful login. "Disconnect Outlook" removes both files.
 ## Switching Back to Mock Data
 
 Simply remove or comment out `MS_ENTRA_CLIENT_ID` from your `.env` file.
-The Planner will fall back to `mock_data.USER_CALENDAR`.
+The Planner will fall back to `demo.mock_data.USER_CALENDAR`.

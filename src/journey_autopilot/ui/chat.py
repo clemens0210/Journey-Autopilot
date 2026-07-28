@@ -99,7 +99,7 @@ def _get_runner() -> Any:
 
         from google.adk.runners import InMemoryRunner
 
-        from journey_autopilot.agent import root_agent
+        from ..agent import root_agent
 
         _runner = InMemoryRunner(agent=root_agent, app_name=APP_NAME)
     return _runner
@@ -240,7 +240,7 @@ async def chat_turn(
         ``None`` when it sent none), plus the reroute option/proposal fields
         and any complaint draft the settled rights lookup produced.
     """
-    from journey_autopilot import request_context
+    from .. import request_context
 
     # One workspace for this turn, bound before any tool can run. The Planner's
     # reroute shortlist, the settled rights result, the specialists' trace and
@@ -316,7 +316,7 @@ async def _run_chat_turn(
     # before the model sees them. A conservative exact-text parser keeps manual
     # "Take option R1" input working without treating incidental mentions as a
     # selection.
-    from journey_autopilot.persistence import store
+    from ..persistence import store
 
     trip_id = str((trip or {}).get("trip_id") or "")
     active_proposal = store.get_active_reroute_proposal(
@@ -355,7 +355,7 @@ async def _run_chat_turn(
 
     async def _run_turn() -> str:
         """One pass through the orchestrator; rebuilds the trace from scratch."""
-        from journey_autopilot import request_context
+        from .. import request_context
 
         trace.clear()
         result = ""
@@ -440,7 +440,7 @@ async def _run_chat_turn(
     )
     stashed = workspace["reroute"]
     if stashed and stashed.get("finalized"):
-        from journey_autopilot.config import REROUTE_PROPOSAL_TTL_SECONDS
+        from ..config import REROUTE_PROPOSAL_TTL_SECONDS
 
         proposal = store.save_reroute_proposal(
             user_id,

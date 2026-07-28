@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header
 
-from journey_autopilot.persistence import store
-
+from ...persistence import store
 from .connect import forget_pending_phone
 from .deps import current_user_id, drop_sessions
 

@@ -8,9 +8,8 @@ import re
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from journey_autopilot.onboarding import accounts
-from journey_autopilot.persistence import store
-
+from ...demo import accounts
+from ...persistence import store
 from .chat import chat_bootstrap
 from .deps import create_session, current_user_id
 

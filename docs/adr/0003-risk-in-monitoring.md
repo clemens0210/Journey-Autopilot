@@ -15,7 +15,7 @@ model/heuristic tool, never an LLM judgment (hard rule §3.4).
    request. The separate `risk_agent` is removed.
 2. **Risk is a model/heuristic tool.** The punctuality KPIs (mean/median/p90
    delay, on-time rate, cancellations, causes) are computed deterministically in
-   `tools/risk_model.py`; the agent only *interprets* them into a 0–100 score, a
+   `risk/live_stats.py`; the agent only *interprets* them into a 0–100 score, a
    LOW/MEDIUM/HIGH band, and an ETA.
 
 ## Consequences

@@ -10,8 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from journey_autopilot.persistence import store
-
+from ...persistence import store
 from .. import chat
 from .deps import current_user_id
 

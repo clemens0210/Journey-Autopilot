@@ -30,7 +30,7 @@ except ImportError:
     pass
 
 from journey_autopilot.integrations.outlook import get_calendar_events
-from journey_autopilot import mock_data
+from journey_autopilot.demo import mock_data
 
 
 def _format_event(ev: dict, idx: int) -> str:

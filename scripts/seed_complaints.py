@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from journey_autopilot.persistence import store
-from journey_autopilot.onboarding.accounts import booked_trips
+from journey_autopilot.demo.accounts import booked_trips
 
 # --- User anlegen (gleiche Daten wie accounts.py) ---
 LUCAS = {

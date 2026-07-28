@@ -13,7 +13,7 @@ and the team wants a single knob to trade autonomy against control.
   `policy_mode` (conservative | balanced | aggressive) into account.
 - The veto itself is a real pause-for-confirmation. In the ADK build it is
   realized through the existing **approval/veto queue** in
-  `integrations/whatsapp.py`: a draft is queued and the traveler replies
+  `integrations/whatsapp/messaging.py`: a draft is queued and the traveler replies
   YES / NO / EDIT (5-minute timeout) before anything is sent — the ADK analogue
   of LangGraph's `interrupt()`.
 

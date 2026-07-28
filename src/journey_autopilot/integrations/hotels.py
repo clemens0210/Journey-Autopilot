@@ -20,7 +20,7 @@ import os
 
 import requests
 
-from . import db_ops
+from .db import ops as db_ops
 
 OVERPASS_API_URL = os.getenv("OVERPASS_API_URL", "https://overpass-api.de/api/interpreter")
 _RADIUS_M = int(os.getenv("HOTEL_SEARCH_RADIUS_M", "1500"))

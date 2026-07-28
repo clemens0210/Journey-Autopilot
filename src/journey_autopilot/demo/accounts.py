@@ -8,6 +8,10 @@ data structure a real integration would need to deliver later. The interface
 
 The trip data is generated relative to "today" so the demo always shows
 upcoming trips, regardless of when it's presented.
+
+This is the account half of the demo dataset; the live-ops half is
+``demo/mock_data.py``, and the two share one clock — see the package docstring
+in ``demo/__init__.py``.
 """
 
 from __future__ import annotations
@@ -15,12 +19,12 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 
 # Lucas' first booked trip is the canonical demo scenario (Munich → Berlin).
-# Its fields are kept identical to ``journey_autopilot.mock_data.DEMO_TRIP``
-# (same trip_id, route, date) so the dashboard chat drives the very same
-# monitoring/reroute/calendar flow as ``scenarios/happy_path.py``. The date
-# comes from the rebased fixture (mock_data shifts the authored anchor day to
-# "today"), so the demo trip, live status, reroutes, and calendar always agree.
-from journey_autopilot.mock_data import DEMO_DAY as DEMO_DATE, DEMO_TIME_SHIFT
+# Its fields are kept identical to ``demo.mock_data.DEMO_TRIP`` (same trip_id,
+# route, date) so the dashboard chat drives the very same monitoring/reroute/
+# calendar flow as ``scenarios/happy_path.py``. The date comes from the rebased
+# fixture (mock_data shifts the authored anchor day to "today"), so the demo
+# trip, live status, reroutes, and calendar always agree.
+from .mock_data import DEMO_DAY as DEMO_DATE, DEMO_TIME_SHIFT
 
 DEMO_TRIP_ID = "DB-2026-0619-MUC-BLN"
 

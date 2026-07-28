@@ -9,7 +9,7 @@ agent): the agent covers both horizons with the same read tools —
 - **En route**: watches a running trip via live status and network disruptions.
 
 Division of labor (risk-as-model, never an LLM judgment): the punctuality
-metrics are computed deterministically in ``tools/risk_model.py`` and exposed as
+metrics are computed deterministically in the ``risk`` package and exposed as
 tools — the agent only *interprets* them into a score, a band, and an ETA. It
 holds NO write tools (capability isolation).
 

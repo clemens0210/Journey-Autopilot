@@ -40,15 +40,18 @@ The "if risk of disruption" gate between Monitoring and Planner is config-driven
 - `tools/read_tools.py` — function tools the read agents call; the live/mock insertion point
 - `tools/write_tools.py` — gated writes, grouped as `EXECUTOR_` / `ORCHESTRATOR_` / `COMMUNICATOR_WRITE_TOOLS`
 - `tools/constraints.py` — pure option-eligibility rules, shared by the read side (building the shortlist) and the write side (revalidating before execution). No tools, no I/O
-- `tools/risk_model.py`, `risk/` — deterministic delay statistics (risk is never an LLM judgment)
+- `risk/` — deterministic delay statistics, all of it (risk is never an LLM judgment): `predictor.py`+`delay_reference.py` for the historical baseline, `live_stats.py` for today's arrival board. `tools/read/pretrip_risk.py` only wraps them as tools
 - `policy.py` + `config/policy.yaml` — the veto gate; `GATED_ACTIONS` names the policy actions
 - `request_context.py` — per-turn identity plus the **turn workspace**: the one place structured results cross the `AgentTool` boundary (trace, WhatsApp sends, reroute shortlist, settled rights). Bound per chat turn, so nothing leaks between turns or between concurrent users
-- `onboarding/accounts.py` — simulated DB/Outlook account (the single swap point for a real integration)
+- `demo/` — the simulated dataset, both halves in one place because they share one clock: `mock_data.py` (live ops, from `data/fixtures/*.json`) and `accounts.py` (DB/Outlook account — the single swap point for a real integration). See `demo/__init__.py` for the `DEMO_DAY`/`DEMO_TIME_SHIFT` contract
+- `onboarding/complaints.py` — passenger-rights claim drafts (status `draft` until the user submits)
 - `persistence/store.py` — SQLite, stdlib only (profile, trips, proposals, complaints)
 - `ui/server.py` (FastAPI app assembly only) + `ui/routes/` (one router per theme: auth, trips, booking, connect, profile, chat) + `ui/chat.py` (runs the orchestrator per trip)
 - `ui/static/js/` — the browser app as ES modules, no bundler; `app.js` is the entry, screens register with `router.js`
-- `integrations/` — `db_ops.py`+`stations.py` (Node sidecar), `outlook/` (MS Graph, incl. `device_flow.py` — the interactive connect; the web layer only calls start/poll/forget), `whatsapp*.py` (Twilio + approval queue), `rights_rag/` (ChromaDB + rule logic)
+- `integrations/` — one package per external system: `db/` (`ops.py`+`stations.py`, the Node sidecar), `outlook/` (MS Graph, incl. `device_flow.py` — the interactive connect; the web layer only calls start/poll/forget), `whatsapp/` (`messaging.py` Twilio + approval queue, `models.py`, `webhook.py`), `rights_rag/` (ChromaDB + rule logic). `hotels.py` stays flat — a single module
 - `config.py` — one `LiteLlm` per agent role, resolved from `config/settings.yaml`
+
+**Import style:** inside `src/journey_autopilot/` always relative (`from ..integrations.db import ops as db_api`); absolute `journey_autopilot.…` only in `scripts/` and `scenarios/`, which run as top-level programs. Function-local imports are fine and deliberate where they keep heavy deps (ADK, LiteLLM, ChromaDB, azure) off the onboarding UI's start path — keep those relative too.
 
 ## Path gotchas
 
@@ -66,7 +69,7 @@ Fill `.env` at root from `.env.example`, then also copy it to `journey_autopilot
 
 ## Tool data contract — preserve it
 
-`tools/read_tools.py` follows a **live-then-mock-fallback**: each tool tries the real source (db_service sidecar / MS Entra / archive JSON), falls back to `mock_data`, and tags every result with a `source` field (`db_service_live` / `db_history_archive` / `mock_*`). The Orchestrator instruction requires the agent to disclose `mock_*` sources to the user. Keep this contract when editing/adding tools.
+`tools/read_tools.py` follows a **live-then-mock-fallback**: each tool tries the real source (db_service sidecar / MS Entra / archive JSON), falls back to `demo.mock_data`, and tags every result with a `source` field (`db_service_live` / `db_history_archive` / `mock_*`). The Orchestrator instruction requires the agent to disclose `mock_*` sources to the user. Keep this contract when editing/adding tools.
 
 `ui/routes/booking.py`'s `/api/journeys/search` is a documented exception — UI-only, live-or-nothing, no mock.
 
@@ -75,14 +78,14 @@ Fill `.env` at root from `.env.example`, then also copy it to `journey_autopilot
 - **Windows SSL**: `scenarios/happy_path.py` patches `ssl.SSLContext.load_default_certs` to swallow `ASN1: NOT_ENOUGH_DATA` errors from the Windows cert store. Reuse this patch in any new entry script that imports ADK/LiteLLM on Windows, or `aiohttp`'s `ssl.create_default_context()` crashes at import.
 - **OpenTelemetry pin**: ADK 2.2.x caps OTel at `<=1.41.1` in `requirements.txt`; `chromadb` would otherwise pull a newer exporter stack and break ADK. Keep the pin when touching deps.
 - **`LITELLM_LOG=CRITICAL`** is set by default in `config.py`/`scenarios/happy_path.py` to suppress LiteLLM telemetry noise. Set `LITELLM_LOG=ERROR`/`DEBUG` when diagnosing the LLM backend.
-- **Port 8000 conflict**: `run_onboarding.py` (web app) and `uvicorn journey_autopilot.integrations.whatsapp_webhook:app --port 8000` (WhatsApp reply webhook) both default to 8000. Use different ports.
+- **Port 8000 conflict**: `run_onboarding.py` (web app) and `uvicorn journey_autopilot.integrations.whatsapp.webhook:app --port 8000` (WhatsApp reply webhook) both default to 8000. Use different ports.
 - **`AgentTool` hides nested results.** ADK forwards only a sub-agent's final *text* to the parent, so a sub-agent's tool results never reach `ui/chat.py`'s event stream. Three things work around this with request-scoped stashes: the reroute workspace, the settled passenger-rights slot, and the WhatsApp send record. If you add a tool whose structured result the browser needs, follow the same pattern rather than scanning the trace.
 - **ADK 2.x** has breaking changes vs 1.x (Agent API, event/session model). Many online tutorials show 1.x — don't follow them. Docs: https://google.github.io/adk-docs/
 
 ## Demo scenario anchors (do not drift)
 
 - Demo date `2026-06-19`; demo user `lucas` / `lucas.wild@example.com` / `demo123`.
-- Lucas' Munich → Berlin trip (`DEMO_TRIP` in `mock_data.py`) is pinned across `onboarding/accounts.booked_trips()`, the dashboard trip chat, and the monitoring/planner/calendar fixtures — keep them in sync.
+- Lucas' Munich → Berlin trip (`DEMO_TRIP` in `demo/mock_data.py`) is pinned across `demo/accounts.booked_trips()`, the dashboard trip chat, and the monitoring/planner/calendar fixtures — keep them in sync. Both live in `demo/` precisely because they share the `DEMO_DAY`/`DEMO_TIME_SHIFT` clock.
 - Calendar fixtures carry `id`, `end`, and `status`; the Outlook mapper produces the same fields. `reschedule_outlook_event` needs both, so don't drop them from either side.
 
 ## Persistence

@@ -21,12 +21,12 @@ import re
 from datetime import datetime
 from typing import Any
 
-from ... import mock_data
 from ...config import REROUTE_MAX_ADDED_DELAY_MINUTES, REROUTE_MAX_OPTIONS
+from ...demo import mock_data
 from ...errors import with_resilience
-from ...integrations import db_ops as db_api
 from ...integrations import hotels as hotels_api
-from ...integrations import stations
+from ...integrations.db import ops as db_api
+from ...integrations.db import stations
 from ..constraints import (
     arrives_after_home_limit,
     minimum_transfer_buffer,
@@ -85,8 +85,8 @@ def _sanitize_reroute_preferences(raw_prefs: dict | None) -> dict:
 def _profile_reroute_preferences() -> dict:
     """Read and sanitize the current request's deterministic reroute preferences."""
     try:
-        from journey_autopilot.persistence import store
-        from journey_autopilot.request_context import current_user_id
+        from ...persistence import store
+        from ...request_context import current_user_id
 
         user_id = current_user_id.get()
         profile = store.get_profile(user_id) if user_id else store.any_profile()

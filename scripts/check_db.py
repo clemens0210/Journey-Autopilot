@@ -1,4 +1,4 @@
-"""Smoke test for the DB connection (db_service sidecar + db_ops.py).
+"""Smoke test for the DB connection (db_service sidecar + integrations/db/).
 
 Requires the sidecar to be running (`cd db_service && npm start`, port 3000)
 and `requests` to be installed (`pip install -r requirements.txt`).
@@ -15,8 +15,8 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from journey_autopilot.integrations import stations
-from journey_autopilot.integrations import db_ops as db_api
+from journey_autopilot.integrations.db import stations
+from journey_autopilot.integrations.db import ops as db_api
 
 
 def main() -> None:

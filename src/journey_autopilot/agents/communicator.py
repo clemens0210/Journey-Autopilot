@@ -18,8 +18,8 @@ Not to be confused with the Orchestrator's ``send_whatsapp_to_user``: that is a
 one-way push to the traveler themselves and needs no draft or approval, because
 the traveler is both the recipient and the channel the veto arrives through.
 The Twilio sender and the approval/veto queue live in
-``integrations/whatsapp.py``; inbound YES/NO/EDIT traffic is handled by
-``integrations/whatsapp_webhook.py``.
+``integrations/whatsapp/messaging.py``; inbound YES/NO/EDIT traffic is handled
+by ``integrations/whatsapp/webhook.py``.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types
 
 from ..config import DRAFTER_MODEL
-from ..integrations.whatsapp_models import DisruptionEvent, Recipient
+from ..integrations.whatsapp import DisruptionEvent, Recipient
 from ..tools.write_tools import COMMUNICATOR_WRITE_TOOLS
 
 _APP_NAME = "whatsapp_drafter"

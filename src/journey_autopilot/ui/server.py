@@ -51,9 +51,9 @@ if not _outlog.handlers:
 _outlog.propagate = False
 
 # Surface this package's INFO logs in the terminal — e.g. the HIGH-risk
-# disruption alert emitted by integrations/whatsapp.py and ui/chat.py. uvicorn
+# disruption alert emitted by integrations/whatsapp/ and ui/chat.py. uvicorn
 # only configures its own loggers, so without this our INFO lines are swallowed.
-# (Mirrors integrations/whatsapp_webhook.py, which runs under uvicorn too.)
+# (Mirrors integrations/whatsapp/webhook.py, which runs under uvicorn too.)
 logging.getLogger("journey_autopilot").setLevel(logging.INFO)
 if not logging.getLogger().handlers:
     logging.basicConfig(level=logging.INFO)
@@ -76,10 +76,8 @@ def _warm_rights_rag() -> None:
 
     def _load() -> None:
         try:
-            from journey_autopilot.integrations.rights_rag.rag_store import (
-                FahrgastrechteRAG,
-            )
-            from journey_autopilot.tools import read_tools
+            from ..integrations.rights_rag.rag_store import FahrgastrechteRAG
+            from ..tools import read_tools
 
             read_tools.get_passenger_rights._rag = FahrgastrechteRAG()
         except Exception:

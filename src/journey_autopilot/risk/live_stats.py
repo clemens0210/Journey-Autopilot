@@ -1,10 +1,11 @@
-"""Delay statistics for a connection from real DB data — the risk-model tool.
+"""Today's delay situation on a route, aggregated from the live DB arrival board.
 
-Like ``stations.py``, this builds on ``db_ops`` and is the place where raw DB
-boards become reliable metrics for the **risk assessment** done by the
-Monitoring agent. Risk scoring is a model/heuristic, never an LLM judgment: the
-aggregation happens here deterministically in Python — the agent only assesses,
-it does not compute.
+The second of this package's two sources. ``delay_reference`` answers "how
+delay-prone is this route normally" from a multi-month archive; this module
+answers "how is it going right now" from the arrival board. Both are pure
+Python: risk is a model, never an LLM judgment — the Monitoring agent
+*interprets* these numbers into a score and a band, it does not compute them.
+The agent-facing tool wrappers live in ``tools/read/pretrip_risk.py``.
 
 Why use the arrival board as "historical data"? ``db-vendo-client`` offers NO
 real delay-archive endpoint. Empirically, though, the DB API carries actual
@@ -13,8 +14,11 @@ the recent PAST (trains that have already arrived). Older days only deliver
 the scheduled timetable without delay. This is exactly the window used here:
 the arrival board of the destination station for the last few hours; every
 long-distance train listed there that has already arrived carries its ACTUALLY
-occurred delay — a real, DB-backed signal. (The multi-month baseline lives in
-``risk/delay_reference.py``; this module covers "today's situation".)
+occurred delay — a real, DB-backed signal.
+
+Unlike the rest of the package this reaches out to the db_service sidecar, so
+it is deliberately NOT re-exported from ``risk/__init__.py`` — import it as
+``from ...risk import live_stats`` where the live dependency is wanted.
 """
 
 from __future__ import annotations
@@ -24,8 +28,8 @@ from datetime import datetime, timedelta
 from statistics import mean, median
 from typing import Any
 
-from ..integrations import db_ops
-from ..integrations import stations
+from ..integrations.db import ops as db_ops
+from ..integrations.db import stations
 
 # Long-distance traffic — other products would distort the corridor statistics.
 _LONG_DISTANCE = {"ICE", "IC", "EC", "ECE", "RJ", "RJX", "TGV", "NJ", "EN"}

@@ -42,7 +42,7 @@ import secrets
 from datetime import datetime, timezone
 
 from .. import policy
-from ..integrations import db_ops as db_api
+from ..integrations.db import ops as db_api
 from .constraints import (
     arrives_after_home_limit,
     mode_eligibility_violations,
@@ -207,8 +207,8 @@ async def send_approved_notice_email(approval_id: str) -> dict:
 def _profile() -> dict | None:
     """Authenticated request profile, with single-user fallback for scenarios."""
     try:
-        from journey_autopilot.persistence import store
-        from journey_autopilot.request_context import current_user_id
+        from ..persistence import store
+        from ..request_context import current_user_id
 
         user_id = current_user_id.get()
         if user_id:
@@ -278,8 +278,8 @@ def _selected_proposal_option(proposal_id: str, option_id: str) -> tuple[dict, d
     arbitrary "most recently onboarded" profile, since that fallback would let
     an unbound request execute against whichever profile happens to be picked.
     """
-    from journey_autopilot.persistence import store
-    from journey_autopilot.request_context import current_session_id, current_user_id
+    from ..persistence import store
+    from ..request_context import current_session_id, current_user_id
 
     user_id = current_user_id.get()
     if not user_id:
@@ -522,8 +522,8 @@ async def send_whatsapp_to_user(message: str) -> dict:
         traveler has no verified number, which is not an error — say so plainly
         rather than retrying.
     """
-    from journey_autopilot import request_context
-    from journey_autopilot.integrations import whatsapp
+    from .. import request_context
+    from ..integrations import whatsapp
 
     name = "send_whatsapp_to_user"
     to_number = request_context.current_notify_phone.get()
@@ -649,7 +649,7 @@ async def book_alternative_connection(
             calendar_clash=calendar_clash,
         )
 
-    from journey_autopilot.persistence import store
+    from ..persistence import store
 
     if not store.claim_reroute_proposal_execution(
         proposal["user_id"], proposal_id, option_id
@@ -709,7 +709,7 @@ async def book_hotel(
             revalidation=evidence,
         )
 
-    from journey_autopilot.persistence import store
+    from ..persistence import store
 
     if not store.claim_reroute_proposal_execution(
         proposal["user_id"], proposal_id, option_id

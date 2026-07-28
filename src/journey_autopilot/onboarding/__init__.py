@@ -2,8 +2,11 @@
 
 This package holds the *logic* of onboarding, not the UI:
 
-- ``accounts`` — simulated DB accounts, booked trips, and Outlook events
-  (the swap point for a real DB/Microsoft integration).
+- ``complaints`` — passenger-rights claim drafts prepared for the user to submit.
+
+The simulated DB account and its booked trips/Outlook events used to live here
+as ``accounts``; they are half of the demo dataset (and share its clock), so
+they now live in ``journey_autopilot.demo.accounts``.
 
 The SQLite store for users, the profile (JSON blob), and imported trips lives in
 ``journey_autopilot.persistence.store``.

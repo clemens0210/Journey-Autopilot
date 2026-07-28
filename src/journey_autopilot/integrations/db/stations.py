@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 import time
 
-from . import db_ops
+from . import ops as db_ops
 
 # Static table for the stations the demo/fixtures touch, plus common German
 # Hbf. Keys are normalized via ``_norm`` (lowercase, collapsed whitespace);

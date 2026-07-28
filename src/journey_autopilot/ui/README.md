@@ -105,7 +105,7 @@ planner for reroutes and checks the calendar. The reply is shown as a chat
 bubble with a collapsible **agent trace** (which agent called which tool).
 
 > Lucas' Munich → Berlin trip (today, two transfers) is the canonical demo scenario — pinned to
-> the same `trip_id`/date as `mock_data.DEMO_TRIP`, so it triggers the full
+> the same `trip_id`/date as `demo.mock_data.DEMO_TRIP`, so it triggers the full
 > disruption → reroute → calendar story. Requires a configured Uni-GPT backend
 > in `.env` (`UNI_GPT_*`); without it, the chat shows the backend error inline.
 
@@ -117,7 +117,7 @@ bubble with a collapsible **agent trace** (which agent called which tool).
 | ------------------------- | ------------- | ---------------------------------------------------------------------- |
 | Home station search       | **live**\*    | real DB station data via the `db_service` sidecar, otherwise fallback list |
 | Profile persistence       | **real**      | SQLite (`../persistence/store.py`)                                      |
-| DB account login & import | *simulated*   | `../onboarding/accounts.py` — no official DB API available             |
+| DB account login & import | *simulated*   | `../demo/accounts.py` — no official DB API available                    |
 | SMS verification          | *simulated*   | no SMS gateway; the code is returned and displayed inline (delivered via Twilio WhatsApp when configured) |
 | Outlook calendar (OAuth)  | **live**\*\*  | real MS Entra device-code flow when `MS_ENTRA_CLIENT_ID` is set; simulated consent dialog + sample events otherwise |
 
@@ -131,7 +131,7 @@ clean wizard run-through (e.g. before a demo), reset the stored profile with
 `python scripts/reset_demo.py` — it keeps the Outlook login cached.
 
 The simulations are deliberately kept behind realistic API contracts. A real
-integration would ideally only need to swap out `../onboarding/accounts.py` and
+integration would ideally only need to swap out `../demo/accounts.py` and
 the affected endpoints — the rest (UI, store, profile structure) remains untouched.
 
 ---

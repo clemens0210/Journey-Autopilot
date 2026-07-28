@@ -18,7 +18,7 @@ import re
 import time
 from datetime import datetime, timedelta
 
-from ... import mock_data
+from ...demo import mock_data
 from ...errors import with_resilience_async
 from ..constraints import parse_datetime
 from .profile import _profile_connections
@@ -133,7 +133,7 @@ async def get_user_calendar(date: str, user_email: str | None = None) -> dict:
     # round-trips into one; failed fetches are never cached so a Graph hiccup
     # can recover on the next call.
     try:
-        from journey_autopilot.request_context import current_user_id
+        from ...request_context import current_user_id
 
         request_user_id = current_user_id.get()
     except Exception:

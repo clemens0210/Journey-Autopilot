@@ -114,7 +114,7 @@ runs as a small **sidecar** (`db_service/`): a local JSON service that the
 Python side talks to over HTTP.
 
 ```
-[ ADK agents ] -> read_tools.py -> db_ops.py --HTTP--> db_service (Node) -> DB
+[ ADK agents ] -> read_tools.py -> integrations/db/ops.py --HTTP--> db_service (Node) -> DB
 ```
 
 Start the sidecar (separate terminal):
@@ -132,10 +132,9 @@ python scripts/check_db.py              # health check + EVA resolution + one co
 Endpoints and options are documented in `db_service/README.md`. The Python
 client is configured via `DB_API_URL` / `DB_API_TIMEOUT` in `.env`.
 
-> **Status:** The sidecar and Python client (`integrations/db_ops.py`,
-> `integrations/stations.py`) are finished and independently testable. The read
-> tools try the sidecar first and fall back to `mock_data`, tagging the result
-> with a `source` field.
+> **Status:** The sidecar and Python client (`integrations/db/`) are finished
+> and independently testable. The read tools try the sidecar first and fall back
+> to `demo/mock_data.py`, tagging the result with a `source` field.
 
 ### Historical delay reference (Monitoring Agent, pre-trip risk)
 
@@ -174,7 +173,7 @@ Or fully containerized — see the next section.
 ### Demo notes (evergreen dates & flows)
 
 - **Dates are rebased at startup**: the fixtures are authored against one
-  anchor day, and `mock_data` shifts every date so the canonical demo trip
+  anchor day, and `demo/mock_data.py` shifts every date so the canonical demo trip
   (Munich → Berlin, ICE 1006) departs **today**. Set `JA_DEMO_OFFSET_DAYS=1`
   to move the whole scenario to tomorrow (times stay as authored). The
   calendar clash (14:00 client meeting), live status, and reroute options all
@@ -282,7 +281,7 @@ notifications & autonomy level → summary → dashboard.
 - **Simulated** are DB login/trip import, Microsoft consent, and SMS sending
   (no official APIs for a university project) — but the API contracts match
   what a real integration would need to deliver (swap point:
-  `src/journey_autopilot/onboarding/accounts.py`). Rationale in the Context Record.
+  `src/journey_autopilot/demo/accounts.py`). Rationale in the Context Record.
 - **Real** is the home station search: if the `db_service` sidecar is running,
   station suggestions come live from the DB API (green dot), otherwise a
   static fallback list is used.
@@ -294,12 +293,12 @@ notifications & autonomy level → summary → dashboard.
 ### Webhook server (receive WhatsApp replies)
 
 ```bash
-uvicorn journey_autopilot.integrations.whatsapp_webhook:app --port 8000
+uvicorn journey_autopilot.integrations.whatsapp.webhook:app --port 8000
 ```
 
 Twilio sends the traveler's replies (YES / NO / EDIT \<text\>) to
 `POST /whatsapp/reply`. The server forwards them to the approval logic in
-`integrations/whatsapp.py` and, upon approval, dispatches the message to the
+`integrations/whatsapp/messaging.py` and, upon approval, dispatches the message to the
 actual recipient via Twilio.
 
 `scenarios/happy_path.py` is the fastest way to see the agents working together:
@@ -329,17 +328,18 @@ is deliberately mocked.
   checks them against hard deadlines (calendar), cites passenger rights.
 - **Communicator Agent** (`agents/communicator.py`) — write. Drafts
   role-appropriate WhatsApp messages for each recipient.
-- **Read tools / risk model** (`tools/read_tools.py`, `tools/risk_model.py`) —
-  function tools + deterministic delay statistics, backed by fixtures
-  (`mock_data.py`); insertion points for real DB/calendar/RAG sources.
+- **Read tools** (`tools/read_tools.py`) — the function tools, backed by fixtures
+  (`demo/mock_data.py`); insertion points for real DB/calendar/RAG sources. The
+  deterministic delay statistics they expose live in `risk/` (historical
+  baseline + today's arrival board), not in `tools/`.
   `tools/constraints.py` holds the pure eligibility rules (transfers,
   cancellation, mobility opt-outs, latest-arrival-home) that the read side
   applies when building the shortlist and the write side reapplies before
   executing — shared so the two cannot diverge.
-- **Integrations** (`integrations/`) — DB sidecar (`db_ops`/`stations`), Outlook
-  (`outlook/`), WhatsApp Twilio sender + approval/veto queue (`whatsapp.py`,
-  `whatsapp_webhook.py`), passenger-rights RAG (`rights_rag/`). All mocked behind
-  interfaces.
+- **Integrations** (`integrations/`) — one package per external system: DB
+  sidecar (`db/`), Outlook (`outlook/`), WhatsApp Twilio sender + approval/veto
+  queue + reply webhook (`whatsapp/`), passenger-rights RAG (`rights_rag/`).
+  All mocked behind interfaces.
 - **Persistence** (`persistence/store.py`) — SQLite profile/constraints/trips.
 - **Policy layer / veto gate** (`policy.py`, `tools/write_tools.py`,
   `agents/executor.py`) — `policy.resolve()` maps each write action to `auto`/`ask`
@@ -381,14 +381,15 @@ src/journey_autopilot/
   errors.py                  # retry -> fallback -> degrade wrapper
   policy.py                  # veto gate: resolves write actions auto/ask (active)
   request_context.py         # per-turn identity, phone, and the turn workspace
-  config.py  mock_data.py
+  config.py
   agents/      monitoring.py  planner.py  communicator.py  executor.py
-  tools/       read_tools.py  write_tools.py  risk_model.py  constraints.py
-  integrations/  db_ops.py  stations.py  outlook/  whatsapp.py  whatsapp_webhook.py
-                 whatsapp_models.py  rights_rag/
+  tools/       read_tools.py  read/  write_tools.py  constraints.py
+  risk/        delay_reference.py  predictor.py  live_stats.py
+  demo/        mock_data.py  accounts.py      # one dataset, one clock
+  integrations/  db/  outlook/  whatsapp/  rights_rag/  hotels.py
   persistence/   store.py
-  onboarding/    accounts.py  complaints.py
-  ui/            server.py  chat.py  static/
+  onboarding/    complaints.py
+  ui/            server.py  routes/  chat.py  static/js/
 run_onboarding.py              # launches the web app
 ```
 

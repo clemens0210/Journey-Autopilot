@@ -5,8 +5,8 @@ it automatically into a FunctionTool and derives the parameter schema from the
 type hints and docstring. Therefore docstrings and types here are not decoration
 but part of the API that the LLM sees.
 
-DB-related functions are live-first via `integrations.db_ops` and fall back to
-`mock_data` when the sidecar is unavailable. Calendar and demo account data
+DB-related functions are live-first via `integrations.db.ops` and fall back to
+`demo.mock_data` when the sidecar is unavailable. Calendar and demo account data
 keep the same presentation-safe fallback pattern.
 
 The implementations live in the ``read`` subpackage, one module per read

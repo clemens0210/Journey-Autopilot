@@ -16,8 +16,8 @@ def _profile_connections() -> dict:
     lookup pattern lives in one place.
     """
     try:
-        from journey_autopilot.persistence import store
-        from journey_autopilot.request_context import current_user_id
+        from ...persistence import store
+        from ...request_context import current_user_id
 
         user_id = current_user_id.get()
         profile = store.get_profile(user_id) if user_id else store.any_profile()
@@ -41,8 +41,8 @@ def get_user_profile() -> dict:
     try:
         # Lazy import: keeps the ADK package independent of the persistence
         # layer (SQLite store) as long as the tool is not called.
-        from journey_autopilot.persistence import store
-        from journey_autopilot.request_context import current_user_id
+        from ...persistence import store
+        from ...request_context import current_user_id
 
         user_id = current_user_id.get()
         profile = store.get_profile(user_id) if user_id else store.any_profile()

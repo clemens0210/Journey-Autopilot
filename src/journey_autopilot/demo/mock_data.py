@@ -1,7 +1,7 @@
-"""Mocked data for the prototype — loaded from JSON fixtures.
+"""Simulated live ops for the prototype — loaded from JSON fixtures.
 
 Deliberate decision (see CONTEXT_RECORD.md / ADR 0005): we have no real DB API
-access, so all live-ops data is simulated. The fixtures now live as JSON under
+access, so all live-ops data is simulated. The fixtures live as JSON under
 ``data/fixtures/`` and are loaded here into the module-level names the tools and
 scenarios already import (``DEMO_TRIP``, ``LIVE_TRIP_STATUS``, ...). Keeping the
 names stable means consumers (``tools/read_tools.py``, ``scenarios/``, the
@@ -11,6 +11,10 @@ Pick a fixture set with the ``JA_FIXTURES`` environment variable (default
 ``happy_path``); this is the swap point that lets the edge-case / failure-case
 scenarios run against their own dataset without touching code. Later, a real API
 (or an MCP server) replaces the read tools — the interface stays the same.
+
+This is one half of the demo dataset; the account side is ``demo/accounts.py``,
+and the two must stay on the same clock. See the package docstring in
+``demo/__init__.py`` for the ``DEMO_DAY`` / ``DEMO_TIME_SHIFT`` contract.
 """
 
 from __future__ import annotations
@@ -21,7 +25,9 @@ import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-_FIXTURES_DIR = Path(__file__).resolve().parent / "data" / "fixtures"
+# The JSON lives under the package's shared data/ directory (next to the delay
+# reference and the SQLite db), not inside demo/ — hence the extra .parent.
+_FIXTURES_DIR = Path(__file__).resolve().parent.parent / "data" / "fixtures"
 _ACTIVE = os.getenv("JA_FIXTURES", "happy_path")
 
 # The fixtures are authored against one fixed anchor day (the demo trip's
@@ -129,7 +135,7 @@ def _anchor_times_to_start(fx: dict) -> tuple[dict, timedelta]:
 
     The target departure is rounded down to a 5-minute grid so the shifted
     timetable still looks like a timetable. Returns the shifted fixture and
-    the applied delta — ``onboarding/accounts.py`` adds the same delta to its
+    the applied delta — ``demo/accounts.py`` adds the same delta to its
     composed times so bookings/calendar stay on the fixture's clock.
     """
     try:

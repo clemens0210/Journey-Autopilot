@@ -17,9 +17,8 @@ import re
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from journey_autopilot.onboarding import accounts
-from journey_autopilot.persistence import store
-
+from ...demo import accounts
+from ...persistence import store
 from .deps import current_user_id
 
 router = APIRouter(tags=["connect"])
@@ -60,7 +59,7 @@ def phone_start(body: PhoneStartRequest, authorization: str | None = Header(defa
     # Deliver the code to the actual number via Twilio WhatsApp (degrades to a
     # demo no-op if Twilio isn't configured), AND still return it so the on-screen
     # demo display keeps working.
-    from journey_autopilot.integrations import whatsapp
+    from ...integrations import whatsapp
 
     delivery = whatsapp.send_verification_code(phone, code)
     return {"sent": True, "phone": phone, "demo_code": code, "delivery": delivery}
@@ -105,7 +104,7 @@ def _device_flow():
     msgraph the UI falls back to the simulated consent dialog.
     """
     try:
-        from journey_autopilot.integrations.outlook import device_flow
+        from ...integrations.outlook import device_flow
     except ImportError:
         return None
     return device_flow
@@ -204,7 +203,7 @@ def disconnect_outlook(authorization: str | None = Header(default=None)) -> dict
 
     cleared = False
     try:
-        from journey_autopilot.integrations.outlook import clear_token_cache
+        from ...integrations.outlook import clear_token_cache
 
         cleared = clear_token_cache()
     except Exception:
