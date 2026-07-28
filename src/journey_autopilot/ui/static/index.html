@@ -99,6 +99,8 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <!-- ES modules, no bundler: app.js imports the rest. type="module" also
+       makes this deferred, so the DOM is parsed before any screen renders. -->
+  <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

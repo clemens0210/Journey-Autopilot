@@ -45,8 +45,9 @@ The "if risk of disruption" gate between Monitoring and Planner is config-driven
 - `request_context.py` — per-turn identity plus the **turn workspace**: the one place structured results cross the `AgentTool` boundary (trace, WhatsApp sends, reroute shortlist, settled rights). Bound per chat turn, so nothing leaks between turns or between concurrent users
 - `onboarding/accounts.py` — simulated DB/Outlook account (the single swap point for a real integration)
 - `persistence/store.py` — SQLite, stdlib only (profile, trips, proposals, complaints)
-- `ui/server.py` (FastAPI) + `ui/chat.py` (runs the orchestrator per trip)
-- `integrations/` — `db_ops.py`+`stations.py` (Node sidecar), `outlook/` (MS Graph), `whatsapp*.py` (Twilio + approval queue), `rights_rag/` (ChromaDB + rule logic)
+- `ui/server.py` (FastAPI app assembly only) + `ui/routes/` (one router per theme: auth, trips, booking, connect, profile, chat) + `ui/chat.py` (runs the orchestrator per trip)
+- `ui/static/js/` — the browser app as ES modules, no bundler; `app.js` is the entry, screens register with `router.js`
+- `integrations/` — `db_ops.py`+`stations.py` (Node sidecar), `outlook/` (MS Graph, incl. `device_flow.py` — the interactive connect; the web layer only calls start/poll/forget), `whatsapp*.py` (Twilio + approval queue), `rights_rag/` (ChromaDB + rule logic)
 - `config.py` — one `LiteLlm` per agent role, resolved from `config/settings.yaml`
 
 ## Path gotchas
@@ -67,7 +68,7 @@ Fill `.env` at root from `.env.example`, then also copy it to `journey_autopilot
 
 `tools/read_tools.py` follows a **live-then-mock-fallback**: each tool tries the real source (db_service sidecar / MS Entra / archive JSON), falls back to `mock_data`, and tags every result with a `source` field (`db_service_live` / `db_history_archive` / `mock_*`). The Orchestrator instruction requires the agent to disclose `mock_*` sources to the user. Keep this contract when editing/adding tools.
 
-`ui/server.py`'s `/api/journeys/search` is a documented exception — UI-only, live-or-nothing, no mock.
+`ui/routes/booking.py`'s `/api/journeys/search` is a documented exception — UI-only, live-or-nothing, no mock.
 
 ## Hard-won gotchas
 

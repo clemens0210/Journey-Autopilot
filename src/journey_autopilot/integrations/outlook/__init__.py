@@ -14,6 +14,12 @@ Public API:
 Returns calendar events in the internal format expected by the Planner Agent.
 Handles authentication (device-code flow via azure.identity with persistent
 token caching) and data mapping internally. Uses the official msgraph-sdk.
+
+The *interactive* half — connecting a human account from the onboarding wizard
+— lives in :mod:`.device_flow` (``start`` / ``poll`` / ``forget``). It is
+imported on demand rather than re-exported here, because the web layer is its
+only caller and everything else in this package works with an already-connected
+account.
 """
 
 from __future__ import annotations

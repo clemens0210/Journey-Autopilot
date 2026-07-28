@@ -85,7 +85,7 @@ profile summary, connections, and the GDPR deletion option.
 
 ### Automation & veto (the policy layer)
 
-From the dashboard or profile, **Automation & veto** (`renderers.policy`) lets
+From the dashboard or profile, **Automation & veto** (`static/js/policy.js`) lets
 the user set the global autonomy level (conservative / balanced / automatic
 within limits) and pin per-action overrides (auto / ask, plus a cost limit for
 rebookings). The choices are stored in the profile's `policy` block via
@@ -145,13 +145,28 @@ never the other way around.
 ```
 journey_autopilot/
 ├── ui/                  ← this package (everything user-facing)
-│   ├── server.py        FastAPI app: JSON API, /api/chat, serving the static UI
+│   ├── server.py        FastAPI app assembly: logging, routers, static UI
+│   ├── routes/          one module per API theme (see routes/__init__.py)
+│   │   ├── deps.py      the session table — the only state spanning routers
+│   │   ├── auth.py      DB-account login, /api/me bootstrap
+│   │   ├── trips.py     monitored trips, itinerary, complaints
+│   │   ├── booking.py   station lookup, live journey search, add a connection
+│   │   ├── connect.py   phone verification, Outlook connection
+│   │   ├── profile.py   profile read/patch, onboarding completion, GDPR delete
+│   │   └── chat.py      orchestrator chat turn + demo preload
 │   ├── chat.py          runs the ReAct orchestrator (root_agent) per chat turn
 │   ├── __init__.py      package docs
 │   └── static/
 │       ├── index.html   DB Navigator frame: status bar, header, tab bar, DB logo
 │       ├── style.css    DB Navigator dark theme (DB red #EC0016, dark slate surfaces)
-│       └── app.js       framework-free UI: render(step), wizard patches, trip chat
+│       └── js/          ES modules, no bundler — app.js is the entry point
+│           ├── state.js · api.js · dom.js · format.js      foundations
+│           ├── router.js                                    screen registry + go()
+│           ├── components.js · stations.js · markdown.js · chat-options.js
+│           ├── chat-store.js                                conversations + sessionStorage
+│           ├── outlook.js                                   the connect flow (both paths)
+│           └── onboarding.js · dashboard.js · profile.js · policy.js
+│               · book.js · tripdetail.js · chat.js          the screens
 ├── onboarding/          ← the logic (the "functions"), imported by ui/
 │   ├── accounts.py      simulated DB accounts, bookings, Outlook events, station fallback
 │   └── __init__.py
@@ -159,9 +174,15 @@ journey_autopilot/
     └── store.py         SQLite store: users, profile (JSON blob), imported trips
 ```
 
-- **No build step, no JS framework.** The UI is vanilla JS; `render(step)`
-  draws the respective screen, the bottom navigation is configured per
-  step, and the chat reuses the same `render`/state mechanism.
+- **No build step, no JS framework.** The UI is vanilla JS split into ES
+  modules and loaded with `<script type="module">`. Each screen module
+  registers its renderers with `router.js`; `go(step)` draws one, and the
+  bottom navigation is configured per step. The chat reuses the same
+  `go`/state mechanism.
+- **One state object** (`state.js`) that every module reads and writes
+  directly. The rule is not encapsulation but non-duplication: a fact must
+  live in exactly one field. (`state.outlookConnectedThisStep` is the
+  cautionary tale — two connect paths, and for a while only one set it.)
 - **Sessions** live in-memory (token → `user_id`). A restart simply means
   “log in again” — deliberately without persistence for the single-user prototype.
 - **Chat sessions** are kept by ADK's in-memory runner (`chat.py`); ADK and the
