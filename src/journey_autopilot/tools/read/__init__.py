@@ -48,7 +48,7 @@ from .reroute import (
     find_partner_hotels,
     find_reroute_options,
 )
-from .rights import get_passenger_rights, turn_rights_result
+from .rights import get_passenger_rights, settled_rights_result
 from .workspace import turn_reroute_state
 
 # The surface splits by AUDIENCE, and the naming follows that split:
@@ -76,14 +76,16 @@ _AGENT_TOOLS = [
 
 # Plain Python — never registered as tools, never seen by a model. Called by
 # the write path, ui.chat, and the Planner's instruction provider. ``is_*`` is
-# a predicate, ``turn_*`` reads state scoped to the current chat turn.
+# a predicate, ``turn_*`` reads state scoped to the current chat turn, and
+# ``settled_*`` reads the authoritative result the current chat can still act
+# on a turn later.
 _INTERNAL_API = [
     "is_calendar_connected",
     "get_user_calendar",
     "classify_window_conflicts",
     "recent_delay_history",
     "turn_reroute_state",
-    "turn_rights_result",
+    "settled_rights_result",
     "CALENDAR_TRAVEL_BUFFER_MINUTES",
     "PSEUDO_OUTLOOK_ALIAS_RE",
 ]

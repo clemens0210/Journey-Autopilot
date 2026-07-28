@@ -13,7 +13,9 @@ Two things travel with a chat turn through ``contextvars``, so that nested
    ``ui.chat`` iterates. Everything that has to cross that gap goes in here:
 
    - ``trace`` — the specialists' own tool calls, for the chat trace.
-   - ``whatsapp_sends`` — what physically left via Twilio this turn.
+   - ``whatsapp_sends`` — every outbound WhatsApp *outcome* this turn, delivered
+     or not (see ``whatsapp_delivered`` for the subset that actually reached
+     the traveler).
    - ``reroute`` — the Planner's discovery/finalize workspace.
    - ``rights`` — the settled passenger-rights result (concluded trips only).
 
@@ -90,10 +92,31 @@ def record_trace(entry: dict) -> None:
 
 
 def record_whatsapp_send(entry: dict) -> None:
-    """Append one outbound WhatsApp result to this turn."""
+    """Append one outbound WhatsApp *outcome* to this turn.
+
+    Every attempt is recorded, including the ones that delivered nothing (no
+    verified number, Twilio error) — the web layer reads the last entry back to
+    tell the traveler why no notice arrived. Only ``whatsapp_delivered()``
+    entries count as "the traveler has been informed".
+    """
     turn_workspace()["whatsapp_sends"].append(entry)
 
 
 def whatsapp_sends() -> list[dict]:
-    """What has already gone out this turn — the one-notice-per-turn guard."""
+    """Every outbound WhatsApp outcome this turn, delivered or not."""
     return turn_workspace()["whatsapp_sends"]
+
+
+def whatsapp_delivered() -> list[dict]:
+    """The notices that actually left this turn — the one-notice-per-turn guard.
+
+    Deliberately narrower than ``whatsapp_sends()``: a failed send buzzed
+    nobody's phone, so it must not arm the guard and block the retry.
+    ``demo`` counts as delivered — Twilio is simply not configured, and the
+    message was logged in its place, so resending would be just as pointless.
+    """
+    return [
+        entry
+        for entry in whatsapp_sends()
+        if entry.get("sent") or entry.get("demo")
+    ]

@@ -349,8 +349,10 @@ async def _run_chat_turn(
     # runs synchronously between the Orchestrator's call and result events, so
     # those entries interleave in the right nested order.
     trace: list[dict] = workspace["trace"]
-    # What physically left the system this turn. The send tool reads it back to
-    # refuse a second notice — which is why the retry below must not clear it.
+    # Every outbound WhatsApp outcome this turn, delivered or not. The send tool
+    # reads the *delivered* subset back to refuse a second notice — which is why
+    # the retry below must not clear it. The browser toasts the last entry, so
+    # the undelivered ones (no verified number, Twilio error) are kept too.
     whatsapp_sends: list[dict] = workspace["whatsapp_sends"]
 
     async def _run_turn() -> str:
@@ -383,8 +385,10 @@ async def _run_chat_turn(
     # state — one retry usually clears it (error policy: recover inside the
     # loop, don't crash the turn). Write tools stay safe under the replay: the
     # email approval_id is single-use, a reroute proposal can only be claimed
-    # once, and the WhatsApp notice refuses to fire twice for the same turn
-    # (it checks the send record, which is deliberately not reset on retry).
+    # once, and the WhatsApp notice refuses to fire again once one has actually
+    # been delivered this turn (it checks the send record, which is deliberately
+    # not reset on retry; a failed attempt stays retryable, since the traveler's
+    # phone never buzzed).
     for attempt in (1, 2):
         try:
             reply = await _run_turn()
@@ -417,11 +421,13 @@ async def _run_chat_turn(
     # Log the outcome so a missing notice is diagnosable (band detected, phone
     # present, whether the agent chose to send) — not just silence.
     logger.info(
-        "chat turn: session=%s risk_band=%s phone=%s whatsapp_sends=%d alert=%s",
+        "chat turn: session=%s risk_band=%s phone=%s whatsapp_attempts=%d "
+        "whatsapp_delivered=%d alert=%s",
         session_id,
         risk_band,
         notify_phone or "(none)",
         len(whatsapp_sends),
+        sum(1 for s in whatsapp_sends if s.get("sent") or s.get("demo")),
         alert,
     )
     # Pick up only the finalized structured shortlist. Discovery candidates are

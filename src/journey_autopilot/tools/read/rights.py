@@ -17,7 +17,7 @@ from ...integrations.rights_rag.rights_service import (
     calculate_compensation,
     evaluate_travel_rights,
 )
-from ...request_context import turn_workspace
+from ...request_context import current_session_id, current_user_id, turn_workspace
 
 # get_passenger_rights is a Planner tool, and the Planner is only reachable
 # through an AgentTool (the orchestrator calls it as a nested agent). ADK's
@@ -30,18 +30,60 @@ from ...request_context import turn_workspace
 # Workaround (the same turn workspace the reroute shortlist uses): the tool
 # stashes its result there while it runs, and the caller reads it after the run
 # instead of scanning the trace. The workspace is bound per chat turn, so a
-# result can neither survive into the next turn nor leak into a concurrent one.
+# result can neither leak into a concurrent turn nor outlive this one.
+#
+# The turn workspace alone is too short-lived for the *claim*, though. The
+# natural conversation is two turns — "you're owed EUR 39.95" and then "yes,
+# file it" — and by the second one the workspace that held the figure is gone.
+# So a settled result is additionally kept per chat SESSION below. That keeps
+# the property the workspace was there for (the amount comes from the
+# deterministic lookup, never from conversation text) while letting the
+# traveler answer the question they were just asked.
+#
+# The two scopes have different jobs and stay separate: the automatic complaint
+# draft reads the turn workspace directly (``ui.chat``), because it must fire
+# for the turn the lookup ran in and not again on every later turn of the same
+# conversation; the Executor's claim reads ``settled_rights_result`` below.
+
+# Settled rights results by (user_id, session_id). In-memory on purpose, like
+# the staged email drafts: an ADK session does not survive a server restart
+# either, so a cleared stash always coincides with a conversation the agent has
+# already forgotten — the lookup simply has to run again.
+_SESSION_RIGHTS: dict[tuple[str, str], dict] = {}
+_SESSION_RIGHTS_MAX = 64
 
 
-def turn_rights_result() -> dict | None:
-    """Returns this turn's settled rights result, or None.
+def _session_key() -> tuple[str, str] | None:
+    """Identity of the running chat session, or None outside a bound request."""
+    user_id, session_id = current_user_id.get(), current_session_id.get()
+    return (user_id, session_id) if user_id and session_id else None
 
-    Only a ``trip_concluded=True`` lookup lands here. A mid-trip entitlement
-    check (Zugbindung and friends) deliberately does not, so neither the
-    automatic complaint draft nor the Executor's claim can ever be built from a
-    delay the traveler has not actually experienced.
+
+def _remember_session_rights(result: dict) -> None:
+    key = _session_key()
+    if key is None:
+        return  # scenario/demo call: the shared unbound workspace already holds it
+    _SESSION_RIGHTS.pop(key, None)  # re-insert so the newest key evicts last
+    _SESSION_RIGHTS[key] = result
+    while len(_SESSION_RIGHTS) > _SESSION_RIGHTS_MAX:
+        _SESSION_RIGHTS.pop(next(iter(_SESSION_RIGHTS)))
+
+
+def settled_rights_result() -> dict | None:
+    """The settled rights result backing a claim: this turn's, else this chat's.
+
+    Only a ``trip_concluded=True`` lookup ever lands in either place. A mid-trip
+    entitlement check (Zugbindung and friends) deliberately does not, so the
+    Executor's claim can never be built from a delay the traveler has not
+    actually experienced — and the session stash is scoped to the authenticated
+    user and their ADK session, so one traveler's figure can never back
+    another's claim. Within a conversation the newest settled lookup replaces
+    the previous one, so the figure on offer is always the one last quoted.
     """
-    return turn_workspace().get("rights")
+    key = _session_key()
+    return turn_workspace().get("rights") or (
+        _SESSION_RIGHTS.get(key) if key is not None else None
+    )
 
 
 def _legal_context(delay_minutes: int, ticket_type: str, bahncard_type: str) -> tuple[str, list[str]]:
@@ -146,10 +188,11 @@ def get_passenger_rights(
     result["compensation"] = {"assessable": True, **compensation}
     result.update(compensation)
 
-    # Only a concluded trip may seed the automatic complaint draft; stashing a
-    # mid-trip forecast here would let the app file a claim for a delay the
-    # traveler has not experienced yet (see onboarding/complaints.py).
+    # Only a concluded trip may seed the automatic complaint draft or back a
+    # filed claim; stashing a mid-trip forecast here would let the app act on a
+    # delay the traveler has not experienced yet (see onboarding/complaints.py).
     turn_workspace()["rights"] = result
+    _remember_session_rights(result)
     return result
 
 

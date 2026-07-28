@@ -518,9 +518,11 @@ async def send_whatsapp_to_user(message: str) -> dict:
     Returns:
         A status dict. ``status="executed"`` with ``delivery.sent`` true means
         WhatsApp accepted it; ``delivery.demo`` means Twilio is not configured
-        and the message was logged instead; ``status="skipped"`` means the
-        traveler has no verified number, which is not an error — say so plainly
-        rather than retrying.
+        and the message was logged instead; ``status="skipped"`` means nothing
+        was sent and nothing should be (no verified number, or a notice already
+        went out this turn) — say so plainly rather than retrying;
+        ``status="failed"`` means the send itself broke, so the traveler was
+        NOT reached — never report it as delivered.
     """
     from .. import request_context
     from ..integrations import whatsapp
@@ -528,6 +530,12 @@ async def send_whatsapp_to_user(message: str) -> dict:
     name = "send_whatsapp_to_user"
     to_number = request_context.current_notify_phone.get()
     if not to_number:
+        # Recorded, not silent: the web layer reads the last outcome back to
+        # tell the traveler why no notice arrived (see ui/static/js/chat.js).
+        # A skip delivers nothing, so it never arms the guard below.
+        request_context.record_whatsapp_send(
+            {"to": None, "sent": False, "reason": "no_phone"}
+        )
         return {
             "status": "skipped",
             "tool": name,
@@ -538,11 +546,13 @@ async def send_whatsapp_to_user(message: str) -> dict:
             ),
         }
 
-    # One notice per turn, enforced rather than merely instructed. The chat turn
-    # is replayed once when the model emits malformed tool-call JSON
+    # One DELIVERED notice per turn, enforced rather than merely instructed. The
+    # chat turn is replayed once when the model emits malformed tool-call JSON
     # (ui/chat.py), and a model can always call a tool twice in one loop — both
     # would otherwise buzz the traveler's phone repeatedly for one disruption.
-    if request_context.whatsapp_sends():
+    # A failed attempt is deliberately not counted: nothing reached the phone,
+    # so refusing the retry would strand the traveler with no notice at all.
+    if request_context.whatsapp_delivered():
         return {
             "status": "skipped",
             "tool": name,
@@ -557,6 +567,23 @@ async def send_whatsapp_to_user(message: str) -> dict:
     # doesn't stall every other concurrent chat turn in this process.
     delivery = await asyncio.to_thread(whatsapp.send_disruption_alert, to_number, message)
     request_context.record_whatsapp_send({"to": to_number, **delivery})
+    if not (delivery.get("sent") or delivery.get("demo")):
+        logger.warning("WhatsApp notice not delivered to %s: %s", to_number, delivery)
+        return {
+            "status": "failed",
+            "tool": name,
+            "channel": "whatsapp",
+            "delivery": delivery,
+            "action_summary": (
+                f"The WhatsApp notice to {to_number} could NOT be delivered "
+                f"({delivery.get('error') or 'send failed'})."
+            ),
+            "instruction_for_agent": (
+                "Do not tell the traveler they were notified on their phone. "
+                "You may retry this tool once; if it fails again, put the "
+                "information in the chat answer and say the push failed."
+            ),
+        }
     return _done(
         name,
         f"Sent a WhatsApp notice to the traveler ({to_number}).",
@@ -579,9 +606,11 @@ async def book_alternative_connection(
 
     A train reroute is not a purchase: a DB ticket is valid on any reasonable
     alternative connection, so a free (added_cost_eur == 0) train option is
-    simply *chosen*, not booked — no cost veto applies. An option that carries
-    a real fare difference (e.g. a different operator/route) still goes
-    through the normal cost veto below, same as before.
+    simply *chosen*, not booked. The cost veto still applies to it — at 0 EUR
+    the policy normally resolves to "auto", so no approval is asked, but a
+    traveler on the most cautious autonomy level is asked even for a free
+    reroute. Never promise the traveler that a free option cannot need
+    approval; act on the ``status`` this tool returns.
 
     Descriptions and prices are loaded from the persisted finalized proposal,
     never accepted from conversation text. Live trains are refreshed and all
@@ -733,22 +762,65 @@ async def book_hotel(
     )
 
 
-async def _find_calendar_event(event_id: str, new_start: str) -> dict | None:
-    """Resolve an appointment by id from the connected calendar.
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
-    ``new_start`` may be a full ISO datetime or a bare "HH:MM" on the travel
-    day, so the day to read is taken from it when it carries one and falls back
-    to today otherwise. Reading the event (rather than trusting the model's
-    description of it) is what makes the tentative/confirmed veto trustworthy.
+
+def _proposal_travel_date() -> str | None:
+    """The travel day of this chat's active reroute proposal, if there is one.
+
+    Authoritative and — unlike the turn workspace — still available a turn
+    later, which is when the traveler usually asks for the appointment to be
+    moved. Best effort: no proposal (or no bound identity) simply contributes
+    no candidate day.
     """
-    dates = [datetime.now().date().isoformat()]
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", new_start[:10]):
-        dates.insert(0, new_start[:10])
-    for date in dict.fromkeys(dates):
+    try:
+        from ..persistence import store
+        from ..request_context import current_session_id, current_user_id
+
+        user_id, session_id = current_user_id.get(), current_session_id.get()
+        if not user_id or not session_id:
+            return None
+        proposal = store.get_active_reroute_proposal(user_id, session_id)
+        travel_date = ((proposal or {}).get("proposal") or {}).get("travel_date") or ""
+        return travel_date[:10] if _ISO_DATE_RE.fullmatch(travel_date[:10]) else None
+    except Exception:
+        return None
+
+
+def _candidate_event_dates(new_start: str, travel_date: str) -> list[str]:
+    """Days to search for the appointment, most likely first.
+
+    A bare "HH:MM" ``new_start`` carries no day at all, and defaulting to today
+    would make every appointment on a trip that does not depart today
+    unresolvable. So the day comes from the explicit ``travel_date`` argument
+    first, then from ``new_start`` when it is a full ISO datetime, and only
+    lastly from today. When neither argument named a day — the ambiguous case —
+    the chat's active reroute proposal is consulted as well, which is what makes
+    a "move it to 16:30" on next week's trip resolvable at all. Extra candidates
+    are harmless: the event is matched by its exact calendar id, so a wrong day
+    simply yields no match.
+    """
+    candidates = [(travel_date or "")[:10], (new_start or "")[:10]]
+    if not any(_ISO_DATE_RE.fullmatch(day) for day in candidates):
+        candidates.append(_proposal_travel_date() or "")
+    candidates.append(datetime.now().date().isoformat())
+    return list(dict.fromkeys(d for d in candidates if _ISO_DATE_RE.fullmatch(d)))
+
+
+async def _find_calendar_event(
+    event_id: str, dates: list[str]
+) -> tuple[dict, str] | None:
+    """Resolve an appointment by its exact id, returning it with its day.
+
+    Reading the event (rather than trusting the model's description of it) is
+    what makes the tentative/confirmed veto trustworthy; the day it was found
+    on is what makes a bare "HH:MM" new start unambiguous afterwards.
+    """
+    for date in dates:
         calendar = await get_user_calendar(date)
         for event in calendar.get("events") or []:
             if event.get("id") == event_id:
-                return event
+                return event, date
     return None
 
 
@@ -756,6 +828,7 @@ async def reschedule_outlook_event(
     event_id: str,
     new_start: str,
     new_end: str = "",
+    travel_date: str = "",
     user_approved: bool = False,
 ) -> dict:
     """Move a calendar appointment a disrupted trip would make the traveler miss.
@@ -772,9 +845,14 @@ async def reschedule_outlook_event(
     Args:
         event_id: Calendar id of the appointment (the ``id`` field of the
             clashing event the Planner reported).
-        new_start: Proposed new start — ISO datetime or "HH:MM" on the same day.
+        new_start: Proposed new start — ISO datetime or "HH:MM" on the
+            appointment's own day.
         new_end: Proposed new end. Optional; omitted keeps the original
             duration.
+        travel_date: The appointment's day as "YYYY-MM-DD" — normally the
+            travel date of the disrupted trip. Required whenever ``new_start``
+            is a bare "HH:MM" and the trip is not today, because a time alone
+            names no day.
         user_approved: True only after the user approved a gated move.
 
     Returns:
@@ -784,30 +862,48 @@ async def reschedule_outlook_event(
     name = "reschedule_outlook_event"
     not_found_hint = (
         "Do not claim the appointment was moved. Ask the Planner for a fresh "
-        "calendar check to get the current event id."
+        "calendar check to get the current event id, and pass the "
+        "appointment's day as travel_date."
     )
     event_id = (event_id or "").strip()
     new_start = (new_start or "").strip()
+    travel_date = (travel_date or "").strip()
     if not event_id or not new_start:
         return _revalidation_error(
             "Both the calendar event id and the new start time are required.",
             tool=name,
             instruction=not_found_hint,
         )
-
-    event = await _find_calendar_event(event_id, new_start)
-    if event is None:
+    if travel_date and not _ISO_DATE_RE.fullmatch(travel_date[:10]):
         return _revalidation_error(
-            f"No calendar event with id '{event_id}' on the travel day.",
+            f"'{travel_date}' is not a usable date — pass the appointment's "
+            "day as YYYY-MM-DD.",
+            tool=name,
+            instruction=not_found_hint,
+        )
+
+    dates = _candidate_event_dates(new_start, travel_date)
+    found = await _find_calendar_event(event_id, dates)
+    if found is None:
+        return _revalidation_error(
+            f"No calendar event with id '{event_id}' on {', '.join(dates)}. If "
+            "the appointment is on another day, call again with travel_date "
+            "set to that day.",
             tool=name,
             instruction=not_found_hint,
             event_id=event_id,
+            days_searched=dates,
         )
+    event, event_date = found
 
     title = event.get("title") or "the appointment"
     event_status = event.get("status") or "confirmed"
+    # The day is part of what the traveler approves: a bare "HH:MM" new start
+    # says nothing about which day was moved, and the veto text is the only
+    # place they get to check that before it happens.
     summary = (
-        f"Move '{title}' from {event.get('start') or 'its current slot'} to "
+        f"Move '{title}' on {event_date} from "
+        f"{event.get('start') or 'its current slot'} to "
         f"{new_start} ({event_status} appointment)"
     )
     resolution = policy.resolve(name, profile=_profile(), event_status=event_status)
@@ -818,14 +914,16 @@ async def reschedule_outlook_event(
             event_id=event_id,
             title=title,
             event_status=event_status,
+            event_date=event_date,
             old_start=event.get("start"),
             new_start=new_start,
             new_end=new_end or None,
             attendees=event.get("attendee_emails") or [],
         )
     logger.info(
-        "calendar event rescheduled: id=%s status=%s %s -> %s",
+        "calendar event rescheduled: id=%s date=%s status=%s %s -> %s",
         event_id,
+        event_date,
         event_status,
         event.get("start"),
         new_start,
@@ -836,6 +934,7 @@ async def reschedule_outlook_event(
         event_id=event_id,
         title=title,
         event_status=event_status,
+        event_date=event_date,
         old_start=event.get("start"),
         new_start=new_start,
         new_end=new_end or None,
@@ -856,11 +955,13 @@ def file_compensation_claim(user_approved: bool = False) -> dict:
     policy/veto gate like every other write.
 
     Takes NO delay or amount arguments on purpose. Both are read from the
-    settled ``get_passenger_rights`` result of this turn (which only exists once
+    settled ``get_passenger_rights`` result of this chat (which only exists once
     the trip has concluded), never from conversation text — the same rule the
     reroute path enforces via ``proposal_id``. A claim can therefore not be
     filed for a delay the traveler has not experienced, nor for an amount the
-    model reconstructed.
+    model reconstructed. The lookup does not have to be repeated in the turn the
+    traveler approves the filing: the settled result stays available for the
+    whole conversation.
 
     Args:
         user_approved: Set to true ONLY after the user explicitly approved a
@@ -871,10 +972,10 @@ def file_compensation_claim(user_approved: bool = False) -> dict:
         policy asks first, or ``status="revalidation_failed"`` when no settled
         rights result backs the claim.
     """
-    from .read_tools import turn_rights_result
+    from .read_tools import settled_rights_result
 
     name = "file_compensation_claim"
-    rights = turn_rights_result()
+    rights = settled_rights_result()
     no_claim_hint = (
         "Do not claim anything was filed. Ask the Planner for a passenger-rights "
         "lookup on the concluded trip first, then try again."
@@ -883,7 +984,7 @@ def file_compensation_claim(user_approved: bool = False) -> dict:
         return _revalidation_error(
             "No settled passenger-rights result backs this claim. A claim can "
             "only be filed after the rights lookup ran for a CONCLUDED trip "
-            "(trip_concluded=true).",
+            "(trip_concluded=true) somewhere in this conversation.",
             tool=name,
             instruction=no_claim_hint,
         )

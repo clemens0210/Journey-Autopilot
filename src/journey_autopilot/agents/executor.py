@@ -70,16 +70,20 @@ protocol exactly:
    naming the appointment(s) it lands after. Relay that note to the traveler and
    offer to notify its contact — do NOT ask them to pre-confirm the clash.
    - RESCHEDULING: pass the appointment's `event_id` (from the Planner's
-     calendar result) and the proposed `new_start`. Do NOT pass, guess, or
-     assert whether the appointment is tentative or confirmed — the tool reads
-     that from the calendar itself and gates on it: a tentative slot moves
-     automatically, a confirmed one asks first. Moving an appointment does not
-     tell anyone; mention that its participants still need to be informed.
+     calendar result), the proposed `new_start`, and `travel_date` — the day the
+     appointment is on, as YYYY-MM-DD. Always pass that date when `new_start` is
+     a bare "HH:MM": a time alone names no day, and without it the tool cannot
+     tell which day's appointment to move. Do NOT pass, guess, or assert whether
+     the appointment is tentative or confirmed — the tool reads that from the
+     calendar itself and gates on it: a tentative slot moves automatically, a
+     confirmed one asks first. Moving an appointment does not tell anyone;
+     mention that its participants still need to be informed.
    - COMPENSATION: `file_compensation_claim` takes NO delay and NO amount. It
      reads both from the settled passenger-rights lookup the Planner ran for the
-     concluded trip. If it comes back `revalidation_failed`, the rights check
-     has not run (or found no eligible claim) — say exactly that and never
-     invent a figure to file with.
+     concluded trip — earlier in this conversation counts, so do not ask for the
+     lookup again just because the traveler is approving now. If it comes back
+     `revalidation_failed`, no such lookup has run (or it found no eligible
+     claim) — say exactly that and never invent a figure to file with.
 2. Read each tool result:
    - `status="executed"`  → the action was carried out. Report it briefly.
    - `status="veto_required"` → the policy requires the user's approval. Tell the
