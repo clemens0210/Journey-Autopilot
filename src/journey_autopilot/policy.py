@@ -20,7 +20,8 @@ level mapped from the onboarding ``profile.autonomy`` choice, else the
   - ``balanced``    → use the per-tool config defaults,
   - ``aggressive``  → "auto within limits": flip the defaults to ``auto`` except
     the genuinely high-commitment actions (hotel, emails to third parties,
-    rescheduling a *confirmed* calendar event), which keep asking.
+    rescheduling a *confirmed* calendar event), which keep their default and so
+    keep asking (``_ALWAYS_ASK_AGGRESSIVE``).
 
 See docs/journey-autopilot-build-spec.md §8 and docs/adr/0004-veto-gate.md.
 """
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -52,9 +54,16 @@ GATED_ACTIONS = (
     "file_compensation_claim",
 )
 
-# Tools that stay ``ask`` even under the ``aggressive`` level — high commitment
-# (cost + overnight), third-party effects, or an irreversible calendar change.
-_ALWAYS_ASK_AGGRESSIVE = ("book_hotel", "send_email_to_participants")
+# Actions that keep their configured default even under the ``aggressive`` level
+# — high commitment (cost + overnight), third-party effects, or moving someone
+# else's confirmed appointment. For ``reschedule_outlook_event`` "keep the
+# default" is status-dependent by design: a tentative slot still moves
+# automatically, a confirmed one still asks.
+_ALWAYS_ASK_AGGRESSIVE = (
+    "book_hotel",
+    "send_email_to_participants",
+    "reschedule_outlook_event",
+)
 
 # The onboarding autonomy choice (3 tiles in the wizard) maps onto a policy mode.
 _AUTONOMY_TO_MODE: dict[str, PolicyMode] = {
@@ -84,8 +93,15 @@ _POLICY_PATH = Path(
 )
 
 
+@lru_cache(maxsize=1)
 def load_policy_config() -> dict:
-    """Read ``config/policy.yaml``; fall back to ``_DEFAULTS`` on any problem."""
+    """Read ``config/policy.yaml``; fall back to ``_DEFAULTS`` on any problem.
+
+    Cached: ``resolve()`` runs on every write-tool call, and policy.yaml is the
+    static deployment default — the per-user choices that actually change at
+    runtime live in the profile, not in this file. Editing it takes effect on
+    the next server start (or ``load_policy_config.cache_clear()``).
+    """
     try:
         import yaml  # transitive dep; optional at runtime
 
@@ -169,7 +185,6 @@ def resolve(
     tool_name: str,
     *,
     profile: dict | None = None,
-    policy_mode: PolicyMode | None = None,
     cost_eur: float | None = None,
     event_status: str | None = None,
     **context,
@@ -180,13 +195,16 @@ def resolve(
         tool_name: One of ``GATED_ACTIONS``.
         profile: The user profile (carries ``autonomy`` and the ``policy`` block
             the UI writes). Usually ``store.any_profile()``.
-        policy_mode: Explicit global level override (used by the eval sweep); wins
-            over the profile/config level when given.
         cost_eur: Cost of the action — gates ``book_alternative_connection``
             against the configured threshold.
         event_status: ``"tentative"`` | ``"confirmed"`` for
             ``reschedule_outlook_event``.
     """
+    if tool_name not in GATED_ACTIONS:
+        # A typo'd or renamed action would otherwise fall through to the
+        # unknown-tool branch and silently resolve to "ask" forever.
+        logger.warning("policy.resolve called with unknown action %r", tool_name)
+
     # 1. The user-message channel is the veto channel itself — never gate it.
     if tool_name == "send_whatsapp_to_user":
         return "auto"
@@ -197,7 +215,7 @@ def resolve(
         return "ask"
 
     cfg = load_policy_config()
-    level = policy_mode or _effective_level(profile, cfg)
+    level = _effective_level(profile, cfg)
 
     # 2. An explicit per-tool override the user set in the UI wins (but the global
     #    level can still tighten it to "ask" under conservative).

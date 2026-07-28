@@ -39,8 +39,10 @@ The "if risk of disruption" gate between Monitoring and Planner is config-driven
 - `agents/` — `monitoring.py`, `planner.py`, `communicator.py`, `executor.py`
 - `tools/read_tools.py` — function tools the read agents call; the live/mock insertion point
 - `tools/write_tools.py` — gated writes, grouped as `EXECUTOR_` / `ORCHESTRATOR_` / `COMMUNICATOR_WRITE_TOOLS`
+- `tools/constraints.py` — pure option-eligibility rules, shared by the read side (building the shortlist) and the write side (revalidating before execution). No tools, no I/O
 - `tools/risk_model.py`, `risk/` — deterministic delay statistics (risk is never an LLM judgment)
 - `policy.py` + `config/policy.yaml` — the veto gate; `GATED_ACTIONS` names the policy actions
+- `request_context.py` — per-turn identity plus the **turn workspace**: the one place structured results cross the `AgentTool` boundary (trace, WhatsApp sends, reroute shortlist, settled rights). Bound per chat turn, so nothing leaks between turns or between concurrent users
 - `onboarding/accounts.py` — simulated DB/Outlook account (the single swap point for a real integration)
 - `persistence/store.py` — SQLite, stdlib only (profile, trips, proposals, complaints)
 - `ui/server.py` (FastAPI) + `ui/chat.py` (runs the orchestrator per trip)

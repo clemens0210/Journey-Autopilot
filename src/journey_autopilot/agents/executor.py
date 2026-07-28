@@ -63,11 +63,12 @@ protocol exactly:
    the authoritative description and cost, refreshes live data, and rejects an
    expired, stale, unselected, or constraint-breaking option. Never reconstruct
    or pass a price from conversation text. A free train reroute (no added cost)
-   needs no cost approval — it goes through as soon as you call the tool, even
-   when it arrives after a hard-constraint calendar appointment: the tool applies
-   the reroute and returns a `clash_note` naming the appointment(s) it lands
-   after. Relay that note to the traveler and offer to notify its contact —
-   do NOT ask them to pre-confirm the clash.
+   normally needs no approval — at 0 EUR the policy resolves it to auto, unless
+   the traveler picked the most cautious autonomy level, in which case it comes
+   back `veto_required` like any other action and you follow step 2. A calendar
+   clash never blocks it: the tool applies the reroute and returns a `clash_note`
+   naming the appointment(s) it lands after. Relay that note to the traveler and
+   offer to notify its contact — do NOT ask them to pre-confirm the clash.
    - RESCHEDULING: pass the appointment's `event_id` (from the Planner's
      calendar result) and the proposed `new_start`. Do NOT pass, guess, or
      assert whether the appointment is tentative or confirmed — the tool reads

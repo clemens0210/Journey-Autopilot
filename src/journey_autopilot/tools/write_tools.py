@@ -43,14 +43,14 @@ from datetime import datetime, timezone
 
 from .. import policy
 from ..integrations import db_ops as db_api
+from .constraints import (
+    arrives_after_home_limit,
+    mode_eligibility_violations,
+    parse_datetime,
+)
 from .read_tools import (
     PSEUDO_OUTLOOK_ALIAS_RE,
-    _arrives_after_home_limit,
-    _calendar_configured,
     _classify_window_conflicts,
-    _mode_eligibility_violations,
-    _outlook_connected,
-    _parse_datetime,
     calendar_connected,
     get_user_calendar,
 )
@@ -164,7 +164,7 @@ async def send_approved_notice_email(approval_id: str) -> dict:
 
     to_address = pending["to_address"]
 
-    if not (_calendar_configured() and _outlook_connected()):
+    if not calendar_connected():
         logger.info("email send simulated (Outlook not connected): to=%s", to_address)
         return {
             "status": "simulated",
@@ -342,7 +342,7 @@ def _profile_constraint_violations(option: dict, profile: dict) -> list[str]:
     preferences = profile.get("preferences") or {}
     mobility = profile.get("mobility") or {}
     home = profile.get("home") or {}
-    reasons = _mode_eligibility_violations(
+    reasons = mode_eligibility_violations(
         option,
         preferences=preferences,
         mobility=mobility,
@@ -350,14 +350,14 @@ def _profile_constraint_violations(option: dict, profile: dict) -> list[str]:
         recompute_transfer_buffer=True,
     )
     if option.get("mode", "train") == "train":
-        departure = _parse_datetime(option.get("departure"))
+        departure = parse_datetime(option.get("departure"))
         if departure is None:
             reasons.append("missing_departure")
         else:
             now = datetime.now(departure.tzinfo) if departure.tzinfo else datetime.now()
             if departure <= now:
                 reasons.append("already_departed")
-    if _arrives_after_home_limit(option, profile):
+    if arrives_after_home_limit(option, profile):
         reasons.append("after_latest_arrival_home")
     return reasons
 
@@ -542,8 +542,7 @@ async def send_whatsapp_to_user(message: str) -> dict:
     # is replayed once when the model emits malformed tool-call JSON
     # (ui/chat.py), and a model can always call a tool twice in one loop — both
     # would otherwise buzz the traveler's phone repeatedly for one disruption.
-    already_sent = request_context.current_whatsapp_sink.get()
-    if already_sent:
+    if request_context.whatsapp_sends():
         return {
             "status": "skipped",
             "tool": name,
@@ -627,15 +626,16 @@ async def book_alternative_connection(
             f"and offer to reschedule the appointment or notify its contact."
         )
     # A calendar clash no longer blocks the reroute: it is surfaced as a notice on
-    # the executed result (clash_note), not a veto. A free train reroute is not a
-    # purchase decision, so with the clash downgraded it needs no veto at all; a
-    # paid reroute still goes through the normal cost/autonomy veto. The companion
-    # reschedule/notify step remains a separate, independently gated action.
-    if is_free_train_reroute:
-        needs_veto = False
-    else:
-        resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
-        needs_veto = cost_status != "known" or resolution == "ask"
+    # the executed result (clash_note), not a veto. The companion reschedule/notify
+    # step remains a separate, independently gated action.
+    #
+    # The cost decision belongs to the policy layer, including for a free reroute:
+    # at 0 EUR the configured threshold resolves it to "auto" anyway, so a
+    # traveler on the balanced/aggressive level sees no extra prompt — but one who
+    # chose "notify only" (conservative) still gets asked, which a hardcoded
+    # free-reroute exemption would have silently denied them.
+    resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
+    needs_veto = cost_status != "known" or resolution == "ask"
     if needs_veto and not user_approved:
         return _veto(
             name,

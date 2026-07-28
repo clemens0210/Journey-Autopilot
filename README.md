@@ -332,6 +332,10 @@ is deliberately mocked.
 - **Read tools / risk model** (`tools/read_tools.py`, `tools/risk_model.py`) —
   function tools + deterministic delay statistics, backed by fixtures
   (`mock_data.py`); insertion points for real DB/calendar/RAG sources.
+  `tools/constraints.py` holds the pure eligibility rules (transfers,
+  cancellation, mobility opt-outs, latest-arrival-home) that the read side
+  applies when building the shortlist and the write side reapplies before
+  executing — shared so the two cannot diverge.
 - **Integrations** (`integrations/`) — DB sidecar (`db_ops`/`stations`), Outlook
   (`outlook/`), WhatsApp Twilio sender + approval/veto queue (`whatsapp.py`,
   `whatsapp_webhook.py`), passenger-rights RAG (`rights_rag/`). All mocked behind
@@ -376,10 +380,10 @@ src/journey_autopilot/
   state.py                   # shared typed vocabulary (ToolFailure, PolicyMode)
   errors.py                  # retry -> fallback -> degrade wrapper
   policy.py                  # veto gate: resolves write actions auto/ask (active)
-  request_context.py         # per-turn identity, phone, and result sinks
+  request_context.py         # per-turn identity, phone, and the turn workspace
   config.py  mock_data.py
   agents/      monitoring.py  planner.py  communicator.py  executor.py
-  tools/       read_tools.py  write_tools.py  risk_model.py
+  tools/       read_tools.py  write_tools.py  risk_model.py  constraints.py
   integrations/  db_ops.py  stations.py  outlook/  whatsapp.py  whatsapp_webhook.py
                  whatsapp_models.py  rights_rag/
   persistence/   store.py

@@ -1,4 +1,4 @@
-# Runtime settings — model tier per agent, thresholds, poll interval.
+# Runtime settings — model tier per agent, the risk gate, reroute bounds.
 # See build spec §10. Per-agent model is a config value because it feeds the
 # cost/quality trade-off.
 #

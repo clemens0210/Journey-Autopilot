@@ -116,7 +116,11 @@ _DEFAULTS: dict = {
     },
     "model_params": {},
     "thresholds": {"at_risk_band": "MEDIUM"},
-    "reroute": {"max_options": 6, "max_added_delay_minutes": 120},
+    "reroute": {
+        "max_options": 6,
+        "max_added_delay_minutes": 120,
+        "proposal_ttl_seconds": 300,
+    },
 }
 
 
@@ -186,13 +190,20 @@ AT_RISK_BANDS: tuple[str, ...] = _RISK_ORDER[
     _RISK_ORDER.index(AT_RISK_BAND) if AT_RISK_BAND in _RISK_ORDER else 1 :
 ]
 
-# Reroute pre-filter bounds (read by tools/read_tools.find_reroute_options).
-REROUTE_MAX_OPTIONS: int = int(_SETTINGS.get("reroute", {}).get("max_options", 5))
-REROUTE_MAX_ADDED_DELAY_MINUTES: int = int(
-    _SETTINGS.get("reroute", {}).get("max_added_delay_minutes", 120)
-)
-REROUTE_PROPOSAL_TTL_SECONDS: int = int(
-    _SETTINGS.get("reroute", {}).get("proposal_ttl_seconds", 300)
-)
 
-CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(BASE_DIR / "data" / "chromadb")))
+def _reroute_setting(key: str) -> int:
+    """One reroute bound from settings.yaml, falling back to ``_DEFAULTS``.
+
+    The fallback is the defaults dict rather than a literal, so a value can
+    never disagree with itself depending on which path resolved it.
+    """
+    section = _SETTINGS.get("reroute")
+    value = section.get(key) if isinstance(section, dict) else None
+    return int(_DEFAULTS["reroute"][key] if value is None else value)
+
+
+# Reroute pre-filter bounds (read by tools/read_tools.find_reroute_options) and
+# the TTL after which a finalized live shortlist must be revalidated (ui/chat).
+REROUTE_MAX_OPTIONS: int = _reroute_setting("max_options")
+REROUTE_MAX_ADDED_DELAY_MINUTES: int = _reroute_setting("max_added_delay_minutes")
+REROUTE_PROPOSAL_TTL_SECONDS: int = _reroute_setting("proposal_ttl_seconds")

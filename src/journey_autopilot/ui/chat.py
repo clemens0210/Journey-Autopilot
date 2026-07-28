@@ -18,7 +18,7 @@ import logging
 import re
 from typing import Any
 
-from ..onboarding.complaints import bahncard_type
+from ..onboarding import complaints
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ def _seed_prompt(trip: dict | None, message: str, account: dict | None = None) -
     if account and account.get("bahncard"):
         context += (
             f". My BahnCard: {account['bahncard']}"
-            f" (bahncard_type: {bahncard_type(account)})"
+            f" (bahncard_type: {complaints.bahncard_type(account)})"
         )
     context += "."
     return f"{context}\n\n{message}"
@@ -237,26 +237,50 @@ async def chat_turn(
         silently replaced, the orchestrator's final answer, the agent/tool
         trace, the risk band parsed out of it as a label, and the delivery
         result of the WhatsApp notice the Orchestrator chose to send (or
-        ``None`` when it sent none), plus the reroute option/proposal fields.
+        ``None`` when it sent none), plus the reroute option/proposal fields
+        and any complaint draft the settled rights lookup produced.
     """
+    from journey_autopilot import request_context
+
+    # One workspace for this turn, bound before any tool can run. The Planner's
+    # reroute shortlist, the settled rights result, the specialists' trace and
+    # the WhatsApp sends all land in it — everything nested AgentTool runs
+    # produce that ADK does not surface to the parent event stream. Binding it
+    # here rather than around the runner loop means it is still readable while
+    # this function assembles its answer.
+    workspace = request_context.new_turn_workspace()
+    token = request_context.set_turn_workspace(workspace)
+    try:
+        return await _run_chat_turn(
+            workspace,
+            session_id,
+            message,
+            trip,
+            account,
+            notify_phone,
+            user_id,
+            proposal_id,
+            selected_option_id,
+        )
+    finally:
+        request_context.reset_turn_workspace(token)
+
+
+async def _run_chat_turn(
+    workspace: dict,
+    session_id: str | None,
+    message: str,
+    trip: dict | None,
+    account: dict | None,
+    notify_phone: str | None,
+    user_id: str,
+    proposal_id: str | None,
+    selected_option_id: str | None,
+) -> dict:
+    """The turn itself, with ``workspace`` already bound. See ``chat_turn``."""
     from google.genai import types
-    from journey_autopilot.tools.read_tools import clear_passenger_rights
 
     runner = _get_runner()
-    clear_passenger_rights()  # a stale rights result from a prior turn must not leak in
-
-    # Reset the request-scoped reroute workspace so options from a previous turn are
-    # never shown. Planner discovery tools repopulate internal candidates and
-    # finalize_reroute_options publishes the selectable list; read after the
-    # loop. (Base AgentTool runs the sub-agent in its
-    # own runner, so the tool payload doesn't surface in the event stream —
-    # see tools/read_tools.py.)
-    try:
-        from ..tools import read_tools
-        if session_id:
-            read_tools.clear_reroute_options(user_id, session_id)
-    except Exception:
-        read_tools = None  # type: ignore[assignment]
 
     # The ADK session lives in the process-local InMemoryRunner, so a server
     # restart invalidates every session id the browser still holds. Detect that
@@ -318,32 +342,27 @@ async def chat_turn(
         text = f"{_proposal_context(active_proposal)}\n\n{text}"
 
     new_message = types.Content(role="user", parts=[types.Part(text=text)])
-    trace: list[dict] = []
     reply = ""
 
-    whatsapp_sends: list[dict] = []
+    # Sub-agents append their own tool calls to the workspace trace via callbacks
+    # (see orchestrator._make_subagent_trace_callbacks). Their AgentTool runner
+    # runs synchronously between the Orchestrator's call and result events, so
+    # those entries interleave in the right nested order.
+    trace: list[dict] = workspace["trace"]
+    # What physically left the system this turn. The send tool reads it back to
+    # refuse a second notice — which is why the retry below must not clear it.
+    whatsapp_sends: list[dict] = workspace["whatsapp_sends"]
 
     async def _run_turn() -> str:
         """One pass through the orchestrator; rebuilds the trace from scratch."""
         from journey_autopilot import request_context
 
         trace.clear()
-        # NOT cleared on a retry: it is the record of what physically left the
-        # system, and the send tool reads it to refuse a second notice.
         result = ""
         # The traveler's number is bound here, not passed to the model: the
         # Orchestrator decides *whether* to push a WhatsApp notice, never *to
         # whom*. send_whatsapp_to_user reads it from this context.
         context_tokens = request_context.bind(user_id, session_id, notify_phone)
-        # Sub-agents append their own tool calls to this same list via callbacks
-        # (see orchestrator._make_subagent_trace_callbacks). Their AgentTool
-        # runner runs synchronously between the Orchestrator's call and result
-        # events, so those entries interleave in the right nested order.
-        sink_token = request_context.set_trace_sink(trace)
-        # The send tool's own result is inside the ADK stream, but the browser
-        # needs the delivery outcome to toast it — collect it here instead of
-        # re-parsing events.
-        whatsapp_token = request_context.set_whatsapp_sink(whatsapp_sends)
         try:
             async for event in runner.run_async(
                 user_id=user_id, session_id=session_id, new_message=new_message
@@ -355,8 +374,6 @@ async def chat_turn(
                     continue
                 trace.extend(_describe(event))
         finally:
-            request_context.reset_whatsapp_sink(whatsapp_token)
-            request_context.reset_trace_sink(sink_token)
             request_context.reset(context_tokens)
         return result
 
@@ -421,44 +438,50 @@ async def chat_turn(
     proposal_expires_at: str | None = (
         active_proposal.get("expires_at") if active_proposal else None
     )
-    if read_tools is not None:
-        stashed = read_tools.last_reroute_options(user_id, session_id)
-        if stashed and stashed.get("finalized"):
-            from journey_autopilot.config import REROUTE_PROPOSAL_TTL_SECONDS
+    stashed = workspace["reroute"]
+    if stashed and stashed.get("finalized"):
+        from journey_autopilot.config import REROUTE_PROPOSAL_TTL_SECONDS
 
-            proposal = store.save_reroute_proposal(
-                user_id,
-                session_id,
-                trip_id,
-                {
-                    "trip_id": trip_id,
-                    "travel_date": ((trip or {}).get("planned_departure") or "")[:10],
-                    "origin": stashed.get("origin"),
-                    "destination": stashed.get("destination"),
-                    "source": stashed.get("source"),
-                    "options": stashed.get("options") or [],
-                    "fallback_options": stashed.get("fallback_options") or [],
-                    "recommended_option_id": stashed.get("recommended_option_id"),
-                    "calendar_checked": stashed.get("calendar_checked", False),
-                    "calendar_verdicts": stashed.get("calendar_verdicts") or {},
-                    "calendar_result": stashed.get("calendar_result") or {},
-                    "rejected_summary": stashed.get("rejected_summary") or {},
-                },
-                ttl_seconds=REROUTE_PROPOSAL_TTL_SECONDS,
-            )
-            response_proposal_id = proposal["proposal_id"]
-            proposal_expires_at = proposal["expires_at"]
-            options = [
-                _public_option(option) for option in stashed.get("options") or []
-            ] or None
-            fallback_options = [
-                _public_option(option)
-                for option in stashed.get("fallback_options") or []
-            ] or None
-            options_source = stashed.get("source")
-            recommended_option_id = stashed.get("recommended_option_id")
-            rejected_summary = stashed.get("rejected_summary") or None
-            read_tools.clear_reroute_options(user_id, session_id)
+        proposal = store.save_reroute_proposal(
+            user_id,
+            session_id,
+            trip_id,
+            {
+                "trip_id": trip_id,
+                "travel_date": ((trip or {}).get("planned_departure") or "")[:10],
+                "origin": stashed.get("origin"),
+                "destination": stashed.get("destination"),
+                "source": stashed.get("source"),
+                "options": stashed.get("options") or [],
+                "fallback_options": stashed.get("fallback_options") or [],
+                "recommended_option_id": stashed.get("recommended_option_id"),
+                "calendar_checked": stashed.get("calendar_checked", False),
+                "calendar_verdicts": stashed.get("calendar_verdicts") or {},
+                "calendar_result": stashed.get("calendar_result") or {},
+                "rejected_summary": stashed.get("rejected_summary") or {},
+            },
+            ttl_seconds=REROUTE_PROPOSAL_TTL_SECONDS,
+        )
+        response_proposal_id = proposal["proposal_id"]
+        proposal_expires_at = proposal["expires_at"]
+        options = [
+            _public_option(option) for option in stashed.get("options") or []
+        ] or None
+        fallback_options = [
+            _public_option(option)
+            for option in stashed.get("fallback_options") or []
+        ] or None
+        options_source = stashed.get("source")
+        recommended_option_id = stashed.get("recommended_option_id")
+        rejected_summary = stashed.get("rejected_summary") or None
+
+    # A settled rights lookup (concluded trip only — a mid-trip entitlement
+    # check never reaches the workspace) seeds a reviewable complaint draft.
+    # Done here rather than by the caller because this is where the workspace
+    # is still bound; complaints.py takes the result as an argument.
+    complaint_created = complaints.maybe_create_from_rights(
+        user_id, trip, workspace["rights"]
+    )
 
     return {
         "session_id": session_id,
@@ -474,4 +497,5 @@ async def chat_turn(
         "rejected_summary": rejected_summary,
         "proposal_id": response_proposal_id,
         "proposal_expires_at": proposal_expires_at,
+        "complaint_created": complaint_created,
     }

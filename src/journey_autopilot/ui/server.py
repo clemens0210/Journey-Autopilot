@@ -937,9 +937,6 @@ async def chat_endpoint(
             proposal_id=body.proposal_id,
             selected_option_id=body.selected_option_id,
         )
-        created = complaints.maybe_create_from_last_rights(user_id, body.trip)
-        if created:
-            result["complaint_created"] = created
         return result
     except Exception as exc:  # surfaced inline in the chat instead of a 500
         return {
@@ -1007,9 +1004,6 @@ async def preload_demo_chats_endpoint(
                 notify_phone=notify_phone,
                 user_id=user_id,
             )
-            created = complaints.maybe_create_from_last_rights(user_id, trip)
-            if created:
-                result["complaint_created"] = created
         except Exception as exc:
             failures.append({"trip_id": trip["trip_id"], "error": f"{type(exc).__name__}: {exc}"})
             continue

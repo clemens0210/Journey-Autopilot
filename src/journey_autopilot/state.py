@@ -33,6 +33,6 @@ class ToolFailure(TypedDict, total=False):
 PolicyMode = Literal["conservative", "balanced", "aggressive"]
 """Global autonomy level. Shifts every write tool's default resolution.
 
-Defined here rather than in ``policy`` so the eval sweep and the onboarding UI
-can name the levels without importing the gate itself.
+Defined here rather than in ``policy`` so the onboarding UI can name the levels
+without importing the gate itself.
 """

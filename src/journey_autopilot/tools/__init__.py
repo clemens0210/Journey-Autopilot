@@ -12,6 +12,11 @@
                     traveler — never gated, it carries the veto itself).
 - ``risk_model``  — deterministic delay statistics exposed to Monitoring as a tool
                     (risk scoring is a model/heuristic, never an LLM judgment).
+- ``constraints`` — no tools, no I/O: the pure eligibility rules (transfers,
+                    cancellation, mobility opt-outs, latest-arrival-home) that
+                    the read side applies when building the shortlist and the
+                    write side reapplies before executing the chosen option.
+                    Shared so the two cannot silently diverge.
 
 Passenger rights straddle the line on purpose: looking up what the traveler is
 entitled to is a read (Planner), filing the claim is a write (Executor).

@@ -23,8 +23,17 @@ from typing import Any
 
 from .. import mock_data, risk
 from . import risk_model
+from .constraints import (
+    arrives_after_home_limit,
+    minimum_transfer_buffer,
+    minutes_between,
+    mode_eligibility_violations,
+    parse_datetime,
+    time_after_home_limit,
+)
 from ..config import REROUTE_MAX_ADDED_DELAY_MINUTES, REROUTE_MAX_OPTIONS
 from ..errors import with_resilience, with_resilience_async
+from ..request_context import turn_workspace
 from ..integrations.rights_rag.rights_service import (
     calculate_compensation,
     evaluate_travel_rights,
@@ -110,29 +119,6 @@ def _resolve_self_organized_contacts(events: list[dict]) -> None:
             )
 
 
-def _parse_datetime(value: str | None) -> datetime | None:
-    """Parse ISO timestamps from DB/mock data, tolerating trailing ``Z``."""
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def _minutes_between(start: str | None, end: str | None) -> int | None:
-    start_dt = _parse_datetime(start)
-    end_dt = _parse_datetime(end)
-    if start_dt is None or end_dt is None:
-        return None
-    # Stored trips use naive German-local times while the live sidecar returns
-    # offset-aware ones; on a mix, compare wall clocks (both are German local).
-    if (start_dt.tzinfo is None) != (end_dt.tzinfo is None):
-        start_dt = start_dt.replace(tzinfo=None)
-        end_dt = end_dt.replace(tzinfo=None)
-    return round((end_dt - start_dt).total_seconds() / 60)
-
-
 def _find_trip_context(trip_id: str) -> dict | None:
     """Find imported trip metadata for a tool call that only receives trip_id."""
     try:
@@ -208,8 +194,8 @@ def _locate_next_leg(option: dict) -> tuple[dict, str, datetime] | None:
     time. Live times win over planned times.
     """
     for leg in option.get("legs") or []:
-        departure = _parse_datetime(leg.get("departure") or leg.get("planned_departure"))
-        arrival = _parse_datetime(leg.get("arrival") or leg.get("planned_arrival"))
+        departure = parse_datetime(leg.get("departure") or leg.get("planned_departure"))
+        arrival = parse_datetime(leg.get("arrival") or leg.get("planned_arrival"))
         anchor = arrival or departure
         if anchor is None:
             continue
@@ -254,7 +240,7 @@ def _earliest_reroute_departure(option: dict) -> str | None:
     if phase == "cancelled":
         # Before its planned start, keep that intended start time; once that
         # time has passed, search from the current time.
-        departure = _parse_datetime(departure_raw)
+        departure = parse_datetime(departure_raw)
         if departure is not None and departure > now:
             return departure_raw
         return now.replace(microsecond=0).isoformat()
@@ -283,56 +269,22 @@ def _region_anchor(region: str) -> str | None:
 # top-level event stream that ``ui.chat`` iterates, so the browser can't see
 # the structured option list via ADK events.
 #
-# Workaround: the tools stash structured planning state here while they run
-# (same process), and ``ui.chat.chat_turn`` reads only the finalized shortlist
-# after the run. Discovery candidates and constraint-breaking fallbacks remain
-# separate so raw tool results can never become selectable UI cards. Workspaces
-# are request-scoped; direct scenario calls use one prototype fallback scope.
-_REROUTE_WORKSPACES: dict[tuple[str, str], dict] = {}
-_DEFAULT_REROUTE_SCOPE = ("prototype", "default")
+# Workaround: the tools stash structured planning state in the turn workspace
+# (see request_context) while they run, and ``ui.chat.chat_turn`` reads only
+# the finalized shortlist after the run. Discovery candidates and
+# constraint-breaking fallbacks remain separate so raw tool results can never
+# become selectable UI cards. The workspace is bound per chat turn, so nothing
+# has to be cleared between turns and concurrent turns cannot mix.
 
 
-def _reroute_scope(user_id: str | None = None, session_id: str | None = None) -> tuple[str, str]:
-    if user_id and session_id:
-        return user_id, session_id
-    try:
-        from journey_autopilot.request_context import current_session_id, current_user_id
-
-        context_user = current_user_id.get()
-        context_session = current_session_id.get()
-        if context_user and context_session:
-            return context_user, context_session
-    except Exception:
-        pass
-    # Only direct scenario/demo calls (which never bind request_context) are
-    # expected to land here. A real chat turn always binds both vars before
-    # any tool runs (see ui.chat._run_turn), so reaching this fallback there
-    # would mean two real requests share one in-process discovery workspace —
-    # log it so that regression is observable instead of silently mixing state.
-    logger.warning(
-        "reroute discovery workspace fell back to the shared prototype scope "
-        "(no request identity bound) — expected only for direct scenario calls"
-    )
-    return _DEFAULT_REROUTE_SCOPE
-
-
-def last_reroute_options(
-    user_id: str | None = None, session_id: str | None = None
-) -> dict | None:
+def last_reroute_options() -> dict | None:
     """Return this turn's reroute workspace, or ``None``.
 
     ``options`` is intentionally empty until ``finalize_reroute_options`` has
     applied every hard constraint. ``candidate_options`` is internal planning
     state and must never be rendered as selectable UI cards.
     """
-    return _REROUTE_WORKSPACES.get(_reroute_scope(user_id, session_id))
-
-
-def clear_reroute_options(
-    user_id: str | None = None, session_id: str | None = None
-) -> None:
-    """Reset the request-scoped workspace at the start/end of a chat turn."""
-    _REROUTE_WORKSPACES.pop(_reroute_scope(user_id, session_id), None)
+    return turn_workspace().get("reroute")
 
 
 def _rebuild_reroute_stash() -> None:
@@ -381,8 +333,7 @@ def _stash_options(
     Replacement happens even for an empty list. The ``mobility`` family owns
     both C# and B# options, so a car-only re-run removes stale bikes as well.
     """
-    scope = _reroute_scope()
-    workspace = _REROUTE_WORKSPACES.get(scope)
+    workspace = last_reroute_options()
     if workspace is None:
         workspace = {
             "origin": origin,
@@ -394,7 +345,7 @@ def _stash_options(
             "source": source,
             "finalized": False,
         }
-        _REROUTE_WORKSPACES[scope] = workspace
+        turn_workspace()["reroute"] = workspace
     family_data = {
         "origin": origin,
         "destination": destination,
@@ -460,12 +411,12 @@ def _arrival_in_past(arrival_iso: str | None) -> bool:
     arrival timestamp. Complaint drafting and the Monitoring agent's
     EN ROUTE/ARRIVED status both depend on this field being present.
     """
-    arrival = _parse_datetime(arrival_iso)
+    arrival = parse_datetime(arrival_iso)
     if arrival is None:
         return False
     # Offset-aware timestamps (the live sidecar's format, including a trailing
     # "Z") compare as instants; genuinely naive ones are German-local wall clock
-    # (see _minutes_between) and compare against the local clock.
+    # (see minutes_between) and compare against the local clock.
     now = datetime.now(arrival.tzinfo) if arrival.tzinfo else datetime.now()
     return arrival <= now
 
@@ -659,7 +610,7 @@ def get_live_trip_status(trip_id: str) -> dict:
             # fixture-supplied one would poison the reroute baseline.
             result["estimated_arrival"] = None
         else:
-            planned_eta = _parse_datetime(result.get("planned_arrival"))
+            planned_eta = parse_datetime(result.get("planned_arrival"))
             if planned_eta is not None:
                 result.setdefault(
                     "estimated_arrival", (planned_eta + timedelta(minutes=delay)).isoformat()
@@ -670,7 +621,7 @@ def get_live_trip_status(trip_id: str) -> dict:
             # passed, the delay is final — a scripted en-route status must not
             # keep a long-finished trip "running" forever. An explicit
             # ``arrived`` in the fixture (scripts/simulate_arrival.py) wins.
-            eta = _parse_datetime(result.get("planned_arrival"))
+            eta = parse_datetime(result.get("planned_arrival"))
             if eta is not None:
                 result["arrived"] = _arrival_in_past(
                     (eta + timedelta(minutes=delay)).isoformat()
@@ -693,7 +644,7 @@ def get_live_trip_status(trip_id: str) -> dict:
             # monitored/rerouted as if they were still running. The final
             # delay stays unknown (None): a compensation claim needs a
             # confirmed delay, which this path cannot provide.
-            planned_arrival = _parse_datetime(trip.get("planned_arrival"))
+            planned_arrival = parse_datetime(trip.get("planned_arrival"))
             long_past = planned_arrival is not None and _arrival_in_past(
                 (planned_arrival + timedelta(hours=3)).isoformat()
             )
@@ -826,9 +777,9 @@ def _reroute_sort_key(opt: dict) -> tuple:
 
     Live arrivals are uniformly tz-aware within one search; the tz is stripped so
     a stray naive value cannot raise on comparison (wall-clock ordering, like
-    ``_minutes_between``).
+    ``minutes_between``).
     """
-    arr = _parse_datetime(opt.get("new_arrival"))
+    arr = parse_datetime(opt.get("new_arrival"))
     arr_key = arr.replace(tzinfo=None) if arr else datetime.max
     cost = _option_cost(opt)
     return (
@@ -884,21 +835,10 @@ def _tool_visible_option(option: dict) -> dict:
     return {key: value for key, value in option.items() if not key.startswith("_provider_")}
 
 
-def _minimum_transfer_buffer(opt: dict) -> int | None:
-    """Smallest live transfer buffer across an option's ride legs."""
-    legs = opt.get("legs") or []
-    buffers: list[int] = []
-    for leg, following in zip(legs, legs[1:]):
-        buffer_minutes = _minutes_between(leg.get("arrival"), following.get("departure"))
-        if buffer_minutes is not None:
-            buffers.append(buffer_minutes)
-    return min(buffers) if buffers else None
-
-
 def _before(value: str | None, threshold: str | None) -> bool:
     """Wall-clock comparison for German-local DB timestamps."""
-    value_dt = _parse_datetime(value)
-    threshold_dt = _parse_datetime(threshold)
+    value_dt = parse_datetime(value)
+    threshold_dt = parse_datetime(threshold)
     if value_dt is None or threshold_dt is None:
         return False
     return value_dt.replace(tzinfo=None) < threshold_dt.replace(tzinfo=None)
@@ -910,8 +850,8 @@ def _dominates(a: dict, b: dict) -> bool:
     one dimension must be strictly better. Unknown-vs-known cost is deliberately
     incomparable so a potentially cheaper route is never discarded.
     """
-    a_dep, b_dep = _parse_datetime(a.get("departure")), _parse_datetime(b.get("departure"))
-    a_arr, b_arr = _parse_datetime(a.get("new_arrival")), _parse_datetime(b.get("new_arrival"))
+    a_dep, b_dep = parse_datetime(a.get("departure")), parse_datetime(b.get("departure"))
+    a_arr, b_arr = parse_datetime(a.get("new_arrival")), parse_datetime(b.get("new_arrival"))
     if a_dep is None or b_dep is None or a_arr is None or b_arr is None:
         return False
     # Wall-clock compare (strip tz; all live times are German-local).
@@ -976,7 +916,7 @@ def _prune_reroute_options(
 
     for raw in options:
         option = dict(raw)
-        option["minimum_transfer_minutes"] = _minimum_transfer_buffer(option)
+        option["minimum_transfer_minutes"] = minimum_transfer_buffer(option)
         fatal_reasons: list[str] = []
         constraint_reasons: list[str] = []
         if option.get("cancelled"):
@@ -1118,8 +1058,8 @@ def find_reroute_options(
         live_options = []
         for option in db_api.normalize_journeys(payload)[:max_results]:
             arrival = option.get("arrival") or option.get("planned_arrival")
-            added_delay = _minutes_between(original_arrival, arrival)
-            minutes_saved = _minutes_between(arrival, current_arrival)
+            added_delay = minutes_between(original_arrival, arrival)
+            minutes_saved = minutes_between(arrival, current_arrival)
             comfort_parts = []
             if option.get("price_eur") is not None:
                 comfort_parts.append(f"Price: {option['price_eur']} EUR")
@@ -1519,7 +1459,7 @@ def _parse_trip_time(date: str, value: str | None) -> datetime | None:
     value = value.strip()
     if _TIME_ONLY_RE.match(value):
         value = f"{date}T{value}:00"
-    dt = _parse_datetime(value)
+    dt = parse_datetime(value)
     return dt.replace(tzinfo=None) if dt is not None else None
 
 
@@ -1692,88 +1632,10 @@ async def check_options_against_calendar(
     return result
 
 
-def _station_key(value: Any) -> str:
-    if isinstance(value, dict):
-        value = value.get("name")
-    return " ".join(str(value or "").casefold().split())
-
-
-def _time_after_home_limit(arrival: datetime | None, departure: datetime | None, limit: str) -> bool:
-    """True if `arrival`'s wall-clock time is after "HH:MM" `limit`.
-
-    Also true if `arrival` falls on a later calendar date than `departure`
-    (an overnight arrival is "after" any same-day cutoff regardless of the
-    clock reading). `limit` must already be validated as "HH:MM"; an
-    unparseable `arrival` is treated as "not after" (nothing to compare).
-    """
-    if arrival is None:
-        return False
-    limit_hour, limit_minute = (int(part) for part in limit.split(":"))
-    if departure is not None and arrival.replace(tzinfo=None).date() > departure.replace(tzinfo=None).date():
-        return True
-    return arrival.hour * 60 + arrival.minute > limit_hour * 60 + limit_minute
-
-
-def _arrives_after_home_limit(option: dict, profile: dict) -> bool:
-    """Apply latest-arrival-home only when the option actually ends at home."""
-    home = profile.get("home") or {}
-    home_station = _station_key(home.get("home_station"))
-    if not home_station or _station_key(option.get("destination")) != home_station:
-        return False
-    limit = str(home.get("latest_arrival_home") or "").strip()
-    if not re.fullmatch(r"\d{2}:\d{2}", limit):
-        return False
-    arrival = _parse_datetime(option.get("new_arrival"))
-    departure = _parse_datetime(option.get("departure"))
-    return _time_after_home_limit(arrival, departure, limit)
-
-
-def _mode_eligibility_violations(
-    option: dict,
-    *,
-    preferences: dict,
-    mobility: dict,
-    home: dict,
-    recompute_transfer_buffer: bool,
-) -> list[str]:
-    """Shared per-mode transfer/cancellation/mobility/hotel eligibility rules.
-
-    Used by both ``finalize_reroute_options`` (discovery-time) and
-    ``write_tools._profile_constraint_violations`` (execution-time
-    revalidation) so the two can't silently diverge on what counts as an
-    eligible option. Calendar verdicts and live-freshness checks (e.g.
-    already-departed) are caller-specific and stay out of this function.
-    """
-    reasons: list[str] = []
-    mode = option.get("mode", "train")
-    if mode == "train":
-        if option.get("cancelled"):
-            reasons.append("cancelled")
-        try:
-            max_transfers = max(0, int(preferences.get("max_transfers", 2)))
-            min_transfer = max(0, int(preferences.get("min_transfer_minutes", 8)))
-        except (TypeError, ValueError):
-            max_transfers, min_transfer = 2, 8
-        if (option.get("transfers") or 0) > max_transfers:
-            reasons.append("too_many_transfers")
-        if recompute_transfer_buffer or option.get("minimum_transfer_minutes") is None:
-            option["minimum_transfer_minutes"] = _minimum_transfer_buffer(option)
-        buffer = option.get("minimum_transfer_minutes")
-        if buffer is not None and buffer < min_transfer:
-            reasons.append("transfer_too_short")
-    elif mode == "car_sharing" and not mobility.get("car_sharing_ok", True):
-        reasons.append("car_sharing_disabled")
-    elif mode == "bike_sharing" and not mobility.get("bike_sharing_ok", True):
-        reasons.append("bike_sharing_disabled")
-    elif mode == "hotel" and not home.get("hotel_ok", True):
-        reasons.append("hotel_disabled")
-    return reasons
-
-
 def _profile_rank_score(option: dict, *, earliest_arrival: datetime | None, preferences: dict) -> float:
     """Deterministic profile score; lower is better."""
     speed = preferences.get("speed_vs_comfort", 50) / 100.0
-    arrival = _parse_datetime(option.get("new_arrival"))
+    arrival = parse_datetime(option.get("new_arrival"))
     arrival_penalty = 24 * 60.0
     if arrival is not None and earliest_arrival is not None:
         arrival_penalty = max(
@@ -1816,7 +1678,7 @@ def _select_final_diverse(options: list[dict], max_options: int) -> list[dict]:
             selected.append(option)
 
     add(ranked[0])
-    timed = [o for o in ranked if _parse_datetime(o.get("new_arrival")) is not None]
+    timed = [o for o in ranked if parse_datetime(o.get("new_arrival")) is not None]
     if timed:
         add(min(timed, key=_reroute_sort_key))
     trains = [o for o in ranked if o.get("mode", "train") == "train"]
@@ -1892,7 +1754,7 @@ def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
 
     for option in candidates:
         _apply_cost_contract(option)
-        reasons = _mode_eligibility_violations(
+        reasons = mode_eligibility_violations(
             option,
             preferences=preferences,
             mobility=mobility,
@@ -1910,7 +1772,7 @@ def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
                 "hard_conflicts": verdict.get("hard_conflicts"),
                 "conflicts": verdict.get("conflicts"),
             }
-        if _arrives_after_home_limit(option, profile):
+        if arrives_after_home_limit(option, profile):
             reasons.append("after_latest_arrival_home")
 
         if reasons:
@@ -1932,12 +1794,12 @@ def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
     non_hotel_options = [option for option in eligible if option.get("mode") != "hotel"]
     if re.fullmatch(r"\d{2}:\d{2}", limit):
         known_arrivals = [
-            (_parse_datetime(option.get("new_arrival")), _parse_datetime(option.get("departure")))
+            (parse_datetime(option.get("new_arrival")), parse_datetime(option.get("departure")))
             for option in non_hotel_options
             if option.get("new_arrival")
         ]
         hotel_needed = all(
-            _time_after_home_limit(arrival, departure, limit) for arrival, departure in known_arrivals
+            time_after_home_limit(arrival, departure, limit) for arrival, departure in known_arrivals
         )
     else:
         # No configured cutoff — fall back to the previous rule: any reachable
@@ -1952,7 +1814,7 @@ def finalize_reroute_options(max_options: int = REROUTE_MAX_OPTIONS) -> dict:
                 rejected_summary.get("hotel_not_needed", 0) + omitted_hotels
             )
 
-    arrivals = [_parse_datetime(o.get("new_arrival")) for o in eligible]
+    arrivals = [parse_datetime(o.get("new_arrival")) for o in eligible]
     earliest_arrival = min(
         (arrival for arrival in arrivals if arrival is not None),
         key=lambda dt: dt.replace(tzinfo=None),
@@ -2039,30 +1901,21 @@ def get_user_profile() -> dict:
 # top-level event stream that ui.chat iterates. Scanning that trace for a
 # "get_passenger_rights" entry therefore never matches.
 #
-# Workaround (same pattern as the request-scoped reroute workspace on
-# the rerouting branch): the tool stashes its result here while it runs
-# (same process), and the caller reads it after the run instead of the
-# trace. Safe for the single-user prototype (the chat UI's busy guard
-# prevents concurrent turns). ui.chat.chat_turn clears the slot at the start
-# of each turn so a stale result from a previous turn is never reused.
-_LAST_RIGHTS: dict | None = None
+# Workaround (the same turn workspace the reroute shortlist uses): the tool
+# stashes its result there while it runs, and the caller reads it after the run
+# instead of scanning the trace. The workspace is bound per chat turn, so a
+# result can neither survive into the next turn nor leak into a concurrent one.
 
 
 def last_passenger_rights() -> dict | None:
-    """Returns the most recent settled rights result, or None.
+    """Returns this turn's settled rights result, or None.
 
     Only a ``trip_concluded=True`` lookup lands here. A mid-trip entitlement
     check (Zugbindung and friends) deliberately does not, so neither the
     automatic complaint draft nor the Executor's claim can ever be built from a
     delay the traveler has not actually experienced.
     """
-    return _LAST_RIGHTS
-
-
-def clear_passenger_rights() -> None:
-    """Reset the in-process slot — called at the start of each chat turn."""
-    global _LAST_RIGHTS
-    _LAST_RIGHTS = None
+    return turn_workspace().get("rights")
 
 
 def _legal_context(delay_minutes: int, ticket_type: str, bahncard_type: str) -> tuple[str, list[str]]:
@@ -2170,8 +2023,7 @@ def get_passenger_rights(
     # Only a concluded trip may seed the automatic complaint draft; stashing a
     # mid-trip forecast here would let the app file a claim for a delay the
     # traveler has not experienced yet (see onboarding/complaints.py).
-    global _LAST_RIGHTS
-    _LAST_RIGHTS = result
+    turn_workspace()["rights"] = result
     return result
 
 
