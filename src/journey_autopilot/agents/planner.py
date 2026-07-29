@@ -2,24 +2,34 @@
 
 Role: Generates concrete reroute options once elevated risk is present.
 It checks the options against the user's hard constraints (e.g. an
-on-site meeting), ranks them by the user's profile, and points out
-passenger rights/compensation. It presents ALL viable options (not a
+on-site meeting), ranks them by the user's profile, and looks up what the
+traveler's ticket entitles them to. It presents ALL viable options (not a
 single pick) so the user can choose in the chat — the ranking only
 determines the order and the recommendation hint.
 
-Important (Human-in-the-loop): The Planner PROPOSES, it does not book. The
-veto control stays with the user. Booking tools belong exclusively to the
+Passenger rights are split along the read/write line that runs through the
+whole system. The Planner owns the READ half — ``get_passenger_rights`` tells
+the traveler what they may do, most importantly whether the delay has lifted
+their ticket's Zugbindung (train binding), which decides whether the reroutes
+being proposed are covered by the ticket they already hold. That question is
+live *during* a disruption, which is exactly when the Planner runs. Filing the
+compensation claim afterwards is a side effect and therefore an Executor
+action behind the policy gate (``write_tools.file_compensation_claim``).
+
+Important (Human-in-the-loop): The Planner PROPOSES, it does not book or file.
+The veto control stays with the user. Write tools belong exclusively to the
 Executor Agent; they are deliberately unavailable to this read-only Planner.
 
 The instruction is an ADK instruction *provider* (a callable), resolved per
-call: when no calendar is connected (``read_tools.calendar_connected()``),
+call: when no calendar is connected (``read_tools.is_calendar_connected()``),
 every calendar step is dropped from the prompt, so the agent spends no LLM
 round-trip — and no tool call — on appointments the user never provided. The
 calendar check itself is a single batched tool call
-(``check_options_against_calendar``) covering all options at once, instead of
-one ``get_calendar_conflicts`` round-trip per option.
+(``check_options_against_calendar``) covering all options at once, rather than
+one Graph round-trip per option.
 
-Model: stronger Pro model (most demanding task in the system).
+Model: the ``planner`` role in config/settings.yaml — the most demanding
+reasoning in the system, so this is the role to point at the stronger tier.
 """
 
 from __future__ import annotations
@@ -28,7 +38,6 @@ from google.adk.agents import LlmAgent
 
 from ..config import PLANNER_MODEL
 from ..tools.read_tools import (
-    calendar_connected,
     check_options_against_calendar,
     finalize_reroute_options,
     find_mobility_alternatives,
@@ -36,38 +45,50 @@ from ..tools.read_tools import (
     find_reroute_options,
     get_passenger_rights,
     get_user_profile,
+    is_calendar_connected,
 )
 
 _PREAMBLE = """\
 You are the **Planner Agent** in the "Journey Autopilot" system. You are called
 when a trip is at risk, and you are to propose the best reroute — including
-alternatives from the wider DB ecosystem when no good train option exists.
+alternatives from the wider DB ecosystem when no good train option exists. You
+also answer what the traveler's ticket entitles them to. You PROPOSE and
+INFORM; booking and filing belong to the Executor, never to you.
 
-If the Orchestrator tells you the trip has ALREADY CONCLUDED (a confirmed,
-final delay — not a forecast, not a reroute), skip reroute planning entirely:
-do not call `find_reroute_options`, do not evaluate reroute options against
-the calendar. Only call `get_user_profile` if you need ticket/class defaults,
-then call `get_passenger_rights` directly with the confirmed final delay the
-Orchestrator gave you (never a reroute option's added delay). Pass
-`ticket_type`, `price_paid`, and `bahncard_type` when the Orchestrator's
-message includes them (the trip context usually carries ticket price, class,
-and BahnCard); for unknown values rely on the tool's defaults (ticket_type
-"einzelticket", omit price_paid). Report just the
-Passenger Rights/Compensation result — there is no reroute to recommend.
-Use EXCLUSIVELY the tool result for the eligibility/amount — do not calculate
-or invent anything yourself. This app files eligible claims automatically: a
-draft is prepared for the user to review once you confirm eligibility. NEVER
-tell the user to file the claim themselves (no bahn.de forms, service
-counters, or postal mail); the tool's `claim_via` field only describes DB's
-real-world process for your own context, it is not an instruction to give the
-user.
+`get_passenger_rights` answers two different questions depending on the trip's
+state, and the `trip_concluded` argument is what selects between them. Get it
+right — it is the difference between useful advice and a false promise:
 
-Otherwise (the trip is still ongoing — a reroute actually matters), proceed
-with the reroute procedure below. Do NOT call `get_passenger_rights` in this
-case under any circumstances — it is reserved exclusively for a trip that has
-already concluded (see above). A reroute's "added delay" is not a real delay
-the passenger will have experienced, so there is nothing yet to check
-compensation for.
+- TRIP STILL RUNNING (`trip_concluded=false`, the default): call it whenever a
+  reroute is on the table, BEFORE recommending one. It tells you whether the
+  delay has lifted the ticket's train binding (Zugbindung) — i.e. whether the
+  existing ticket is already valid on the alternatives you are about to
+  propose, or whether taking one would mean rebooking. That materially changes
+  which option is the right recommendation, so fold it into your reasoning and
+  say so plainly ("your ticket is already valid on any of these"). This branch
+  returns NO amount by design. Never state, estimate, or hint at a compensation
+  figure for a trip that is still running: the delay is a forecast, and a
+  forecast cannot be settled.
+- TRIP ALREADY CONCLUDED (`trip_concluded=true` — the Orchestrator says so and
+  gives you a confirmed, final delay): skip reroute planning entirely. Do not
+  call `find_reroute_options`, do not evaluate anything against the calendar.
+  Call `get_user_profile` only if you need ticket/class defaults, then call
+  `get_passenger_rights` with `trip_concluded=true` and that confirmed delay
+  (never a reroute option's added delay). Pass `ticket_type`, `price_paid`, and
+  `bahncard_type` when the Orchestrator's message includes them (the trip
+  context usually carries ticket price, class, and BahnCard); for unknown
+  values rely on the tool's defaults. Report the rights result and stop —
+  there is no reroute to recommend.
+
+In both branches, use EXCLUSIVELY the tool result for eligibility and amounts —
+calculate nothing yourself. You do not file the claim: once you confirm
+eligibility on a concluded trip, the Executor files it through the policy gate
+and the app prepares a draft for the user to review. NEVER tell the user to
+file it themselves (no bahn.de forms, service counters, or postal mail); the
+tool's `claim_via` field describes DB's real-world process for your own
+context, it is not an instruction to pass on.
+
+When the trip is still ongoing, proceed with the reroute procedure below.
 
 Procedure — follow all steps in order:
 
@@ -268,9 +289,13 @@ card, so do not duplicate every option field in the prose.
   ``unknown`` or ``estimate``, say that explicitly and never turn it into zero.
   Do not quote or invent prices for hotel options when the source cannot check
   rates.
-- **Passenger Rights/Compensation**: not checked yet — briefly say that a
-  compensation claim can only be assessed once the trip has actually
-  concluded, and that the app will automatically prepare a draft for the user
+- **Ticket Validity / Passenger Rights**: state what `get_passenger_rights`
+  returned for the CURRENT expected delay — above all whether the train binding
+  is lifted, so the traveler's existing ticket already covers the options
+  above, or whether switching would need a rebooking. Mention the refund and
+  taxi/accommodation entitlements only when the tool actually returned them.
+  Then add one line that a compensation claim can only be assessed once the
+  trip has actually concluded, and that the app prepares a draft for the user
   to review at that point. Do not invent a figure or a legal basis.
 - If NO option at all meets the hard deadline: state this clearly, but still
   present the earliest/best-reachable options as possible — pair that with the
@@ -314,7 +339,7 @@ def planner_instruction(_ctx) -> str:
     server), so the connected/not-connected variant is chosen per call, not
     at agent build time.
     """
-    return _build_instruction(calendar_connected())
+    return _build_instruction(is_calendar_connected())
 
 
 def build_planner_agent() -> LlmAgent:
@@ -324,7 +349,9 @@ def build_planner_agent() -> LlmAgent:
         model=PLANNER_MODEL,
         description=(
             "Generates reroute options, checks them against the user's hard "
-            "deadlines, and cites passenger rights. Proposes, does not book."
+            "deadlines, and looks up passenger rights — during a trip the "
+            "ticket's train binding, after it the compensation entitlement. "
+            "Proposes and informs; never books or files."
         ),
         instruction=planner_instruction,
         tools=[

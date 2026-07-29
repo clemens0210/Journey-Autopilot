@@ -4,9 +4,12 @@ The internal schema is what mock_data.USER_CALENDAR already produces and
 what the Planner Agent expects:
 
     {
+        "id": str,                # Graph event id — the Executor reschedules by it
         "title": str,
         "location": str,
         "start": str,             # ISO datetime, timezone stripped
+        "end": str,               # ISO datetime, timezone stripped
+        "status": str,            # "tentative" | "confirmed" — drives the veto gate
         "hard_constraint": bool,
         "organizer_name": str | None,
         "organizer_email": str | None,
@@ -17,6 +20,12 @@ what the Planner Agent expects:
 The contact fields let the Communicator notify a meeting counterpart when a
 trip disruption endangers the appointment. ``attendee_emails`` excludes the
 organizer (Graph lists the organizer among the attendees as well).
+
+``id`` and ``status`` exist for the write side: ``reschedule_outlook_event``
+addresses an appointment by its id, and ``policy.resolve`` gates the move on
+whether it is tentative (reversible → auto) or confirmed (not → ask). Without
+them a real Outlook connection would silently lose the distinction the mock
+fixture already carries.
 
 ``self_organized`` (Graph ``isOrganizer``) matters for consumer accounts:
 for events the signed-in user created, Graph reports an internal alias
@@ -82,6 +91,29 @@ def _to_app_wall_time(date_time: str, time_zone: str | None) -> str:
     return local.strftime("%Y-%m-%dT%H:%M")
 
 
+def _enum_value(value) -> str:
+    """Lowercase name of a Graph enum member (or of a plain string)."""
+    return str(getattr(value, "value", value) or "").strip().lower()
+
+
+def _event_status(event: Event) -> str:
+    """Classify an event as ``tentative`` or ``confirmed`` for the veto gate.
+
+    Two independent Graph signals mean "not firm yet": the free/busy status the
+    organizer set (``showAs``) and the invitee's own RSVP
+    (``responseStatus.response``). Either one is enough to treat a move as
+    reversible. Everything else — including an event that reports neither —
+    falls back to ``confirmed``, the answer that makes ``policy.resolve`` ask
+    before moving it.
+    """
+    if _enum_value(getattr(event, "show_as", None)) == "tentative":
+        return "tentative"
+    response = getattr(event, "response_status", None)
+    if _enum_value(getattr(response, "response", None)) == "tentativelyaccepted":
+        return "tentative"
+    return "confirmed"
+
+
 def graph_events_to_internal(graph_events: list[Event]) -> list[dict]:
     """Convert a list of msgraph Event model objects to the internal format.
 
@@ -90,8 +122,9 @@ def graph_events_to_internal(graph_events: list[Event]) -> list[dict]:
             client.me.calendar.events.get().value).
 
     Returns:
-        A list of dicts with keys: title, location, start, hard_constraint,
-        organizer_name, organizer_email, attendee_emails.
+        A list of dicts with keys: id, title, location, start, end, status,
+        hard_constraint, organizer_name, organizer_email, attendee_emails,
+        self_organized.
     """
     result: list[dict] = []
     for event in graph_events:
@@ -104,6 +137,10 @@ def graph_events_to_internal(graph_events: list[Event]) -> list[dict]:
         start = ""
         if event.start and event.start.date_time:
             start = _to_app_wall_time(event.start.date_time, event.start.time_zone)
+
+        end = ""
+        if event.end and event.end.date_time:
+            end = _to_app_wall_time(event.end.date_time, event.end.time_zone)
 
         categories: list[str] = event.categories or []
         is_hard = HARD_CONSTRAINT_CATEGORY in categories
@@ -124,9 +161,12 @@ def graph_events_to_internal(graph_events: list[Event]) -> list[dict]:
 
         result.append(
             {
+                "id": event.id,
                 "title": title,
                 "location": location,
                 "start": start,
+                "end": end,
+                "status": _event_status(event),
                 "hard_constraint": is_hard,
                 "organizer_name": organizer_name,
                 "organizer_email": organizer_email,

@@ -112,11 +112,15 @@ _DEFAULTS: dict = {
         "monitoring": "uni_gpt",
         "planner": "uni_gpt",
         "communicator": "uni_gpt",
+        "executor": "uni_gpt",
     },
     "model_params": {},
     "thresholds": {"at_risk_band": "MEDIUM"},
-    "monitoring": {"poll_interval_seconds": 300},
-    "reroute": {"max_options": 6, "max_added_delay_minutes": 120},
+    "reroute": {
+        "max_options": 6,
+        "max_added_delay_minutes": 120,
+        "proposal_ttl_seconds": 300,
+    },
 }
 
 
@@ -162,24 +166,44 @@ def _model_for(role: str) -> LiteLlm:
     return builder(**params)
 
 
-# Per-role models, resolved from config/settings.yaml. (No RISK_MODEL: risk
-# scoring is a deterministic statistic in tools/risk_model.py, never an LLM.)
+# Per-role models, resolved from config/settings.yaml. One per agent in the
+# graph, so the cost/quality trade-off is a config edit rather than a code
+# change. (No RISK_MODEL: risk scoring is a deterministic statistic in the
+# risk/ package, never an LLM.)
 MONITORING_MODEL = _model_for("monitoring")
 PLANNER_MODEL = _model_for("planner")
 ORCHESTRATOR_MODEL = _model_for("orchestrator")
 DRAFTER_MODEL = _model_for("communicator")
+EXECUTOR_MODEL = _model_for("executor")
 
-# Runtime thresholds (also from settings.yaml) — read by the monitoring path.
-AT_RISK_BAND: str = _SETTINGS.get("thresholds", {}).get("at_risk_band", "MEDIUM")
-POLL_INTERVAL_SECONDS: int = _SETTINGS.get("monitoring", {}).get("poll_interval_seconds", 300)
+# The risk band at which the Orchestrator stops giving an all-clear and calls
+# the Planner — the "if risk of disruption" gate. Configurable because how
+# eagerly the system replans is a product decision, not a prompt detail; the
+# Orchestrator's instruction is built against this value (see orchestrator.py).
+AT_RISK_BAND: str = str(
+    _SETTINGS.get("thresholds", {}).get("at_risk_band", "MEDIUM")
+).upper()
 
-# Reroute pre-filter bounds (read by tools/read_tools.find_reroute_options).
-REROUTE_MAX_OPTIONS: int = int(_SETTINGS.get("reroute", {}).get("max_options", 5))
-REROUTE_MAX_ADDED_DELAY_MINUTES: int = int(
-    _SETTINGS.get("reroute", {}).get("max_added_delay_minutes", 120)
-)
-REROUTE_PROPOSAL_TTL_SECONDS: int = int(
-    _SETTINGS.get("reroute", {}).get("proposal_ttl_seconds", 300)
-)
+# Risk bands at or above AT_RISK_BAND — what the gate actually tests.
+_RISK_ORDER = ("LOW", "MEDIUM", "HIGH")
+AT_RISK_BANDS: tuple[str, ...] = _RISK_ORDER[
+    _RISK_ORDER.index(AT_RISK_BAND) if AT_RISK_BAND in _RISK_ORDER else 1 :
+]
 
-CHROMA_PATH = Path(os.getenv("CHROMA_PATH", str(BASE_DIR / "data" / "chromadb")))
+
+def _reroute_setting(key: str) -> int:
+    """One reroute bound from settings.yaml, falling back to ``_DEFAULTS``.
+
+    The fallback is the defaults dict rather than a literal, so a value can
+    never disagree with itself depending on which path resolved it.
+    """
+    section = _SETTINGS.get("reroute")
+    value = section.get(key) if isinstance(section, dict) else None
+    return int(_DEFAULTS["reroute"][key] if value is None else value)
+
+
+# Reroute pre-filter bounds (read by tools/read_tools.find_reroute_options) and
+# the TTL after which a finalized live shortlist must be revalidated (ui/chat).
+REROUTE_MAX_OPTIONS: int = _reroute_setting("max_options")
+REROUTE_MAX_ADDED_DELAY_MINUTES: int = _reroute_setting("max_added_delay_minutes")
+REROUTE_PROPOSAL_TTL_SECONDS: int = _reroute_setting("proposal_ttl_seconds")

@@ -17,7 +17,7 @@ try:
 except ImportError:
     pass
 
-from . import whatsapp as tools
+from . import messaging as tools
 
 logger = logging.getLogger(__name__)
 

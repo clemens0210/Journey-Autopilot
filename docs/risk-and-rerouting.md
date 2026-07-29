@@ -5,8 +5,8 @@ Short reference for the demo — answers "how is the risk calculated?" and
 
 ## The risk signal is a model, never an LLM guess
 
-All numbers come from deterministic Python (`risk/predictor.py`,
-`tools/risk_model.py`); the agents only *interpret* them.
+All numbers come from deterministic Python in the `risk/` package
+(`predictor.py`, `live_stats.py`); the agents only *interpret* them.
 
 **Per-leg expected delay** (`risk/predictor.py::forecast_leg`):
 
@@ -29,7 +29,7 @@ expected delay raises the leg to `high` (`connection_risks`).
 (`100 * (1 - on_time_rate)`): how delay-prone the route normally is,
 independent of today.
 
-**Today's situation** (`tools/risk_model.py::connection_delay_history`) — the
+**Today's situation** (`risk/live_stats.py::connection_delay_history`) — the
 live arrival board of the destination over the last ~5 h condensed into
 mean/median/p90 delay and cancellations. The Monitoring agent is instructed to
 raise the band when today looks much worse than the historical norm.

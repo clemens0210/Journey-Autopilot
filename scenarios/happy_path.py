@@ -63,8 +63,8 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types
 
 from journey_autopilot.agent import root_agent
-from journey_autopilot.mock_data import DEMO_TRIP, DEMO_EVENT_FIELDS
-from journey_autopilot.integrations.whatsapp_models import DisruptionEvent, Recipient
+from journey_autopilot.demo.mock_data import DEMO_TRIP, DEMO_EVENT_FIELDS
+from journey_autopilot.integrations.whatsapp import DisruptionEvent, Recipient
 from journey_autopilot.agents import communicator
 from journey_autopilot.integrations import whatsapp
 
@@ -215,7 +215,7 @@ async def _demo_approval_flow() -> None:
 
     print("\n--- Webhook server ---")
     print("Start the receiver for YES/NO/EDIT replies:")
-    print("  uvicorn journey_autopilot.integrations.whatsapp_webhook:app --port 8000")
+    print("  uvicorn journey_autopilot.integrations.whatsapp.webhook:app --port 8000")
     print("Twilio forwards inbound messages to POST /whatsapp/reply.")
 
 

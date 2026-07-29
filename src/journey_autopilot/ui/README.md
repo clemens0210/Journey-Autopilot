@@ -85,7 +85,7 @@ profile summary, connections, and the GDPR deletion option.
 
 ### Automation & veto (the policy layer)
 
-From the dashboard or profile, **Automation & veto** (`renderers.policy`) lets
+From the dashboard or profile, **Automation & veto** (`static/js/policy.js`) lets
 the user set the global autonomy level (conservative / balanced / automatic
 within limits) and pin per-action overrides (auto / ask, plus a cost limit for
 rebookings). The choices are stored in the profile's `policy` block via
@@ -105,7 +105,7 @@ planner for reroutes and checks the calendar. The reply is shown as a chat
 bubble with a collapsible **agent trace** (which agent called which tool).
 
 > Lucas' Munich → Berlin trip (today, two transfers) is the canonical demo scenario — pinned to
-> the same `trip_id`/date as `mock_data.DEMO_TRIP`, so it triggers the full
+> the same `trip_id`/date as `demo.mock_data.DEMO_TRIP`, so it triggers the full
 > disruption → reroute → calendar story. Requires a configured Uni-GPT backend
 > in `.env` (`UNI_GPT_*`); without it, the chat shows the backend error inline.
 
@@ -117,7 +117,7 @@ bubble with a collapsible **agent trace** (which agent called which tool).
 | ------------------------- | ------------- | ---------------------------------------------------------------------- |
 | Home station search       | **live**\*    | real DB station data via the `db_service` sidecar, otherwise fallback list |
 | Profile persistence       | **real**      | SQLite (`../persistence/store.py`)                                      |
-| DB account login & import | *simulated*   | `../onboarding/accounts.py` — no official DB API available             |
+| DB account login & import | *simulated*   | `../demo/accounts.py` — no official DB API available                    |
 | SMS verification          | *simulated*   | no SMS gateway; the code is returned and displayed inline (delivered via Twilio WhatsApp when configured) |
 | Outlook calendar (OAuth)  | **live**\*\*  | real MS Entra device-code flow when `MS_ENTRA_CLIENT_ID` is set; simulated consent dialog + sample events otherwise |
 
@@ -131,7 +131,7 @@ clean wizard run-through (e.g. before a demo), reset the stored profile with
 `python scripts/reset_demo.py` — it keeps the Outlook login cached.
 
 The simulations are deliberately kept behind realistic API contracts. A real
-integration would ideally only need to swap out `../onboarding/accounts.py` and
+integration would ideally only need to swap out `../demo/accounts.py` and
 the affected endpoints — the rest (UI, store, profile structure) remains untouched.
 
 ---
@@ -145,13 +145,28 @@ never the other way around.
 ```
 journey_autopilot/
 ├── ui/                  ← this package (everything user-facing)
-│   ├── server.py        FastAPI app: JSON API, /api/chat, serving the static UI
+│   ├── server.py        FastAPI app assembly: logging, routers, static UI
+│   ├── routes/          one module per API theme (see routes/__init__.py)
+│   │   ├── deps.py      the session table — the only state spanning routers
+│   │   ├── auth.py      DB-account login, /api/me bootstrap
+│   │   ├── trips.py     monitored trips, itinerary, complaints
+│   │   ├── booking.py   station lookup, live journey search, add a connection
+│   │   ├── connect.py   phone verification, Outlook connection
+│   │   ├── profile.py   profile read/patch, onboarding completion, GDPR delete
+│   │   └── chat.py      orchestrator chat turn + demo preload
 │   ├── chat.py          runs the ReAct orchestrator (root_agent) per chat turn
 │   ├── __init__.py      package docs
 │   └── static/
 │       ├── index.html   DB Navigator frame: status bar, header, tab bar, DB logo
 │       ├── style.css    DB Navigator dark theme (DB red #EC0016, dark slate surfaces)
-│       └── app.js       framework-free UI: render(step), wizard patches, trip chat
+│       └── js/          ES modules, no bundler — app.js is the entry point
+│           ├── state.js · api.js · dom.js · format.js      foundations
+│           ├── router.js                                    screen registry + go()
+│           ├── components.js · stations.js · markdown.js · chat-options.js
+│           ├── chat-store.js                                conversations + sessionStorage
+│           ├── outlook.js                                   the connect flow (both paths)
+│           └── onboarding.js · dashboard.js · profile.js · policy.js
+│               · book.js · tripdetail.js · chat.js          the screens
 ├── onboarding/          ← the logic (the "functions"), imported by ui/
 │   ├── accounts.py      simulated DB accounts, bookings, Outlook events, station fallback
 │   └── __init__.py
@@ -159,9 +174,15 @@ journey_autopilot/
     └── store.py         SQLite store: users, profile (JSON blob), imported trips
 ```
 
-- **No build step, no JS framework.** The UI is vanilla JS; `render(step)`
-  draws the respective screen, the bottom navigation is configured per
-  step, and the chat reuses the same `render`/state mechanism.
+- **No build step, no JS framework.** The UI is vanilla JS split into ES
+  modules and loaded with `<script type="module">`. Each screen module
+  registers its renderers with `router.js`; `go(step)` draws one, and the
+  bottom navigation is configured per step. The chat reuses the same
+  `go`/state mechanism.
+- **One state object** (`state.js`) that every module reads and writes
+  directly. The rule is not encapsulation but non-duplication: a fact must
+  live in exactly one field. (`state.outlookConnectedThisStep` is the
+  cautionary tale — two connect paths, and for a while only one set it.)
 - **Sessions** live in-memory (token → `user_id`). A restart simply means
   “log in again” — deliberately without persistence for the single-user prototype.
 - **Chat sessions** are kept by ADK's in-memory runner (`chat.py`); ADK and the

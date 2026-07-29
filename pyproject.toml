@@ -44,5 +44,12 @@ reference-build = ["pyarrow"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-# Ship the pre-aggregated punctuality archive + the scenario fixtures.
-journey_autopilot = ["data/*.json", "data/fixtures/*.json"]
+# Ship the pre-aggregated punctuality archive + the scenario fixtures, and the
+# web app's static assets — ui/server.py mounts ui/static/ from inside the
+# installed package, so without these an installed wheel serves no UI at all.
+journey_autopilot = [
+    "data/*.json",
+    "data/fixtures/*.json",
+    "ui/static/*",
+    "ui/static/js/*",
+]

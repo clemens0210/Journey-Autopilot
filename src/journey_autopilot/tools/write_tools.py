@@ -15,10 +15,20 @@ the same for all of them:
 again" — nothing fires autonomously that the policy said needs a veto. This is
 the ADK analogue of LangGraph's ``interrupt()`` realized inside a chat turn.
 
-The side effects are deliberately simulated for the prototype (no real Twilio /
-booking / Graph calls here) — the WhatsApp sender + approval queue in
-``integrations/whatsapp.py`` is the real-channel insertion point. What matters
-for the milestone is that the *policy decision* is enforced before any effect.
+Two tools bypass ``user_approved`` by design, and for opposite reasons:
+
+- ``send_whatsapp_to_user`` is never gated — the traveler is the recipient AND
+  the channel their veto arrives through, so gating it would deadlock the gate.
+  It is also the one tool here with a REAL external side effect (Twilio), which
+  is why it enforces one send per turn itself rather than trusting the prompt.
+- ``propose_appointment_notice_email`` needs no flag because it *is* the ask:
+  it only stages a draft, and the paired send refuses to run without the
+  single-use approval id that staging produced.
+
+The remaining side effects are simulated for the prototype (no real booking or
+Graph write) — what matters is that the *policy decision* is enforced before any
+effect, and that no tool takes a cost, a delay, or an appointment's firmness
+from conversation text: each reads it from authoritative state instead.
 
 See docs/journey-autopilot-build-spec.md §5/§8 and docs/adr/0004-veto-gate.md.
 """
@@ -27,21 +37,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import secrets
 from datetime import datetime, timezone
 
 from .. import policy
-from ..integrations import db_ops as db_api
+from ..integrations.db import ops as db_api
+from .constraints import (
+    arrives_after_home_limit,
+    mode_eligibility_violations,
+    parse_datetime,
+)
 from .read_tools import (
     PSEUDO_OUTLOOK_ALIAS_RE,
-    _arrives_after_home_limit,
-    _calendar_configured,
-    _classify_window_conflicts,
-    _mode_eligibility_violations,
-    _outlook_connected,
-    _parse_datetime,
-    calendar_connected,
+    classify_window_conflicts,
     get_user_calendar,
+    is_calendar_connected,
 )
 
 logger = logging.getLogger(__name__)
@@ -153,7 +164,7 @@ async def send_approved_notice_email(approval_id: str) -> dict:
 
     to_address = pending["to_address"]
 
-    if not (_calendar_configured() and _outlook_connected()):
+    if not is_calendar_connected():
         logger.info("email send simulated (Outlook not connected): to=%s", to_address)
         return {
             "status": "simulated",
@@ -196,8 +207,8 @@ async def send_approved_notice_email(approval_id: str) -> dict:
 def _profile() -> dict | None:
     """Authenticated request profile, with single-user fallback for scenarios."""
     try:
-        from journey_autopilot.persistence import store
-        from journey_autopilot.request_context import current_user_id
+        from ..persistence import store
+        from ..request_context import current_user_id
 
         user_id = current_user_id.get()
         if user_id:
@@ -236,17 +247,26 @@ def _done(tool_name: str, action_summary: str, **result) -> dict:
     }
 
 
-def _revalidation_error(message: str, **details) -> dict:
-    """Fail closed when a persisted proposal cannot be executed safely."""
+_REROUTE_REVALIDATION_HINT = (
+    "Do not execute or claim this option was booked. Tell the user the "
+    "proposal must be refreshed with a new reroute search."
+)
+
+
+def _revalidation_error(
+    message: str,
+    *,
+    tool: str = "reroute_execution",
+    instruction: str = _REROUTE_REVALIDATION_HINT,
+    **details,
+) -> dict:
+    """Fail closed when authoritative state cannot back the requested action."""
     return {
         "status": "revalidation_failed",
-        "tool": "reroute_execution",
+        "tool": tool,
         "error": message,
         "details": details,
-        "instruction_for_agent": (
-            "Do not execute or claim this option was booked. Tell the user the "
-            "proposal must be refreshed with a new reroute search."
-        ),
+        "instruction_for_agent": instruction,
     }
 
 
@@ -258,8 +278,8 @@ def _selected_proposal_option(proposal_id: str, option_id: str) -> tuple[dict, d
     arbitrary "most recently onboarded" profile, since that fallback would let
     an unbound request execute against whichever profile happens to be picked.
     """
-    from journey_autopilot.persistence import store
-    from journey_autopilot.request_context import current_session_id, current_user_id
+    from ..persistence import store
+    from ..request_context import current_session_id, current_user_id
 
     user_id = current_user_id.get()
     if not user_id:
@@ -322,7 +342,7 @@ def _profile_constraint_violations(option: dict, profile: dict) -> list[str]:
     preferences = profile.get("preferences") or {}
     mobility = profile.get("mobility") or {}
     home = profile.get("home") or {}
-    reasons = _mode_eligibility_violations(
+    reasons = mode_eligibility_violations(
         option,
         preferences=preferences,
         mobility=mobility,
@@ -330,14 +350,14 @@ def _profile_constraint_violations(option: dict, profile: dict) -> list[str]:
         recompute_transfer_buffer=True,
     )
     if option.get("mode", "train") == "train":
-        departure = _parse_datetime(option.get("departure"))
+        departure = parse_datetime(option.get("departure"))
         if departure is None:
             reasons.append("missing_departure")
         else:
             now = datetime.now(departure.tzinfo) if departure.tzinfo else datetime.now()
             if departure <= now:
                 reasons.append("already_departed")
-    if _arrives_after_home_limit(option, profile):
+    if arrives_after_home_limit(option, profile):
         reasons.append("after_latest_arrival_home")
     return reasons
 
@@ -354,14 +374,14 @@ async def _fresh_calendar_clash(option: dict, proposal: dict) -> dict | list[str
     so the caller treats it like any other execution-constraint failure,
     since a clash can't be safely confirmed as absent without a fresh read.
     """
-    if not calendar_connected() or not option.get("new_arrival"):
+    if not is_calendar_connected() or not option.get("new_arrival"):
         return {"hard_conflicts": 0, "conflicts": []}
     payload = proposal.get("proposal") or {}
     travel_date = payload.get("travel_date") or str(option.get("new_arrival"))[:10]
     calendar = await get_user_calendar(travel_date)
     if calendar.get("error"):
         return ["calendar_revalidation_unavailable"]
-    classified = _classify_window_conflicts(
+    classified = classify_window_conflicts(
         calendar.get("events") or [],
         travel_date,
         planned_departure=option.get("departure"),
@@ -473,25 +493,107 @@ def _booking_cost(option: dict) -> tuple[str, float | None, float | None, str]:
 # --- Write tools (each gated by policy.resolve) -------------------------------
 
 
-def send_whatsapp_to_user(message: str, user_approved: bool = False) -> dict:
-    """Sends a WhatsApp/notification message to the traveler themselves.
+async def send_whatsapp_to_user(message: str) -> dict:
+    """Push a proactive WhatsApp notice to the traveler's own phone.
 
-    Always runs autonomously: the user is the recipient and the veto channel, so
-    this is never gated.
+    Use this when something has happened that the traveler needs to know
+    *without* opening the app — above all an elevated disruption risk on a trip
+    that is about to start or already running. It is a one-way heads-up, not a
+    question: it reaches them on their phone while the full answer stays in the
+    chat.
+
+    Send it at most ONCE per turn, and only when there is real news. A follow-up
+    answer inside a conversation the traveler is already reading does not
+    warrant a push.
+
+    Never gated by the policy layer: the traveler is the recipient AND the
+    channel the veto arrives through, so gating it would deadlock the gate. The
+    recipient is their verified number from onboarding — it is not an argument
+    here, and this tool can only ever message the traveler themselves.
 
     Args:
-        message: The message text to send to the traveler.
-        user_approved: Unused here (this action never needs a veto); kept for a
-            uniform write-tool signature.
+        message: The notice text. Keep it short (a few lines) — it is read on a
+            phone. Lead with the trip and the risk, then what to do.
 
     Returns:
-        A status dict (``status="executed"``).
+        A status dict. ``status="executed"`` with ``delivery.sent`` true means
+        WhatsApp accepted it; ``delivery.demo`` means Twilio is not configured
+        and the message was logged instead; ``status="skipped"`` means nothing
+        was sent and nothing should be (no verified number, or a notice already
+        went out this turn) — say so plainly rather than retrying;
+        ``status="failed"`` means the send itself broke, so the traveler was
+        NOT reached — never report it as delivered.
     """
+    from .. import request_context
+    from ..integrations import whatsapp
+
+    name = "send_whatsapp_to_user"
+    to_number = request_context.current_notify_phone.get()
+    if not to_number:
+        # Recorded, not silent: the web layer reads the last outcome back to
+        # tell the traveler why no notice arrived (see ui/static/js/chat.js).
+        # A skip delivers nothing, so it never arms the guard below.
+        request_context.record_whatsapp_send(
+            {"to": None, "sent": False, "reason": "no_phone"}
+        )
+        return {
+            "status": "skipped",
+            "tool": name,
+            "reason": "no_verified_phone",
+            "action_summary": (
+                "No WhatsApp notice sent — the traveler has no verified number "
+                "on file. Deliver the information in the chat reply instead."
+            ),
+        }
+
+    # One DELIVERED notice per turn, enforced rather than merely instructed. The
+    # chat turn is replayed once when the model emits malformed tool-call JSON
+    # (ui/chat.py), and a model can always call a tool twice in one loop — both
+    # would otherwise buzz the traveler's phone repeatedly for one disruption.
+    # A failed attempt is deliberately not counted: nothing reached the phone,
+    # so refusing the retry would strand the traveler with no notice at all.
+    if request_context.whatsapp_delivered():
+        return {
+            "status": "skipped",
+            "tool": name,
+            "reason": "already_sent_this_turn",
+            "action_summary": (
+                "A WhatsApp notice already went out for this turn — the "
+                "traveler has been informed. Do not send another."
+            ),
+        }
+
+    # Twilio's client is blocking; keep it off the event loop so a slow send
+    # doesn't stall every other concurrent chat turn in this process.
+    delivery = await asyncio.to_thread(whatsapp.send_disruption_alert, to_number, message)
+    request_context.record_whatsapp_send({"to": to_number, **delivery})
+    if not (delivery.get("sent") or delivery.get("demo")):
+        logger.warning("WhatsApp notice not delivered to %s: %s", to_number, delivery)
+        return {
+            "status": "failed",
+            "tool": name,
+            "channel": "whatsapp",
+            "delivery": delivery,
+            "action_summary": (
+                f"The WhatsApp notice to {to_number} could NOT be delivered "
+                f"({delivery.get('error') or 'send failed'})."
+            ),
+            "instruction_for_agent": (
+                "Do not tell the traveler they were notified on their phone. "
+                "You may retry this tool once; if it fails again, put the "
+                "information in the chat answer and say the push failed."
+            ),
+        }
     return _done(
-        "send_whatsapp_to_user",
-        f"Notified the traveler: {message!r}",
+        name,
+        f"Sent a WhatsApp notice to the traveler ({to_number}).",
         message=message,
         channel="whatsapp",
+        delivery=delivery,
+        note=(
+            "Real send attempt via Twilio (falls back to a logged demo message "
+            "when Twilio is not configured — see delivery.demo)."
+        ),
     )
 
 
@@ -504,9 +606,11 @@ async def book_alternative_connection(
 
     A train reroute is not a purchase: a DB ticket is valid on any reasonable
     alternative connection, so a free (added_cost_eur == 0) train option is
-    simply *chosen*, not booked — no cost veto applies. An option that carries
-    a real fare difference (e.g. a different operator/route) still goes
-    through the normal cost veto below, same as before.
+    simply *chosen*, not booked. The cost veto still applies to it — at 0 EUR
+    the policy normally resolves to "auto", so no approval is asked, but a
+    traveler on the most cautious autonomy level is asked even for a free
+    reroute. Never promise the traveler that a free option cannot need
+    approval; act on the ``status`` this tool returns.
 
     Descriptions and prices are loaded from the persisted finalized proposal,
     never accepted from conversation text. Live trains are refreshed and all
@@ -551,15 +655,16 @@ async def book_alternative_connection(
             f"and offer to reschedule the appointment or notify its contact."
         )
     # A calendar clash no longer blocks the reroute: it is surfaced as a notice on
-    # the executed result (clash_note), not a veto. A free train reroute is not a
-    # purchase decision, so with the clash downgraded it needs no veto at all; a
-    # paid reroute still goes through the normal cost/autonomy veto. The companion
-    # reschedule/notify step remains a separate, independently gated action.
-    if is_free_train_reroute:
-        needs_veto = False
-    else:
-        resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
-        needs_veto = cost_status != "known" or resolution == "ask"
+    # the executed result (clash_note), not a veto. The companion reschedule/notify
+    # step remains a separate, independently gated action.
+    #
+    # The cost decision belongs to the policy layer, including for a free reroute:
+    # at 0 EUR the configured threshold resolves it to "auto" anyway, so a
+    # traveler on the balanced/aggressive level sees no extra prompt — but one who
+    # chose "notify only" (conservative) still gets asked, which a hardcoded
+    # free-reroute exemption would have silently denied them.
+    resolution = policy.resolve(name, profile=profile, cost_eur=policy_cost_eur)
+    needs_veto = cost_status != "known" or resolution == "ask"
     if needs_veto and not user_approved:
         return _veto(
             name,
@@ -573,7 +678,7 @@ async def book_alternative_connection(
             calendar_clash=calendar_clash,
         )
 
-    from journey_autopilot.persistence import store
+    from ..persistence import store
 
     if not store.claim_reroute_proposal_execution(
         proposal["user_id"], proposal_id, option_id
@@ -633,7 +738,7 @@ async def book_hotel(
             revalidation=evidence,
         )
 
-    from journey_autopilot.persistence import store
+    from ..persistence import store
 
     if not store.claim_reroute_proposal_execution(
         proposal["user_id"], proposal_id, option_id
@@ -657,24 +762,246 @@ async def book_hotel(
     )
 
 
-def file_compensation_claim(
-    delay_minutes: int, amount_eur: float = 0.0, user_approved: bool = False
-) -> dict:
-    """Files a passenger-rights compensation claim for the delay.
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
-    Purely beneficial, low downside — typically runs autonomously, but still
-    passes the policy layer so a conservative user can require approval.
+
+def _proposal_travel_date() -> str | None:
+    """The travel day of this chat's active reroute proposal, if there is one.
+
+    Authoritative and — unlike the turn workspace — still available a turn
+    later, which is when the traveler usually asks for the appointment to be
+    moved. Best effort: no proposal (or no bound identity) simply contributes
+    no candidate day.
+    """
+    try:
+        from ..persistence import store
+        from ..request_context import current_session_id, current_user_id
+
+        user_id, session_id = current_user_id.get(), current_session_id.get()
+        if not user_id or not session_id:
+            return None
+        proposal = store.get_active_reroute_proposal(user_id, session_id)
+        travel_date = ((proposal or {}).get("proposal") or {}).get("travel_date") or ""
+        return travel_date[:10] if _ISO_DATE_RE.fullmatch(travel_date[:10]) else None
+    except Exception:
+        return None
+
+
+def _candidate_event_dates(new_start: str, travel_date: str) -> list[str]:
+    """Days to search for the appointment, most likely first.
+
+    A bare "HH:MM" ``new_start`` carries no day at all, and defaulting to today
+    would make every appointment on a trip that does not depart today
+    unresolvable. So the day comes from the explicit ``travel_date`` argument
+    first, then from ``new_start`` when it is a full ISO datetime, and only
+    lastly from today. When neither argument named a day — the ambiguous case —
+    the chat's active reroute proposal is consulted as well, which is what makes
+    a "move it to 16:30" on next week's trip resolvable at all. Extra candidates
+    are harmless: the event is matched by its exact calendar id, so a wrong day
+    simply yields no match.
+    """
+    candidates = [(travel_date or "")[:10], (new_start or "")[:10]]
+    if not any(_ISO_DATE_RE.fullmatch(day) for day in candidates):
+        candidates.append(_proposal_travel_date() or "")
+    candidates.append(datetime.now().date().isoformat())
+    return list(dict.fromkeys(d for d in candidates if _ISO_DATE_RE.fullmatch(d)))
+
+
+async def _find_calendar_event(
+    event_id: str, dates: list[str]
+) -> tuple[dict, str] | None:
+    """Resolve an appointment by its exact id, returning it with its day.
+
+    Reading the event (rather than trusting the model's description of it) is
+    what makes the tentative/confirmed veto trustworthy; the day it was found
+    on is what makes a bare "HH:MM" new start unambiguous afterwards.
+    """
+    for date in dates:
+        calendar = await get_user_calendar(date)
+        for event in calendar.get("events") or []:
+            if event.get("id") == event_id:
+                return event, date
+    return None
+
+
+async def reschedule_outlook_event(
+    event_id: str,
+    new_start: str,
+    new_end: str = "",
+    travel_date: str = "",
+    user_approved: bool = False,
+) -> dict:
+    """Move a calendar appointment a disrupted trip would make the traveler miss.
+
+    The companion action to choosing a late-arriving reroute: rather than only
+    notifying the contact, the appointment itself is pushed back.
+
+    The appointment's own firmness decides the veto, not the model's judgement:
+    the event is looked up in the connected calendar and its
+    ``tentative``/``confirmed`` status is what ``policy.resolve`` gates on — a
+    tentative slot is reversible and moves automatically, a confirmed one asks
+    first. The status is therefore never accepted as an argument.
 
     Args:
-        delay_minutes: The arrival delay the claim is based on.
-        amount_eur: Expected compensation amount in EUR.
-        user_approved: Set to true ONLY after the user explicitly approved.
+        event_id: Calendar id of the appointment (the ``id`` field of the
+            clashing event the Planner reported).
+        new_start: Proposed new start — ISO datetime or "HH:MM" on the
+            appointment's own day.
+        new_end: Proposed new end. Optional; omitted keeps the original
+            duration.
+        travel_date: The appointment's day as "YYYY-MM-DD" — normally the
+            travel date of the disrupted trip. Required whenever ``new_start``
+            is a bare "HH:MM" and the trip is not today, because a time alone
+            names no day.
+        user_approved: True only after the user approved a gated move.
 
     Returns:
-        ``status="executed"`` on filing, or ``status="veto_required"``.
+        ``status="executed"``, ``status="veto_required"``, or
+        ``status="revalidation_failed"`` when the event cannot be resolved.
     """
+    name = "reschedule_outlook_event"
+    not_found_hint = (
+        "Do not claim the appointment was moved. Ask the Planner for a fresh "
+        "calendar check to get the current event id, and pass the "
+        "appointment's day as travel_date."
+    )
+    event_id = (event_id or "").strip()
+    new_start = (new_start or "").strip()
+    travel_date = (travel_date or "").strip()
+    if not event_id or not new_start:
+        return _revalidation_error(
+            "Both the calendar event id and the new start time are required.",
+            tool=name,
+            instruction=not_found_hint,
+        )
+    if travel_date and not _ISO_DATE_RE.fullmatch(travel_date[:10]):
+        return _revalidation_error(
+            f"'{travel_date}' is not a usable date — pass the appointment's "
+            "day as YYYY-MM-DD.",
+            tool=name,
+            instruction=not_found_hint,
+        )
+
+    dates = _candidate_event_dates(new_start, travel_date)
+    found = await _find_calendar_event(event_id, dates)
+    if found is None:
+        return _revalidation_error(
+            f"No calendar event with id '{event_id}' on {', '.join(dates)}. If "
+            "the appointment is on another day, call again with travel_date "
+            "set to that day.",
+            tool=name,
+            instruction=not_found_hint,
+            event_id=event_id,
+            days_searched=dates,
+        )
+    event, event_date = found
+
+    title = event.get("title") or "the appointment"
+    event_status = event.get("status") or "confirmed"
+    # The day is part of what the traveler approves: a bare "HH:MM" new start
+    # says nothing about which day was moved, and the veto text is the only
+    # place they get to check that before it happens.
+    summary = (
+        f"Move '{title}' on {event_date} from "
+        f"{event.get('start') or 'its current slot'} to "
+        f"{new_start} ({event_status} appointment)"
+    )
+    resolution = policy.resolve(name, profile=_profile(), event_status=event_status)
+    if resolution == "ask" and not user_approved:
+        return _veto(
+            name,
+            summary,
+            event_id=event_id,
+            title=title,
+            event_status=event_status,
+            event_date=event_date,
+            old_start=event.get("start"),
+            new_start=new_start,
+            new_end=new_end or None,
+            attendees=event.get("attendee_emails") or [],
+        )
+    logger.info(
+        "calendar event rescheduled: id=%s date=%s status=%s %s -> %s",
+        event_id,
+        event_date,
+        event_status,
+        event.get("start"),
+        new_start,
+    )
+    return _done(
+        name,
+        summary,
+        event_id=event_id,
+        title=title,
+        event_status=event_status,
+        event_date=event_date,
+        old_start=event.get("start"),
+        new_start=new_start,
+        new_end=new_end or None,
+        attendees=event.get("attendee_emails") or [],
+        note=(
+            "Simulated effect (prototype) — the move is not written back to "
+            "Microsoft Graph. Attendees are NOT notified by this action; "
+            "offer the notice email separately."
+        ),
+    )
+
+
+def file_compensation_claim(user_approved: bool = False) -> dict:
+    """File the passenger-rights compensation claim for a concluded trip.
+
+    The counterpart to the Planner's read-only rights lookup: that tool tells
+    the traveler what they are owed, this one actually files it — through the
+    policy/veto gate like every other write.
+
+    Takes NO delay or amount arguments on purpose. Both are read from the
+    settled ``get_passenger_rights`` result of this chat (which only exists once
+    the trip has concluded), never from conversation text — the same rule the
+    reroute path enforces via ``proposal_id``. A claim can therefore not be
+    filed for a delay the traveler has not experienced, nor for an amount the
+    model reconstructed. The lookup does not have to be repeated in the turn the
+    traveler approves the filing: the settled result stays available for the
+    whole conversation.
+
+    Args:
+        user_approved: Set to true ONLY after the user explicitly approved a
+            previously returned ``veto_required``.
+
+    Returns:
+        ``status="executed"`` on filing, ``status="veto_required"`` when the
+        policy asks first, or ``status="revalidation_failed"`` when no settled
+        rights result backs the claim.
+    """
+    from .read_tools import settled_rights_result
+
     name = "file_compensation_claim"
-    summary = f"File compensation claim for {delay_minutes} min delay (~{amount_eur:.2f} EUR)"
+    rights = settled_rights_result()
+    no_claim_hint = (
+        "Do not claim anything was filed. Ask the Planner for a passenger-rights "
+        "lookup on the concluded trip first, then try again."
+    )
+    if rights is None:
+        return _revalidation_error(
+            "No settled passenger-rights result backs this claim. A claim can "
+            "only be filed after the rights lookup ran for a CONCLUDED trip "
+            "(trip_concluded=true) somewhere in this conversation.",
+            tool=name,
+            instruction=no_claim_hint,
+        )
+    if not rights.get("eligible"):
+        return _revalidation_error(
+            "The settled rights result found no eligible claim.",
+            tool=name,
+            instruction=no_claim_hint,
+            reason=rights.get("reason"),
+        )
+
+    delay_minutes = int(rights.get("delay_minutes") or 0)
+    amount_eur = float(rights.get("compensation_eur") or 0.0)
+    summary = (
+        f"File compensation claim for {delay_minutes} min confirmed delay "
+        f"({amount_eur:.2f} EUR)"
+    )
     if policy.resolve(name, profile=_profile()) == "ask" and not user_approved:
         return _veto(name, summary, delay_minutes=delay_minutes, amount_eur=amount_eur)
     return _done(
@@ -682,13 +1009,32 @@ def file_compensation_claim(
         summary,
         delay_minutes=delay_minutes,
         amount_eur=amount_eur,
+        reason=rights.get("reason"),
+        legal_sources=rights.get("legal_sources") or [],
         claim_ref="SIM-CLAIM",
     )
 
 
-WRITE_TOOLS = [
-    send_whatsapp_to_user,
+# The Executor's toolbelt: everything that changes the traveler's plans or
+# files something on their behalf. Each entry is gated by policy.resolve.
+EXECUTOR_WRITE_TOOLS = [
     book_alternative_connection,
     book_hotel,
+    reschedule_outlook_event,
     file_compensation_claim,
+]
+
+# The Orchestrator's own outbound channel. It sits on the Orchestrator rather
+# than the Executor because it is not part of executing a chosen plan — it is
+# how the system reaches the traveler at all, and the channel their veto comes
+# back through. Never policy-gated (see policy.resolve).
+ORCHESTRATOR_WRITE_TOOLS = [
+    send_whatsapp_to_user,
+]
+
+# The Communicator's toolbelt: the notice-email propose/approve pair. Listed
+# here so all write capability in the system is enumerated in one place.
+COMMUNICATOR_WRITE_TOOLS = [
+    propose_appointment_notice_email,
+    send_approved_notice_email,
 ]

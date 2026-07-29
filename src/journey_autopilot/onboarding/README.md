@@ -5,9 +5,16 @@ user-facing app that drives this lives in
 [`journey_autopilot/ui/`](../ui/) (see its README for the full flow, the
 DB Navigator design, and the API).
 
-| Module        | Responsibility                                                                 |
-| ------------- | ------------------------------------------------------------------------------ |
-| `accounts.py` | Simulated DB accounts, booked trips, and Outlook events. The **swap point** for a real DB/Microsoft integration — the interface (`authenticate`, `booked_trips`, `outlook_events`) stays stable. Also holds the station fallback list. |
+| Module          | Responsibility                                                                 |
+| --------------- | ------------------------------------------------------------------------------ |
+| `complaints.py` | Passenger-rights claim drafts, auto-created when the orchestrator detects an eligible compensation case. Status stays `draft` until the user submits from the Complaints screen. |
+
+The simulated DB account, its booked trips, and the Outlook events used to live
+here as `accounts.py`. They moved to [`../demo/accounts.py`](../demo/accounts.py):
+they are half of the demo dataset and share a clock with
+[`../demo/mock_data.py`](../demo/mock_data.py), which the old placement hid. The
+interface (`authenticate`, `booked_trips`, `outlook_events`) is unchanged and
+still the **swap point** for a real DB/Microsoft integration.
 
 The SQLite store itself lives one level up in
 [`../persistence/store.py`](../persistence/store.py) (users, the profile as a
@@ -25,11 +32,11 @@ single JSON blob — see `DEFAULT_PROFILE` — and imported trips; standard-libr
 
 ## Demo data note
 
-`accounts.booked_trips()` gives Lucas three demo trips: yesterday's heavily
+`demo.accounts.booked_trips()` gives Lucas three demo trips: yesterday's heavily
 delayed Frankfurt → Munich trip (drives the passenger-rights/complaints demo,
 final delay scripted in the fixture's `live_trip_status`), the canonical
 Munich → Berlin main trip pinned to
-[`journey_autopilot/mock_data.py`](../mock_data.py) — same `trip_id`, route,
+[`../demo/mock_data.py`](../demo/mock_data.py) — same `trip_id`, route,
 times, and legs (`DEMO_DATE`) so the dashboard's trip chat exercises the full
 disruption/reroute/calendar story — and a filler trip next week. All dates are
 generated relative to today, so the set stays evergreen.

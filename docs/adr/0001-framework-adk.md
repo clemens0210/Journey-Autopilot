@@ -21,7 +21,7 @@ mechanics are mapped to ADK equivalents:
 | `graph.py` / `StateGraph` | `orchestrator.py`: a `root_agent` (LlmAgent) that wraps the workers as `AgentTool` and routes in a ReAct loop |
 | `ContextRecord` as live graph state | `state.py` as a typed **data contract**; ADK transports run state via `SessionService` |
 | `checkpointer.py` (SQLite) | ADK `SessionService` (`InMemoryRunner` today; `DatabaseSessionService` optional) |
-| `interrupt()` veto gate | the approval/veto queue in `integrations/whatsapp.py` (YES/NO/EDIT) |
+| `interrupt()` veto gate | the approval/veto queue in `integrations/whatsapp/messaging.py` (YES/NO/EDIT) |
 
 ## Consequences
 - The orchestrator decides dynamically (ReAct) whether the Planner is needed,

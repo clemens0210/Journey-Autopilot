@@ -63,18 +63,23 @@ def build_complaint_payload(
     }
 
 
-def maybe_create_from_last_rights(user_id: str, trip: dict | None) -> dict | None:
-    """Create a draft complaint from this turn's get_passenger_rights call, if eligible.
+def maybe_create_from_rights(
+    user_id: str, trip: dict | None, rights: dict | None
+) -> dict | None:
+    """Create a draft complaint from a turn's settled rights lookup, if eligible.
 
-    Reads ``tools.read_tools``' in-process stash rather than the ADK event
-    trace: ``get_passenger_rights`` runs inside the Planner sub-agent, which
-    is only reachable via an ``AgentTool`` — ADK forwards just the Planner's
-    final merged text to the parent, never its own tool-call results, so a
-    trace scan for a "get_passenger_rights" entry can never match.
+    ``rights`` comes from the caller (``ui.chat.chat_turn``) rather than being
+    fetched here: ``get_passenger_rights`` runs inside the Planner sub-agent,
+    which is only reachable via an ``AgentTool`` — ADK forwards just the
+    Planner's final merged text to the parent, never its own tool-call results
+    — so the chat layer picks it out of the turn workspace and hands it over.
+
+    Only a ``trip_concluded=True`` lookup reaches that workspace at all, so a
+    mid-trip entitlement check (Zugbindung and friends) can never seed a draft.
+    ``is_trip_completed`` below still re-checks the live status independently —
+    two guards, because a claim for a trip that has not happened is the one
+    mistake here that reaches a real DB process.
     """
-    from ..tools.read_tools import last_passenger_rights
-
-    rights = last_passenger_rights()
     if rights is None:
         return None
     if not rights.get("eligible") or float(rights.get("compensation_eur") or 0) <= 0:

@@ -14,8 +14,10 @@ Use **SQLite**, standard-library `sqlite3` only, in-process:
   migrations in a fast-moving prototype), and imported trips. Path configurable
   via `JA_DB_PATH`, defaulting to the package `data/` dir. The agent tools read
   the latest profile via `read_tools` without any FastAPI/UI dependency.
-- Run state is owned by the ADK `SessionService` (see ADR 0001 /
-  `persistence/checkpointer.py`).
+- Run state is owned by the ADK `SessionService` (see ADR 0001), configured at
+  the runner in `ui/chat.py` — an `InMemoryRunner` today, so run state is not
+  persisted at all. (A `persistence/checkpointer.py` stub once documented this
+  mapping; it was removed as dead scaffolding, the mapping lives here instead.)
 
 ## Consequences
 - No external database service to stand up; the one-command setup stays simple
