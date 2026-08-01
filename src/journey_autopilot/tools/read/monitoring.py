@@ -3,8 +3,10 @@
 Live-first via the db_service sidecar, with two documented fallbacks — a
 scripted fixture status (which wins outright, so the demo stays deterministic)
 and, failing both, the historical forecast for the booked legs. Every path
-reports its origin in ``source`` and, crucially, agrees on when a trip counts
-as concluded: that flag is what a compensation claim is later assessed against.
+reports its origin in ``source``, its lifecycle phase in ``status``
+(``trip_status``: pre_trip / en_route / arrived) and, crucially, agrees on when
+a trip counts as concluded: the ``arrived`` flag is what a compensation claim
+is later assessed against.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ... import risk
+from ... import risk, trip_status
 from ...demo import mock_data
 from ...integrations.db import ops as db_api
 from ...integrations.db import stations
@@ -130,6 +132,30 @@ def _next_boardable_station(option: dict) -> str | None:
     return leg.get("destination") if phase == "in_transit" else leg.get("origin")
 
 
+def _has_departed(option: dict) -> bool | None:
+    """Whether the traveler has actually started this journey, or ``None``.
+
+    The one thing the timetable cannot answer: a first leg that leaves 20
+    minutes late means the trip is still PRE_TRIP well past its scheduled
+    departure. Only the FIRST leg decides — once any leg is behind them the
+    journey is under way. A first leg whose live departure time has already
+    passed while it still has not run (delayed beyond recognition, or
+    cancelled) counts as departed: the traveler is standing in a disrupted
+    trip, which is the Planner's problem, not a trip that never began.
+    """
+    legs = option.get("legs") or []
+    if not legs:
+        return None
+    located = _locate_next_leg(option)
+    if located is None:
+        return True  # every leg is already completed
+    leg, phase, now = located
+    if leg is not legs[0] or phase == "in_transit":
+        return True
+    departure = parse_datetime(leg.get("departure") or leg.get("planned_departure"))
+    return departure is not None and departure <= now
+
+
 def _earliest_reroute_departure(option: dict) -> str | None:
     """Live time paired with ``_next_boardable_station`` for a new search."""
     located = _locate_next_leg(option)
@@ -216,8 +242,10 @@ def _arrival_in_past(arrival_iso: str | None) -> bool:
 # How long after the planned arrival a trip counts as certainly over when no
 # live arrival time can confirm it. Generous on purpose: it has to outlast even
 # a heavy delay, because concluding too early is the expensive mistake (it lets
-# a claim be assessed against a delay that was not yet final).
-_CONCLUDED_MARGIN = timedelta(hours=3)
+# a claim be assessed against a delay that was not yet final). Defined in
+# ``trip_status`` because the UI's schedule-only fallback needs the very same
+# cut-off — two constants would let the badge and this flag disagree.
+_CONCLUDED_MARGIN = trip_status.CONCLUDED_MARGIN
 
 
 def _concluded_without_arrival_time(planned_arrival: str | None) -> bool:
@@ -300,7 +328,8 @@ def get_live_trip_status(trip_id: str) -> dict:
 
     Returns:
         A dict with current delay, trend, position, known incidents,
-        connection risk, risk forecasts, and ``source``. When ``source`` is
+        connection risk, risk forecasts, the trip's lifecycle ``status``
+        (pre_trip / en_route / arrived) and ``source``. When ``source`` is
         ``db_history_forecast`` no live data was available for the exact booked
         connection — the numbers are the historical forecast for the booked
         legs and ``current_delay_minutes`` is null (see ``note``). Contains
@@ -397,6 +426,19 @@ def get_live_trip_status(trip_id: str) -> dict:
                         for change in option["platform_changes"]
                     )
 
+                planned_departure = option.get("planned_departure") or trip.get("planned_departure")
+                planned_arrival = option.get("planned_arrival") or trip.get("planned_arrival")
+                # The live legs are the only source precise enough to separate
+                # "not boarded yet" from "under way" — the schedule cannot.
+                phase = trip_status.from_live_status(
+                    {
+                        "arrived": arrived,
+                        "planned_departure": planned_departure,
+                        "planned_arrival": planned_arrival,
+                    },
+                    departed=_has_departed(option),
+                )
+
                 return {
                     "trip_id": trip_id,
                     "train": option.get("train") or trip.get("train"),
@@ -414,8 +456,9 @@ def get_live_trip_status(trip_id: str) -> dict:
                     "risk_level": risk_level,
                     "forecasts": forecasts,
                     "legs": risk_legs,
-                    "planned_departure": option.get("planned_departure") or trip.get("planned_departure"),
-                    "planned_arrival": option.get("planned_arrival") or trip.get("planned_arrival"),
+                    "planned_departure": planned_departure,
+                    "planned_arrival": planned_arrival,
+                    "status": phase,
                     "itinerary_broken": itinerary_broken,
                     "estimated_arrival": (
                         None if itinerary_broken
@@ -488,6 +531,9 @@ def get_live_trip_status(trip_id: str) -> dict:
         # Complaint drafting and the agent's EN ROUTE/ARRIVED status both read
         # this field, so it is never absent — only ever explicitly false.
         result.setdefault("arrived", False)
+        # No live legs in a scripted status, so the phase falls back to the
+        # fixture's own arrived flag over the (rebased) planned times.
+        result["status"] = trip_status.from_live_status(result)
         return result
 
     # Trip is known but the exact booked connection had no live match (and no
@@ -535,6 +581,7 @@ def get_live_trip_status(trip_id: str) -> dict:
                 "planned_departure": trip.get("planned_departure"),
                 "planned_arrival": trip.get("planned_arrival"),
                 "arrived": long_past,
+                "status": trip_status.from_live_status({**trip, "arrived": long_past}),
                 "note": note,
                 "data_timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "db_history_forecast",

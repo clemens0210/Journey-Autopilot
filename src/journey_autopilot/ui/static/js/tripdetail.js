@@ -3,7 +3,7 @@
 import { state } from "./state.js";
 import { api } from "./api.js";
 import { $, el, escapeHtml, screen } from "./dom.js";
-import { fmtDate, fmtDuration, fmtTime, isPastTrip, minutesBetween, shiftedTime, tripLiveBadge } from "./format.js";
+import { fmtDate, fmtDuration, fmtTime, minutesBetween, shiftedTime, tripStatus, tripStatusBadge, TRIP_STATUS } from "./format.js";
 import { go, registerScreens } from "./router.js";
 import { openChat } from "./chat.js";
 
@@ -41,7 +41,7 @@ function stopHTML(stop, delayMinutes, { arrival = false } = {}) {
 // band would even contradict the real outcome (e.g. "Expected: +10 min" next to
 // a trip that actually ran 95 min late). Only the facts stay: real delay,
 // incidents, stops.
-function journeyHTML(data, { past = false } = {}) {
+function journeyHTML(data, { arrived = false } = {}) {
   const incidents = (data.incidents || []).map((inc) => `
     <div class="jd-notice"><b>${escapeHtml(inc.type)}</b> (${escapeHtml(inc.location)}): ${escapeHtml(inc.impact)}</div>
   `).join("");
@@ -86,9 +86,9 @@ function journeyHTML(data, { past = false } = {}) {
           <div class="jd-dir">to ${escapeHtml(leg.direction)}</div>
           <div class="jd-delays">
             <span class="jd-chip real ${delay > 0 ? "late" : "ok"}">${delay > 0 ? `+${delay} min delay` : "On time"}</span>
-            ${past ? "" : `<span class="jd-chip expected ${fc.level || "low"}">Expected: ${expected > 0 ? `+${expected} min` : "on time"}</span>`}
+            ${arrived ? "" : `<span class="jd-chip expected ${fc.level || "low"}">Expected: ${expected > 0 ? `+${expected} min` : "on time"}</span>`}
           </div>
-          ${!past && fc.factors && fc.factors.length ? `<div class="jd-forecast-note">Autopilot forecast (${Math.round((fc.confidence || 0) * 100)}% confidence): ${escapeHtml(fc.factors[0])}</div>` : ""}
+          ${!arrived && fc.factors && fc.factors.length ? `<div class="jd-forecast-note">Autopilot forecast (${Math.round((fc.confidence || 0) * 100)}% confidence): ${escapeHtml(fc.factors[0])}</div>` : ""}
         </div>
       </div>
       ${stopHTML(leg.destination, delay, { arrival: true })}`;
@@ -96,14 +96,20 @@ function journeyHTML(data, { past = false } = {}) {
 
   return `
     ${incidents}
-    ${!past && data.connection_risk ? `<div class="jd-notice">${escapeHtml(data.connection_risk)}</div>` : ""}
+    ${!arrived && data.connection_risk ? `<div class="jd-notice">${escapeHtml(data.connection_risk)}</div>` : ""}
     <div class="jd-timeline">${parts}</div>
-    ${past ? "" : `<p class="muted" style="margin-top:14px">Expected delay is the autopilot's risk forecast, based on historical DB punctuality data for this route — not a live prediction.</p>`}`;
+    ${arrived ? "" : `<p class="muted" style="margin-top:14px">Expected delay is the autopilot's risk forecast, based on historical DB punctuality data for this route — not a live prediction.</p>`}`;
 }
 
 function tripdetail() {
   const { trip, data, error } = state.tripDetail;
   const duration = minutesBetween(trip.planned_departure, trip.planned_arrival);
+
+  // The details response carries the live-refined phase — the timetable alone
+  // cannot tell an on-time arrival from a train still running late. Until it
+  // lands, the trip's own (schedule-derived) status stands in, so the badge can
+  // only ever tighten once real data arrives, never flip the other way.
+  const status = data?.status || tripStatus(trip);
 
   let body;
   if (error) {
@@ -111,7 +117,7 @@ function tripdetail() {
   } else if (!data) {
     body = `<div class="device-waiting"><span class="spinner"></span>Loading live journey data…</div>`;
   } else {
-    body = journeyHTML(data, { past: isPastTrip(trip) });
+    body = journeyHTML(data, { arrived: status === TRIP_STATUS.ARRIVED });
   }
 
   screen.replaceChildren(el(`
@@ -121,7 +127,7 @@ function tripdetail() {
         <span class="chat-route">${trip.origin} → ${trip.destination}</span>
         <span class="chat-sub">${fmtDate(trip.planned_departure)} · Duration: ${fmtDuration(duration)}</span>
       </div>
-      ${tripLiveBadge(trip)}
+      ${tripStatusBadge(trip, status)}
     </div>
     <div class="jd-body">${body}</div>
     <div class="jd-actions">

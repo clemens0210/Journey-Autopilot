@@ -1,7 +1,7 @@
-/* Pure formatting and trip-time predicates — no DOM, no state, no fetch.
+/* Pure formatting and the trip lifecycle phase — no DOM, no state, no fetch.
  *
- * The trip predicates all agree on one rule: a trip with unparseable dates is
- * never treated as past, so a bad date can only ever under-claim.
+ * The phase rules agree on one thing: a trip with unparseable dates never
+ * advances, so a bad date can only ever under-claim.
  */
 
 // Display labels for the internally stored profile values
@@ -34,30 +34,46 @@ export const tripStartTime = (trip) => {
   return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER;
 };
 
-export const tripEndTime = (trip) => {
-  const time = new Date(trip?.planned_arrival || trip?.planned_departure || "").getTime();
-  return Number.isFinite(time) ? time : null;
+/* --- Trip lifecycle phase --------------------------------------------------
+ * One vocabulary, shared verbatim with the backend (trip_status.py) and the
+ * agent prompts: pre-trip, en route, arrived. The server attaches `status` to
+ * every trip it hands out — schedule-derived on the trip list, refined from
+ * live data on the trip-detail response — and scheduleStatus below is the
+ * fallback for a trip object that never went through the API.
+ */
+export const TRIP_STATUS = { PRE_TRIP: "pre_trip", EN_ROUTE: "en_route", ARRIVED: "arrived" };
+
+export const STATUS_LABEL = {
+  pre_trip: "Pre-trip",
+  en_route: "En route",
+  arrived: "Arrived",
 };
 
-export const isPastTrip = (trip, now = new Date()) => {
-  const end = tripEndTime(trip);
-  return end !== null && end < now.getTime();
+const CONCLUDED_MARGIN_MS = 3 * 60 * 60 * 1000;
+
+export const scheduleStatus = (trip, now = new Date()) => {
+  const departure = new Date(trip?.planned_departure || "").getTime();
+  const arrival = new Date(trip?.planned_arrival || "").getTime();
+  // Unparseable dates land here too — never claim a trip is running or over.
+  if (!Number.isFinite(departure) || departure > now.getTime()) return TRIP_STATUS.PRE_TRIP;
+  // No usable arrival means nothing can conclude the trip; it stays en route.
+  if (Number.isFinite(arrival) && arrival + CONCLUDED_MARGIN_MS <= now.getTime()) {
+    return TRIP_STATUS.ARRIVED;
+  }
+  return TRIP_STATUS.EN_ROUTE;
 };
 
-export const isUpcomingTrip = (trip, now = new Date()) => {
-  const start = tripStartTime(trip);
-  return start !== Number.MAX_SAFE_INTEGER && start >= now.getTime();
-};
+// The server's phase wins when it sent one we recognise (it may have seen live
+// data this side cannot); otherwise fall back to the booked times.
+export const tripStatus = (trip, now = new Date()) =>
+  (STATUS_LABEL[trip?.status] ? trip.status : scheduleStatus(trip, now));
 
-// Header badge for the trip detail / chat screens. The green "● live" dot only
-// makes sense while the journey can still change — on a trip that already
-// arrived it claims a live feed that isn't running. Finished trips get a
-// neutral label instead, matching the dashboard card's "Past trip" footer.
-// A trip with unparseable dates is not treated as past, so it keeps "● live".
-export const tripLiveBadge = (trip) =>
-  isPastTrip(trip)
-    ? `<span class="chat-live past">Past trip</span>`
-    : `<span class="chat-live">● live</span>`;
+// Header badge for the trip detail / chat screens. The green dot marks a
+// journey that can still change — before departure and while it runs. A trip
+// that is over has no live feed to signal, so it goes neutral. Pass `status`
+// explicitly to use a phase refined elsewhere (e.g. the details response).
+export const tripStatusBadge = (trip, status = tripStatus(trip)) =>
+  `<span class="trip-status ${status}">${status === TRIP_STATUS.ARRIVED ? "" : "● "}${STATUS_LABEL[status]}</span>`;
 
 export const sortTripsByDate = (trips) =>
   [...(trips || [])].sort((a, b) => tripStartTime(a) - tripStartTime(b));
