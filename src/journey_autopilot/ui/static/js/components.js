@@ -2,7 +2,7 @@
 
 import { state } from "./state.js";
 import { $, SVG, escapeHtml, toast } from "./dom.js";
-import { fmtDate, fmtTime, fmtEur } from "./format.js";
+import { fmtDate, fmtTime, fmtEur, STATUS_LABEL, TRIP_STATUS } from "./format.js";
 import { go } from "./router.js";
 
 // Route grid for a trip card. Single-leg journeys keep the simple origin →
@@ -31,15 +31,32 @@ export function routeHTML(t) {
     </div>`;
 }
 
+// Footer copy per lifecycle phase. It lives here rather than at the call site
+// so the wording, the icon and the green "being monitored" tint stay three
+// facets of one fact instead of three things to keep in sync.
+const STATUS_FOOT = {
+  [TRIP_STATUS.PRE_TRIP]: "Monitored by the autopilot · tap to chat",
+  [TRIP_STATUS.EN_ROUTE]: "En route · monitored live · tap to chat",
+  [TRIP_STATUS.ARRIVED]: STATUS_LABEL.arrived,
+};
+
 // A trip card in DB Navigator layout: DB logo + train, purpose of travel,
 // origin/destination with dot/pin markers, date/time, and a footer status.
+// Pass `status` (a TRIP_STATUS value) for the phase footer, or `foot` for a
+// one-off caption with no phase styling — the onboarding trip preview uses the
+// latter, where the card is a receipt rather than something being monitored.
 // When `index` is given the card becomes clickable (opens the trip chat).
 // `deletable` renders a trash button (data-trip-delete-id) in the head; the
 // dashboard wires a delegated handler that stops propagation so the card click
 // (chat) doesn't fire. The seat/coach/platform row is hidden when none of
 // those fields are present (self-added trips have no booking).
-export function tripCardHTML(t, { foot, live = false, index = null, deletable = false } = {}) {
+export function tripCardHTML(t, { foot = null, status = null, index = null, deletable = false } = {}) {
   const clickable = index !== null;
+  const phase = STATUS_FOOT[status] ? status : null;
+  const footText = foot || (phase ? STATUS_FOOT[phase] : "");
+  // Green + bell means "the autopilot is watching this one"; a concluded trip
+  // is a record, so it gets the neutral download mark.
+  const monitored = phase !== null && phase !== TRIP_STATUS.ARRIVED;
   const legs = Array.isArray(t.legs) ? t.legs : [];
   const trains = Array.isArray(t.trains) ? t.trains : (t.train ? [t.train] : []);
   const multi = legs.length > 1;
@@ -67,7 +84,7 @@ export function tripCardHTML(t, { foot, live = false, index = null, deletable = 
         ${multi ? `<div class="trip-meta-row">${SVG.transfer} ${trains.map(escapeHtml).join(" → ")} · ${legs.length - 1} change${legs.length - 1 === 1 ? "" : "s"}</div>` : ""}
         ${hasSeatRow ? `<div class="trip-meta-row">${SVG.seat} ${escapeHtml(t.platform || "")}${t.coach ? ` · ${escapeHtml(t.coach)}` : ""}${t.seat ? `, ${escapeHtml(t.seat)}` : ""}</div>` : ""}
       </div>
-      ${foot ? `<div class="trip-foot ${live ? "live" : ""}">${live ? SVG.bell : SVG.download} ${foot}</div>` : ""}
+      ${footText ? `<div class="trip-foot ${monitored ? "live" : ""}">${monitored ? SVG.bell : SVG.download} ${footText}</div>` : ""}
     </div>`;
 }
 

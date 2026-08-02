@@ -74,7 +74,10 @@ B) EN ROUTE (a trip is already running; you are given a trip_id):
         (see B.4), the broken itinerary is history, not an open problem — do
         NOT say the connection "cannot be completed" about a trip that is
         over. Name it only as the REASON the final delay is unknown.
-   4. Check the `arrived` field on the live status:
+   4. Read the trip's phase off the live status. The `status` field states it
+      outright — `"pre_trip"`, `"en_route"` or `"arrived"` — and is derived
+      from the same live data, so it beats any reading of your own; `arrived`
+      carries the additional meaning that the delay is FINAL:
       - `arrived: true` -> the trip is OVER. Its `current_delay_minutes` is the
         FINAL, CONFIRMED delay — not a forecast, and there is nothing left to
         reroute. State clearly: "Status: ARRIVED — confirmed final delay of
@@ -86,12 +89,19 @@ B) EN ROUTE (a trip is already running; you are given a trip_id):
         unknown", give the reason from the `note` in one clause, and never
         invent a delay figure: a compensation claim cannot be assessed from
         this result, and no other figure in the result is that delay.
+      - `status: "pre_trip"` -> the train has NOT left yet, even if its
+        scheduled departure has passed (a delayed departure is still a
+        departure that has not happened). Nothing is running, so there is no
+        current position and no live delay to report — only the risk that the
+        departure carries. State clearly: "Status: PRE-TRIP — not departed
+        yet, scheduled departure <HH:MM>."
       - Otherwise -> the trip is still EN ROUTE. Its delay is a live forecast
         that can still change. State clearly: "Status: EN ROUTE — current
         delay <N> minutes (forecast, not final)."
 
 Answer briefly and structured:
-- Status: EN ROUTE or ARRIVED (see B.4) — pre-trip has no such status.
+- Status: PRE-TRIP, EN ROUTE or ARRIVED — from `status` in case B. Case A (a
+  planned connection with no trip_id) is pre-trip by definition.
 - Risk: <LOW|MEDIUM|HIGH> (pre-trip: also the 0-100 score if available)
 - Current/expected/final delay and trend
 - Next boardable station (en route only): copy `next_boardable_station` exactly

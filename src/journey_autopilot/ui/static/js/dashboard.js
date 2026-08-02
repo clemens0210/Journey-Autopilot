@@ -7,8 +7,8 @@
 
 import { state } from "./state.js";
 import { api } from "./api.js";
-import { $, el, screen, setActiveTab, setNav, toast } from "./dom.js";
-import { fmtDate, fmtTime, isPastTrip, isUpcomingTrip, sortTripsByDate } from "./format.js";
+import { $, el, escapeHtml, screen, setActiveTab, setNav, toast } from "./dom.js";
+import { fmtDate, fmtTime, sortTripsByDate, tripStatus, TRIP_STATUS } from "./format.js";
 import { tripCardHTML } from "./components.js";
 import { go, registerScreens } from "./router.js";
 import { openTripDetail } from "./tripdetail.js";
@@ -47,26 +47,27 @@ async function onDeleteTripClick(ev) {
 
 function dashboard() {
   const now = new Date();
+  // Chronological, as before — the phase drives the labels, not the order.
   const sortedTrips = sortTripsByDate(state.trips);
-  const nextTrip = sortedTrips.find((t) => isUpcomingTrip(t, now));
+  const phases = sortedTrips.map((t) => tripStatus(t, now));
+  const running = sortedTrips.find((_, i) => phases[i] === TRIP_STATUS.EN_ROUTE);
+  const nextTrip = sortedTrips.find((_, i) => phases[i] === TRIP_STATUS.PRE_TRIP);
   const cards = sortedTrips
-    .map((t, i) => {
-      const past = isPastTrip(t, now);
-      return tripCardHTML(t, {
-        foot: past ? "Past trip" : "Monitored by the autopilot · tap to chat",
-        live: !past,
-        index: i,
-        deletable: true,
-      });
-    })
+    .map((t, i) => tripCardHTML(t, { status: phases[i], index: i, deletable: true }))
     .join("");
+
+  // A journey happening right now outranks the next one in the greeting: it is
+  // the trip the autopilot is actually working on.
+  const greeting = running
+    ? `Your trip to ${escapeHtml(running.destination || "your destination")} is under way — the autopilot is watching it live.`
+    : nextTrip
+      ? `Your next trip starts ${fmtDate(nextTrip.planned_departure)} at ${fmtTime(nextTrip.planned_departure)} — the autopilot is watching.`
+      : "No upcoming trips — completed journeys are kept for your records.";
 
   screen.replaceChildren(el(`
     <div class="dash-greeting">
       <h1>Hi ${state.account.first_name} 👋</h1>
-      <p class="muted">${nextTrip
-        ? `Your next trip starts ${fmtDate(nextTrip.planned_departure)} at ${fmtTime(nextTrip.planned_departure)} — the autopilot is watching.`
-        : "No upcoming trips — past trips are kept for your records."}</p>
+      <p class="muted">${greeting}</p>
     </div>
 
     <div class="section-title">

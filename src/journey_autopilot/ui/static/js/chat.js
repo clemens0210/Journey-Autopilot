@@ -7,7 +7,7 @@
 import { state } from "./state.js";
 import { api } from "./api.js";
 import { $, el, escapeHtml, screen, toast } from "./dom.js";
-import { fmtDate, fmtEur, fmtTime, tripLiveBadge } from "./format.js";
+import { fmtDate, fmtEur, fmtTime, tripStatusBadge } from "./format.js";
 import { handleComplaintCreated } from "./components.js";
 import { go, registerScreens } from "./router.js";
 import {
@@ -196,7 +196,7 @@ function chatScreen() {
         <span class="chat-route">${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}</span>
         <span class="chat-sub">${escapeHtml(trip.train || "Connection")} · ${escapeHtml(fmtDate(trip.planned_departure))} · ${escapeHtml(fmtTime(trip.planned_departure))}</span>
       </div>
-      ${tripLiveBadge(trip)}`
+      ${tripStatusBadge(trip)}`
     : `<div class="chat-trip">
         <span class="chat-route">Ask the autopilot</span>
         <span class="chat-sub">Any trip — no booking needed</span>

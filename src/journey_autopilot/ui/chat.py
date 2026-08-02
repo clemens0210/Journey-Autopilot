@@ -18,11 +18,21 @@ import logging
 import re
 from typing import Any
 
+from .. import trip_status
 from ..onboarding import complaints
 
 logger = logging.getLogger(__name__)
 
 APP_NAME = "journey_autopilot"
+
+# How the seed prompt spells the three phases. The words match the Monitoring
+# and Orchestrator instructions, so the frame the app states and the Status the
+# Monitoring agent reports back use one vocabulary.
+_PHASE_CONTEXT = {
+    trip_status.PRE_TRIP: "PRE-TRIP (the journey has not started yet)",
+    trip_status.EN_ROUTE: "EN ROUTE (the journey is running right now)",
+    trip_status.ARRIVED: "ARRIVED (the journey is over)",
+}
 
 _OPTION_CHOICE_RE = re.compile(
     r"^\s*(?:(?:take|choose|select|pick|book|use|go with|let'?s go with)\s+"
@@ -113,6 +123,11 @@ def _seed_prompt(trip: dict | None, message: str, account: dict | None = None) -
     the values come from the trip the user clicked. The account's BahnCard is
     included so a passenger-rights check uses the real discount instead of
     defaulting to "keine".
+
+    The trip's phase is stated outright rather than left for the model to work
+    out from comparing timestamps to "now". It is derived here, not taken from
+    the request: the browser's copy of the trip was fetched at login and may
+    have aged into another phase since.
     """
     if not trip:
         return message
@@ -136,6 +151,13 @@ def _seed_prompt(trip: dict | None, message: str, account: dict | None = None) -
         context += f", ticket price {trip.get('price_eur')} EUR"
     if trip.get("travel_class"):
         context += f", {trip.get('travel_class')}. class"
+    # Scheduled phase only — Monitoring's live Status is the authority and wins
+    # when the two disagree (a delayed train is still EN ROUTE past the arrival
+    # this line was derived from).
+    context += (
+        f". Phase of this trip by the schedule: "
+        f"{_PHASE_CONTEXT[trip_status.from_schedule(trip)]}"
+    )
     if account and account.get("bahncard"):
         context += (
             f". My BahnCard: {account['bahncard']}"

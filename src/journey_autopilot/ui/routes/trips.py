@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from ... import risk
+from ... import risk, trip_status
 from ...demo import accounts, mock_data
 from ...integrations.db import ops as db_api
 from ...integrations.db import stations as db_api_stations
@@ -82,13 +82,18 @@ def _live_leg_delays(trip: dict) -> dict[str, int]:
 
 @router.get("/api/trips/{trip_id}/details")
 def trip_details(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
-    """Journey details for one booked trip: legs, live delay, and risk forecast.
+    """Journey details for one booked trip: legs, live delay, risk forecast, phase.
 
     The itinerary is simulated (ADR 0005), but the live delay is real: for trips
     booked via the journey search it is fetched from the db_service sidecar
     (``_live_leg_delays``); the demo trips fall back to the simulated
     ``LIVE_TRIP_STATUS``. The expected delay comes from ``journey_autopilot.risk``,
     scored from real historical DB punctuality data (see ``risk/delay_reference.py``).
+
+    ``status`` is the live-refined lifecycle phase — this is the one screen that
+    pays for the precision, so the header can tighten "en route" to "arrived"
+    the moment live data confirms it, while the trip list stays on the cheap
+    schedule derivation that can only ever be late to that conclusion.
     """
     user_id = current_user_id(authorization)
     trip = next((t for t in store.get_trips(user_id) if t["trip_id"] == trip_id), None)
@@ -112,8 +117,19 @@ def trip_details(trip_id: str, authorization: str | None = Header(default=None))
     # trip view (the per-leg "Expected" chip still shows the forecast).
     connection_warnings = risk.live_connection_risks(legs)
 
+    # Imported function-locally, like ``complaints.is_trip_completed`` does:
+    # read_tools pulls the agent-side stack (risk, ChromaDB), which the
+    # onboarding UI's start path deliberately does without. Costs one more
+    # sidecar round trip than _live_leg_delays already made — accepted for a
+    # single, user-opened trip so the phase comes from the one function that
+    # owns it rather than a second derivation living here.
+    from ...tools.read_tools import get_live_trip_status
+
+    live_status = get_live_trip_status(trip_id)
+
     return {
         "trip_id": trip_id,
+        "status": live_status.get("status") or trip_status.from_schedule(trip),
         "legs": legs,
         "incidents": (live or {}).get("incidents", []),
         "connection_risk": " ".join(connection_warnings) or (live or {}).get("connection_risk"),

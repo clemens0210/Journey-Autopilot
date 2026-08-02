@@ -21,6 +21,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .. import trip_status
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = Path(os.getenv("JA_DB_PATH", _PROJECT_ROOT / "data" / "journey_autopilot.db"))
 
@@ -203,10 +205,14 @@ def delete_user(user_id: str) -> None:
 def save_trips(user_id: str, trips: list[dict]) -> None:
     with _connect() as conn:
         for trip in trips:
+            # ``status`` is derived on the way out (get_trips) and must never be
+            # written back: a persisted phase is stale the moment the clock moves
+            # past it, and would then outrank the live derivation everywhere.
+            payload = {key: value for key, value in trip.items() if key != "status"}
             conn.execute(
                 "INSERT INTO trips (trip_id, user_id, trip, imported_at) VALUES (?,?,?,?) "
                 "ON CONFLICT(trip_id, user_id) DO UPDATE SET trip = excluded.trip",
-                (trip["trip_id"], user_id, json.dumps(trip), _now()),
+                (trip["trip_id"], user_id, json.dumps(payload), _now()),
             )
 
 
@@ -222,13 +228,22 @@ def delete_trips(user_id: str, trip_ids: list[str]) -> None:
 
 
 def get_trips(user_id: str) -> list[dict]:
+    """Stored trips, each tagged with its current lifecycle ``status``.
+
+    The phase is attached here rather than at each call site so every reader —
+    the trip list, the login/``/api/me`` bootstrap, the booking response and the
+    agent's own trip lookup — agrees without any of them having to remember to
+    compute it. It is the schedule-derived (cheap, no I/O) precision; the
+    trip-detail endpoint and the Monitoring tool refine it from live data. See
+    ``trip_status``.
+    """
     with _connect() as conn:
         rows = conn.execute(
             "SELECT trip FROM trips WHERE user_id = ?", (user_id,)
         ).fetchall()
     trips = [json.loads(row[0]) for row in rows]
     trips.sort(key=lambda t: t.get("planned_departure") or "")
-    return trips
+    return [{**trip, "status": trip_status.from_schedule(trip)} for trip in trips]
 
 
 def delete_trip(user_id: str, trip_id: str) -> None:
