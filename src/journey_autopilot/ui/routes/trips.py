@@ -102,6 +102,15 @@ def trip_details(trip_id: str, authorization: str | None = Header(default=None))
 
     legs = accounts.trip_journey(trip)
     live = mock_data.LIVE_TRIP_STATUS.get(trip_id)
+    # Once a reroute has been taken, the scripted disruption is half stale. The
+    # per-leg delay below still holds — ICE 528 really did run 55 minutes late,
+    # and that is *why* the traveler rerouted — but the incident text and the
+    # connection risk both describe the itinerary they have since abandoned
+    # ("the booked onward connection will be missed", "rebooking is required").
+    # Repeating that back to someone who has just rebooked reads as the app not
+    # having noticed. Same guard as read/monitoring.get_live_trip_status, which
+    # drops the scripted status wholesale; here only the advisory half goes.
+    rerouted = bool(trip.get("rerouted_at"))
     live_delays = _live_leg_delays(trip)
     for leg in legs:
         if live and live.get("train") == leg["train"]:
@@ -131,8 +140,9 @@ def trip_details(trip_id: str, authorization: str | None = Header(default=None))
         "trip_id": trip_id,
         "status": live_status.get("status") or trip_status.from_schedule(trip),
         "legs": legs,
-        "incidents": (live or {}).get("incidents", []),
-        "connection_risk": " ".join(connection_warnings) or (live or {}).get("connection_risk"),
+        "incidents": [] if rerouted else (live or {}).get("incidents", []),
+        "connection_risk": " ".join(connection_warnings)
+        or (None if rerouted else (live or {}).get("connection_risk")),
     }
 
 

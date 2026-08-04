@@ -150,7 +150,9 @@ async def preload_demo_chats_endpoint(
         except Exception as exc:
             failures.append({"trip_id": trip["trip_id"], "error": f"{type(exc).__name__}: {exc}"})
             continue
-        result["trip"] = trip
+        # chat_turn only fills ``trip`` when the turn rerouted it; otherwise the
+        # trip we warmed with is the one the browser should adopt.
+        result["trip"] = result.get("trip") or trip
         result["trip_id"] = trip["trip_id"]
         preloaded.append(result)
 

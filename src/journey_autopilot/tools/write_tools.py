@@ -688,6 +688,7 @@ async def book_alternative_connection(
             proposal_id=proposal_id,
             option_id=option_id,
         )
+    rerouted_trip = _adopt_reroute_as_trip(proposal, option)
     return _done(
         name,
         summary,
@@ -700,7 +701,60 @@ async def book_alternative_connection(
         booking_ref=f"SIM-{proposal_id}-{option_id}",
         calendar_clash=calendar_clash,
         clash_note=clash_note,
+        trip_updated=rerouted_trip is not None,
+        monitored_arrival=(rerouted_trip or {}).get("planned_arrival"),
     )
+
+
+def _adopt_reroute_as_trip(proposal: dict, option: dict) -> dict | None:
+    """Make the chosen connection the trip the traveler is monitored on.
+
+    Taking a reroute changes the journey in progress rather than adding a second
+    one, so the option is spliced into the stored trip under its existing
+    ``trip_id`` (see ``reroute_apply``). That id is what keeps this chat, the
+    reroute proposals and the complaint de-duplication pointing at the same
+    journey — a fresh id would strand all three on the abandoned itinerary.
+
+    Only train reroutes rewrite an itinerary: a Flinkster car or a Call-a-Bike
+    covers a last mile, it does not replace the booked journey. Best-effort by
+    design — the reroute itself is already executed and must not be reported as
+    failed because the trip row could not be updated.
+    """
+    if option.get("mode", "train") != "train":
+        return None
+    user_id, trip_id = proposal.get("user_id"), proposal.get("trip_id")
+    if not user_id or not trip_id:
+        return None  # trip-less "ask the autopilot" chat: nothing to rewrite
+
+    from ..persistence import store
+    from ..reroute_apply import apply_reroute
+    from ..request_context import turn_workspace
+
+    try:
+        trip = next(
+            (t for t in store.get_trips(user_id) if t.get("trip_id") == trip_id), None
+        )
+        if trip is None:
+            return None
+        updated = apply_reroute(trip, option, proposal_id=proposal.get("proposal_id"))
+        store.save_trips(user_id, [updated])
+    except Exception:
+        logger.warning("could not adopt reroute %s as trip %s", option.get("option_id"), trip_id, exc_info=True)
+        return None
+
+    # The Executor runs behind an AgentTool, whose result never reaches the
+    # top-level event stream ui.chat iterates — the turn workspace is how the
+    # updated trip gets back to the browser (same gap the rights lookup crosses).
+    turn_workspace()["rerouted_trip"] = updated
+    logger.info(
+        "reroute adopted as trip %s: option=%s trains=%s arrival=%s kept_legs=%s",
+        trip_id,
+        option.get("option_id"),
+        updated.get("trains"),
+        updated.get("planned_arrival"),
+        (updated.get("rerouted_from") or {}).get("kept_legs"),
+    )
+    return updated
 
 
 async def book_hotel(

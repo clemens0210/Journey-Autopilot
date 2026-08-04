@@ -41,6 +41,23 @@ export function openChat(trip = null) {
   if (trip) runChatTurn(MONITOR_PROMPT, { display: MONITOR_NOTICE });
 }
 
+// The trip block in the chat header, rebuilt in place. Taking a reroute changes
+// the trip under an open conversation, and renderChatLog() only touches the log
+// — without this the header would keep naming the abandoned train and arrival.
+function renderChatHead() {
+  const head = $(".chat-trip");
+  if (!head) return;
+  const trip = state.chat.trip;
+  if (!trip) return;
+  head.innerHTML = `
+    <span class="chat-route">${escapeHtml(trip.origin || "")} → ${escapeHtml(trip.destination || "")}</span>
+    <span class="chat-sub">${escapeHtml(trip.train || "Connection")} · ${escapeHtml(fmtDate(trip.planned_departure))} · ${escapeHtml(fmtTime(trip.planned_departure))}</span>`;
+  const badge = head.nextElementSibling;
+  if (badge && badge.classList.contains("trip-status")) {
+    badge.outerHTML = tripStatusBadge(trip);
+  }
+}
+
 function renderChatLog() {
   persistChats();
   const log = $("#chat-log");
@@ -162,6 +179,21 @@ export async function runChatTurn(text, { display = null, selection = null } = {
         }
       }
       chat.messages.push(assistantMessage(data));
+      // A booked reroute rewrote this trip server-side (same trip_id, spliced
+      // itinerary). Adopt it everywhere it is mirrored — the conversation's own
+      // snapshot, the header, and the dashboard list — so nothing keeps showing
+      // the abandoned connection until the next reload.
+      if (data.trip) {
+        chat.trip = data.trip;
+        if (data.trips) state.trips = data.trips;
+        if (state.chat === chat) renderChatHead();
+        const trains = (data.trip.trains || [data.trip.train]).filter(Boolean).join(" → ");
+        chat.messages.push({
+          role: "notice",
+          text: `Reroute applied — this trip now runs ${trains}, arriving `
+            + `${fmtTime(data.trip.planned_arrival)}. The autopilot is monitoring the new connection.`,
+        });
+      }
       if (data.complaint_created) {
         handleComplaintCreated(data.complaint_created);
         chat.messages.push({

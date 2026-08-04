@@ -45,7 +45,21 @@ def db_login(body: LoginRequest) -> dict:
                 account["user_id"], {"notifications": {"phone": demo_phone}}
             )
     imported = accounts.booked_trips(account["user_id"])
-    store.save_trips(account["user_id"], imported)
+    # A reroute the traveler already took is newer information about the same
+    # booking than the account's original itinerary, so re-importing must not
+    # roll it back. Without this every re-login (and every server restart during
+    # a demo) silently restored the abandoned trains — the reroute appeared to
+    # have done nothing at all. The trip keeps its id, so it is still recognised
+    # as the same booking by the staleness check below.
+    rerouted_ids = {
+        t["trip_id"]
+        for t in store.get_trips(account["user_id"])
+        if t.get("rerouted_at")
+    }
+    store.save_trips(
+        account["user_id"],
+        [t for t in imported if t["trip_id"] not in rerouted_ids],
+    )
     # Re-importing owns the DB-account bookings ("DB-…" ids): drop imports from
     # earlier logins that are no longer in the account — their demo ids are
     # date-relative, so each day's login would otherwise pile up stale copies.
