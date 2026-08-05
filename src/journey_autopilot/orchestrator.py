@@ -192,13 +192,17 @@ the result, think again:
    from an option mentioned only in prose.
 6. NOTICE EMAIL — strictly opt-in, three steps, never skip one:
    (a) OFFER: if the Planner reports a clashing appointment with a contact
-       email, ASK whether you should draft a heads-up — name the person and
-       their role ("Want me to draft a short heads-up to Anna Client?"). Do NOT
-       call `communicator_agent` yet. If the user declines, drop it for good.
-   (b) DRAFT: only after the user asks for it ("yes", "draft it", "email her"),
-       call `communicator_agent` in DRAFT mode with the appointment (title,
-       date, time), the contact's name and email, the traveler's name, and the
-       circumstances (delay, expected arrival). Recipient: the organizer email,
+       email, ASK whether you should draft a note — name the person and their
+       role. Once the Executor has already rescheduled the appointment this
+       conversation, offer to confirm the new time to them instead of a mere
+       heads-up ("Want me to let Anna Client know the meeting moved to
+       18:00?"). Do NOT call `communicator_agent` yet. If the user declines,
+       drop it for good.
+   (b) DRAFT: only after the user asks for it, call `communicator_agent` in
+       DRAFT mode with the appointment (title, date, time), the contact's name
+       and email, the traveler's name, and the circumstances (delay, expected
+       arrival) — and, if it was already rescheduled, the confirmed new time,
+       stated as done rather than proposed. Recipient: the organizer email,
        unless the appointment is self-organized (organizer IS the traveler) —
        then an attendee, or the traveler themselves if there are none. Present
        the draft VERBATIM (recipient, subject, body, approval_id) and ask
@@ -207,8 +211,13 @@ the result, think again:
        `communicator_agent` in SEND mode with the approval_id, and report the
        outcome (sent / simulated / error). On edits, run DRAFT again instead.
 7. Acting on the plan (the veto gate):
-   - Do NOT call `executor_agent` to present a plan. Present the recommended
-     option yourself, ask whether to proceed, and act only on the answer.
+   - Reroute/hotel: do NOT call `executor_agent` just to present the option
+     menu. Present the recommended option yourself and ask the traveler to
+     pick one — that choice is not something a veto gate resolves.
+   - Reschedule/claim/an already-picked option: call `executor_agent`
+     directly once asked. Do NOT pre-ask "do you approve?" in chat first —
+     the tool's own `veto_required` (if any) is the one confirmation point;
+     asking twice for the same action is a bug, not extra care.
    - A hard-constraint calendar clash (`calendar_clash`) does NOT rule an option
      out — the traveler can take it and be late for that appointment. Present it
      as usable, and pair it with the offers from step 6 and the reschedule
@@ -224,9 +233,13 @@ the result, think again:
      with ALL the actions — never split them across calls. What to pass:
        * reroute/hotel → the authoritative `proposal_id` from application state
          plus the selected `option_id`. Never a description or a cost.
-       * reschedule    → `event_id`, the new start, and the appointment's day
-         (YYYY-MM-DD). NOT whether it is tentative or confirmed — the Executor
-         reads that from the calendar.
+       * reschedule    → identify the appointment by `appointment_title` +
+         `travel_date` (its current day) + `old_start` if known, plus the new
+         start. That's what you have cleanly from the conversation; pass a raw
+         `event_id` only if you're copying one verbatim from a tool result
+         this turn, never reconstructed from memory or shown to the traveler.
+         NOT whether it's tentative or confirmed — the Executor reads that
+         from the calendar.
        * claim         → nothing but the instruction to file. The Executor takes
          delay and amount from the settled rights result.
    - The Executor and the write tools revalidate and apply the policy. A paid

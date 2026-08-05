@@ -20,7 +20,7 @@ from kiota_authentication_azure.azure_identity_authentication_provider import (
     AzureIdentityAuthenticationProvider,
 )
 
-from .auth import MAIL_SCOPES, SCOPES, acquire_credential
+from .auth import CALENDAR_WRITE_SCOPES, MAIL_SCOPES, SCOPES, acquire_credential
 
 # Calendar windows are meant in German local time (the app's wall clock).
 # Graph interprets naive startDateTime/endDateTime values as UTC, which shifts
@@ -254,3 +254,57 @@ async def send_mail(
         save_to_sent_items=True,
     )
     await client.me.send_mail.post(request_body)
+
+
+async def update_event(
+    event_id: str,
+    start: str | None = None,
+    end: str | None = None,
+    user_email: str | None = None,
+    credential: TokenCredential | None = None,
+) -> None:
+    """Move a calendar appointment via Graph ``PATCH /me/events/{id}``.
+
+    Requires the ``Calendars.ReadWrite`` delegated scope (see
+    ``CALENDAR_WRITE_SCOPES``). A login consented only for the narrower
+    ``Calendars.Read`` (calendar reads and mail keep working) raises
+    ``AuthenticationRequiredError`` on the silent token request here — the
+    same failure mode ``send_mail`` hits for an unconsented ``Mail.Send``. The
+    fix is a one-time Outlook reconnect.
+
+    Args:
+        event_id: Graph event id (the ``id`` field ``get_events``/mapper
+            already exposes to the write path).
+        start: New start as a naive local datetime string
+            ("YYYY-MM-DDTHH:MM:SS"), sent with the app's Europe/Berlin
+            timezone. Omitted leaves the start unchanged.
+        end: New end, same format. The caller is expected to always supply
+            both together when shifting the appointment (Graph does not
+            infer a new end from a moved start), but either can be omitted to
+            leave that side untouched.
+        user_email: Optional email of another user's calendar to update.
+        credential: Optional ``TokenCredential`` to reuse; defaults to the
+            silent cached-login credential.
+
+    Raises:
+        Exception: Graph/auth errors propagate — the calling write tool turns
+            them into a user-facing result.
+    """
+    from msgraph.generated.models.date_time_time_zone import DateTimeTimeZone
+    from msgraph.generated.models.event import Event
+
+    credential = credential or acquire_credential()
+    client = _build_client(credential, scopes=CALENDAR_WRITE_SCOPES)
+
+    request_body = Event()
+    if start:
+        request_body.start = DateTimeTimeZone(date_time=start, time_zone="Europe/Berlin")
+    if end:
+        request_body.end = DateTimeTimeZone(date_time=end, time_zone="Europe/Berlin")
+
+    if user_email:
+        await client.users.by_user_id(user_email).events.by_event_id(event_id).patch(
+            request_body
+        )
+    else:
+        await client.me.events.by_event_id(event_id).patch(request_body)

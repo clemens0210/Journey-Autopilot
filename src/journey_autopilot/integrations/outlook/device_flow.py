@@ -84,6 +84,7 @@ def start(user_id: str) -> dict:
 
     try:
         from .auth import (
+            CALENDAR_WRITE_SCOPES,
             MAIL_SCOPES,
             SCOPES,
             acquire_credential,
@@ -132,20 +133,37 @@ def start(user_id: str) -> dict:
             # needs to find the cached token later. Persisting it is what lets
             # the agent tools (acquire_credential) read the calendar silently
             # instead of falling back to mock with AuthenticationRequiredError.
-            # MAIL_SCOPES (calendar + Mail.Send) so one consent covers both
-            # reading the calendar and sending the approved notice email.
+            # CALENDAR_WRITE_SCOPES (calendar read+write + Mail.Send) so one
+            # consent covers reading the calendar, rescheduling appointments,
+            # and sending the approved notice email. Falls back in two steps
+            # if the app registration doesn't expose the newer permission(s)
+            # yet, so connecting a calendar never breaks over a permission
+            # nobody asked for.
             try:
-                record = cred.authenticate(scopes=MAIL_SCOPES)
+                record = cred.authenticate(scopes=CALENDAR_WRITE_SCOPES)
             except Exception as exc:
                 if not any(code in str(exc) for code in _CONSENT_ERROR_CODES):
                     raise
                 logger.warning(
-                    "Mail.Send consent unavailable (%s) — retrying with "
-                    "calendar-only scopes; the notice-email send will stay "
-                    "disabled until the app registration adds Mail.Send.",
+                    "Calendars.ReadWrite consent unavailable (%s) — retrying "
+                    "with calendar-read + Mail.Send scopes; rescheduling will "
+                    "stay disabled (simulated) until the app registration "
+                    "adds Calendars.ReadWrite.",
                     exc,
                 )
-                record = cred.authenticate(scopes=SCOPES)
+                try:
+                    record = cred.authenticate(scopes=MAIL_SCOPES)
+                except Exception as exc2:
+                    if not any(code in str(exc2) for code in _CONSENT_ERROR_CODES):
+                        raise
+                    logger.warning(
+                        "Mail.Send consent unavailable (%s) — retrying with "
+                        "calendar-only scopes; the notice-email send will "
+                        "stay disabled until the app registration adds "
+                        "Mail.Send.",
+                        exc2,
+                    )
+                    record = cred.authenticate(scopes=SCOPES)
             save_authentication_record(record)
             # Same instance, record in memory -> silent; token for the preview.
             auth_state["result"] = cred.get_token(*SCOPES)

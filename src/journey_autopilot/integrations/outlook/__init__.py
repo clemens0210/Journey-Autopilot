@@ -6,6 +6,7 @@ Public API:
     get_calendar_events_range(start_date, end_date, user_email=None, credential=None) -> list[dict]
     get_signed_in_user(credential=None) -> dict   # {"email", "name"} of the connected MS account
     send_notice_email(to_address, subject, body, credential=None) -> None  # Mail.Send scope
+    reschedule_calendar_event(event_id, start=None, end=None, user_email=None, credential=None) -> None  # Calendars.ReadWrite scope
     is_outlook_configured() -> bool
     create_device_credential(prompt_callback, timeout=900) -> DeviceCodeCredential
     StaticTokenCredential(access_token) -> TokenCredential
@@ -39,6 +40,7 @@ from .client import (
     get_events_range,
     get_signed_in_user,
     send_mail,
+    update_event,
 )
 from .mapper import graph_events_to_internal
 
@@ -116,3 +118,28 @@ async def send_notice_email(
         credential: Optional ``TokenCredential`` to reuse.
     """
     await send_mail(to_address, subject, body, credential=credential)
+
+
+async def reschedule_calendar_event(
+    event_id: str,
+    start: str | None = None,
+    end: str | None = None,
+    user_email: str | None = None,
+    credential: TokenCredential | None = None,
+) -> None:
+    """Move a calendar appointment on the connected Microsoft account.
+
+    Thin wrapper over :func:`client.update_event`. Requires the
+    ``Calendars.ReadWrite`` scope — logins consented before rescheduling
+    existed (calendar-read-only, or calendar-read + Mail.Send) must reconnect
+    Outlook once (the interactive flow requests ``CALENDAR_WRITE_SCOPES``).
+
+    Args:
+        event_id: Graph id of the appointment to move.
+        start: New start as a naive local datetime string
+            ("YYYY-MM-DDTHH:MM:SS"). Omitted leaves the start unchanged.
+        end: New end, same format. Omitted leaves the end unchanged.
+        user_email: Optional email of another user's calendar to update.
+        credential: Optional ``TokenCredential`` to reuse.
+    """
+    await update_event(event_id, start, end, user_email=user_email, credential=credential)

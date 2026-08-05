@@ -41,12 +41,10 @@ from azure.identity import (
 
 logger = logging.getLogger(__name__)
 
-# Calendars.Read — reading events.  Calendars.ReadWrite would be needed to
-# add/modify events; left out for now so the
-# consent screen matches the actual permission request.
-# User.Read — read the signed-in user's own profile (mail, display name) so the
-# app shows/uses the ACTUAL connected Microsoft account instead of a hardcoded
-# demo email.
+# Calendars.Read — reading events. User.Read — read the signed-in user's own
+# profile (mail, display name) so the app shows/uses the ACTUAL connected
+# Microsoft account instead of a hardcoded demo email. Rescheduling needs the
+# broader Calendars.ReadWrite — see CALENDAR_WRITE_SCOPES below.
 SCOPES = ["Calendars.Read", "User.Read"]
 
 # Mail.Send — sending the appointment-notice email (Communicator, after user
@@ -56,6 +54,15 @@ SCOPES = ["Calendars.Read", "User.Read"]
 # consent covers sending too; until the user re-consents, the send path fails
 # with ``AuthenticationRequiredError`` while calendar reads keep working.
 MAIL_SCOPES = [*SCOPES, "Mail.Send"]
+
+# Calendars.ReadWrite — needed to move an appointment via Graph, not just
+# read it. Same pattern as MAIL_SCOPES: a login consented before rescheduling
+# existed stays silently usable for reading and mail; only the reschedule
+# path requests this elevated scope, falling back to a simulated move (like
+# an unconsented Mail.Send falls back for sending) until the user reconnects.
+CALENDAR_WRITE_SCOPES = [
+    "Calendars.ReadWrite" if s == "Calendars.Read" else s for s in MAIL_SCOPES
+]
 
 _CACHE_NAME = "journey_autopilot"
 

@@ -44,7 +44,10 @@ including pre-populated Outlook calendars for test users.
 1. **API Permissions** → **Add a permission** → **Microsoft Graph**
 2. **Delegated permissions** (not Application)
 3. Add **all three**:
-   - `Calendars.Read` — read the connected calendar
+   - `Calendars.ReadWrite` — read the connected calendar **and** move an
+     appointment when the Executor reschedules one (`Calendars.Read` alone
+     only covers reading; without the write half, rescheduling falls back to
+     a simulated move — see "Rescheduling" below)
    - `User.Read` — read the signed-in user's own profile (email + name), so the
      app shows/uses the **actual** connected account instead of a demo email
    - `Mail.Send` — send the (user-approved) notice email to the contact of a
@@ -71,14 +74,17 @@ calendar with a regular Microsoft account. No paid Azure subscription required.
    directory and personal Microsoft accounts" if you also want work accounts).
 2. After registration, go to **Authentication** → **"Allow public client flows"** → **Yes**
 3. Tenant ID: `consumers` (see the account-type table below)
-4. API Permissions (delegated): `Calendars.Read`, `User.Read` **and** `Mail.Send`
+4. API Permissions (delegated): `Calendars.ReadWrite`, `User.Read` **and** `Mail.Send`
 5. No admin consent required — you approve the scopes yourself at sign-in
 
-> **Added `Mail.Send` later?** Existing cached logins have not consented to
-> it: calendar reading keeps working, but sending the notice email fails with
+> **Added `Calendars.ReadWrite` or `Mail.Send` later?** Existing cached logins
+> have not consented to the new scope(s): calendar reading keeps working, but
+> sending the notice email / rescheduling an appointment fails with
 > `AuthenticationRequiredError` until you **reconnect Outlook once**
 > (onboarding UI or `python scripts/check_outlook.py --login`) — the
-> interactive login requests the full scope set including `Mail.Send`.
+> interactive login requests the full scope set (`CALENDAR_WRITE_SCOPES`),
+> and falls back to narrower scope tiers automatically if the app
+> registration doesn't grant the newer permission(s) yet.
 
 ```ini
 MS_ENTRA_CLIENT_ID=<Client ID>
@@ -123,6 +129,29 @@ in Outlook must carry the **`Journey-Autopilot/Hard`** category:
 
 Events without this category are treated as reschedulable
 (`hard_constraint: False`).
+
+---
+
+## Rescheduling
+
+`reschedule_outlook_event` (Executor tool) moves an appointment via a real
+Graph `PATCH /me/events/{id}` when both are true:
+
+- the connected account's cached login has consented to `Calendars.ReadWrite`
+  (added the permission above, and reconnected once if the login predates it), and
+- Outlook is otherwise connected (same `is_calendar_connected()` check the
+  read path uses).
+
+Otherwise — no calendar connected, or `Calendars.ReadWrite` not yet
+consented — the tool falls back to a **simulated** move: the veto/policy
+flow and the chat response are identical, but nothing changes in the real
+calendar. The tool's `note` field always says which one happened; check it
+(or `python scripts/check_outlook.py --reschedule-test EVENT_ID`) rather than
+assuming.
+
+The move never notifies attendees by itself — that stays a separate,
+independently-gated action (`propose_appointment_notice_email` /
+`send_approved_notice_email`, the Communicator's tools).
 
 ---
 

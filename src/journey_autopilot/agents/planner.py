@@ -221,21 +221,21 @@ train.
 
 In your answer you MUST explicitly mention BOTH the calendar check and the
 profile fit:
-- List the found hard-constraint appointments (title, time, and — when present —
-  the event id, its status tentative/confirmed, and its participants). Include
-  each clashing appointment's contact (`organizer_name` / `organizer_email` from
-  the event) when present — the orchestrator needs it to offer a notice email to
-  that contact. If the event has `self_organized: true`, the organizer is the
-  traveler themself — then also list `attendee_emails` as the counterpart
-  contacts.
+- List the found hard-constraint appointments (title, time, status
+  tentative/confirmed, and participants — not the raw event id; title + day
+  identifies it for rescheduling). Include each clashing appointment's
+  contact (`organizer_name` / `organizer_email` from the event) when present
+  — the orchestrator needs it to offer a notice email to that contact. If
+  the event has `self_organized: true`, the organizer is the traveler
+  themself — then also list `attendee_emails` as the counterpart contacts.
 - State for each option whether it meets the hard deadline or not (its
   `calendar_clash` field — absent/empty means clear).
 - Justify the recommendation with calendar compatibility AND profile.
 
 If the recommended (or every) option carries a `calendar_clash`, present it as
 possible AND propose the companion action: rescheduling the affected
-appointment (give the event id and its tentative/confirmed status) and
-informing its participants by email (name them). 
+appointment (name it and its tentative/confirmed status — not its raw id) and
+informing its participants by email (name them).
 """
 
 _RANKING_NO_CALENDAR = """\
