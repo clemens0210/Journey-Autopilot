@@ -27,6 +27,10 @@ Usage:
                                                         # notice email to the
                                                         # connected account
                                                         # (needs Mail.Send)
+    python scripts/check_outlook.py --reschedule-test ID # move an existing
+                                                        # event 15 min and
+                                                        # back (needs
+                                                        # Calendars.ReadWrite)
 
 Exit codes: 0 = all checks passed, 1 = configuration/Graph problem,
 2 = no cached login (run --login or connect via the web onboarding).
@@ -74,10 +78,11 @@ from journey_autopilot.integrations.outlook import (  # noqa: E402
     get_calendar_events_range,
     get_signed_in_user,
     is_outlook_configured,
+    reschedule_calendar_event,
     send_notice_email,
 )
 from journey_autopilot.integrations.outlook.auth import (  # noqa: E402
-    MAIL_SCOPES,
+    CALENDAR_WRITE_SCOPES,
     SCOPES,
     _auth_record_path,
     acquire_credential,
@@ -111,8 +116,9 @@ def _login():
         print(f"  and enter the code {user_code}\n")
 
     cred = create_device_credential(prompt)
-    # MAIL_SCOPES so the consent also covers the notice-email send path.
-    record = cred.authenticate(scopes=MAIL_SCOPES)
+    # CALENDAR_WRITE_SCOPES so the consent also covers the notice-email send
+    # path and rescheduling an appointment (Calendars.ReadWrite).
+    record = cred.authenticate(scopes=CALENDAR_WRITE_SCOPES)
     save_authentication_record(record)
     _ok("device-code login", f"signed in as {record.username}, auth record saved")
     return cred
@@ -131,6 +137,10 @@ async def main() -> int:
                         help="send a test notice email (requires Mail.Send "
                              "consent; default recipient: the connected "
                              "account itself)")
+    parser.add_argument("--reschedule-test", metavar="EVENT_ID", default=None,
+                         help="move an existing event by 15 minutes and back "
+                              "(requires Calendars.ReadWrite consent; get an "
+                              "EVENT_ID from the calendar read above)")
     args = parser.parse_args()
 
     print("=" * 68)
@@ -225,6 +235,43 @@ async def main() -> int:
             print("\n  Most common cause: the cached login has no Mail.Send")
             print("  consent yet. Fix: add the Mail.Send delegated permission")
             print("  to the Entra app registration, then reconnect once:")
+            print("    python scripts/check_outlook.py --login")
+            return 1
+
+    # 6. Optional: test reschedule (Calendars.ReadWrite scope) --------------
+    if args.reschedule_test is not None:
+        _step(f"6) Test reschedule - event {args.reschedule_test}")
+        target = next((e for e in events if e.get("id") == args.reschedule_test), None)
+        if target is None:
+            _fail("event not found in the events read above",
+                  "pass an EVENT_ID printed by step 4 (same DATE/--days window)")
+            return 1
+        start = datetime.fromisoformat(target["start"])
+        end = datetime.fromisoformat(target["end"]) if target.get("end") else None
+        bumped_start = (start + timedelta(minutes=15)).isoformat(timespec="seconds")
+        bumped_end = (
+            (end + timedelta(minutes=15)).isoformat(timespec="seconds") if end else None
+        )
+        try:
+            await reschedule_calendar_event(
+                args.reschedule_test, start=bumped_start, end=bumped_end,
+                credential=credential,
+            )
+            _ok("PATCH request", f"moved to {bumped_start}")
+            # Move it back so the test is non-destructive.
+            await reschedule_calendar_event(
+                args.reschedule_test,
+                start=start.isoformat(timespec="seconds"),
+                end=end.isoformat(timespec="seconds") if end else None,
+                credential=credential,
+            )
+            _ok("PATCH request", f"moved back to {target['start']}")
+        except Exception as exc:
+            _fail("PATCH request", f"{type(exc).__name__}: {exc}")
+            print("\n  Most common cause: the cached login has no")
+            print("  Calendars.ReadWrite consent yet. Fix: add the")
+            print("  Calendars.ReadWrite delegated permission to the Entra")
+            print("  app registration, then reconnect once:")
             print("    python scripts/check_outlook.py --login")
             return 1
 

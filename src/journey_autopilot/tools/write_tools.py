@@ -25,10 +25,15 @@ Two tools bypass ``user_approved`` by design, and for opposite reasons:
   it only stages a draft, and the paired send refuses to run without the
   single-use approval id that staging produced.
 
-The remaining side effects are simulated for the prototype (no real booking or
-Graph write) — what matters is that the *policy decision* is enforced before any
-effect, and that no tool takes a cost, a delay, or an appointment's firmness
-from conversation text: each reads it from authoritative state instead.
+Most side effects are simulated for the prototype (no real booking) — what
+matters is that the *policy decision* is enforced before any effect, and that
+no tool takes a cost, a delay, or an appointment's firmness from conversation
+text: each reads it from authoritative state instead. ``reschedule_outlook_event``
+is the one exception that writes back to a real system: when Outlook is
+connected with the ``Calendars.ReadWrite`` scope consented, it issues an actual
+Graph ``PATCH`` that moves the appointment; without that scope (or without a
+connected calendar) it falls back to a simulated move, same as every other
+tool here.
 
 See docs/journey-autopilot-build-spec.md §5/§8 and docs/adr/0004-veto-gate.md.
 """
@@ -807,6 +812,35 @@ def _candidate_event_dates(new_start: str, travel_date: str) -> list[str]:
     return list(dict.fromkeys(d for d in candidates if _ISO_DATE_RE.fullmatch(d)))
 
 
+_TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}$")
+
+
+def _full_local_datetime(date_str: str, value: str) -> datetime | None:
+    """Combine an appointment day with a bare "HH:MM", or parse a full ISO value."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if _TIME_ONLY_RE.match(value):
+        value = f"{date_str}T{value}"
+    parsed = parse_datetime(value)
+    return parsed.replace(tzinfo=None) if parsed is not None else None
+
+
+# Graph event ids are base64url — plain ASCII only ([A-Za-z0-9_-]+=*) — so none
+# of these ever appear in a real one. An id that passes through chat prose
+# (the Planner reports it in running text, not a code span) or a copy/paste
+# can have its literal "-" silently swapped for a typographic look-alike by
+# "smart punctuation" autocorrection, which then fails an exact-match lookup
+# even though the id is otherwise identical. Undoing that swap is cheap and
+# safe on both sides of the comparison.
+_DASH_LOOKALIKES = str.maketrans({c: "-" for c in "‐‑‒–—―−"})
+
+
+def _canonicalize_event_id(value: str) -> str:
+    """Undo typographic dash substitution in a pasted/retyped event id."""
+    return (value or "").translate(_DASH_LOOKALIKES)
+
+
 async def _find_calendar_event(
     event_id: str, dates: list[str]
 ) -> tuple[dict, str] | None:
@@ -816,61 +850,141 @@ async def _find_calendar_event(
     what makes the tentative/confirmed veto trustworthy; the day it was found
     on is what makes a bare "HH:MM" new start unambiguous afterwards.
     """
+    event_id = _canonicalize_event_id(event_id)
     for date in dates:
         calendar = await get_user_calendar(date)
         for event in calendar.get("events") or []:
-            if event.get("id") == event_id:
+            if _canonicalize_event_id(event.get("id") or "") == event_id:
                 return event, date
     return None
 
 
+async def _find_calendar_event_by_title(
+    title: str, dates: list[str], old_start: str = ""
+) -> tuple[dict, str] | list[dict] | None:
+    """Resolve an appointment by title (+ day, + optional current start time).
+
+    Used when the caller has no Graph event id — the traveler named an
+    appointment directly in chat rather than one the Planner already flagged
+    as a calendar clash (the usual source of an id). Still resolved against a
+    real calendar read, same as ``_find_calendar_event``; only the SELECTION
+    of which appointment is aided by title/time, never its tentative/confirmed
+    status or anything else the veto relies on.
+
+    Returns ``(event, date)`` on exactly one match, ``None`` on no match, or
+    the list of candidate events when the title is ambiguous — the caller
+    surfaces that rather than guessing which one the traveler meant.
+    """
+    needle = title.strip().lower()
+    if not needle:
+        return None
+    matches: list[tuple[dict, str]] = []
+    for date in dates:
+        calendar = await get_user_calendar(date)
+        for event in calendar.get("events") or []:
+            haystack = (event.get("title") or "").strip().lower()
+            if needle not in haystack and haystack not in needle:
+                continue
+            if old_start:
+                old_dt = _full_local_datetime(date, old_start)
+                event_start = parse_datetime(event.get("start"))
+                if (
+                    old_dt is not None
+                    and event_start is not None
+                    and old_dt != event_start.replace(tzinfo=None)
+                ):
+                    continue
+            matches.append((event, date))
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        return None
+    return [m[0] for m in matches]
+
+
+def _resolve_new_window(
+    event: dict, event_date: str, new_start: str, new_end: str
+) -> tuple[str | None, str | None]:
+    """New start/end as naive local ISO strings, ready for the Graph PATCH.
+
+    A bare "HH:MM" ``new_start``/``new_end`` is combined with ``event_date``.
+    When ``new_end`` is omitted, the appointment's original duration is
+    preserved by shifting the original end by the same amount as the start;
+    if that original window can't be parsed, only the start moves (Graph then
+    keeps the event's current end, which may leave a mismatched duration).
+    """
+    start_dt = _full_local_datetime(event_date, new_start)
+    if start_dt is None:
+        return None, None
+    end_dt = _full_local_datetime(event_date, new_end) if new_end else None
+    if end_dt is None:
+        orig_start = parse_datetime(event.get("start"))
+        orig_end = parse_datetime(event.get("end"))
+        if orig_start is not None and orig_end is not None:
+            end_dt = start_dt + (
+                orig_end.replace(tzinfo=None) - orig_start.replace(tzinfo=None)
+            )
+    return (
+        start_dt.isoformat(timespec="seconds"),
+        end_dt.isoformat(timespec="seconds") if end_dt else None,
+    )
+
+
 async def reschedule_outlook_event(
-    event_id: str,
-    new_start: str,
-    new_end: str = "",
+    appointment_title: str = "",
     travel_date: str = "",
+    old_start: str = "",
+    event_id: str = "",
+    new_start: str = "",
+    new_end: str = "",
     user_approved: bool = False,
 ) -> dict:
     """Move a calendar appointment a disrupted trip would make the traveler miss.
 
-    The companion action to choosing a late-arriving reroute: rather than only
-    notifying the contact, the appointment itself is pushed back.
-
-    The appointment's own firmness decides the veto, not the model's judgement:
-    the event is looked up in the connected calendar and its
-    ``tentative``/``confirmed`` status is what ``policy.resolve`` gates on — a
-    tentative slot is reversible and moves automatically, a confirmed one asks
-    first. The status is therefore never accepted as an argument.
+    Identify the appointment either by ``appointment_title`` + ``travel_date``
+    (the default — matched against the real calendar, narrowed by
+    ``old_start`` if more than one title matches) or by ``event_id`` when one
+    is already in hand verbatim. Its tentative/confirmed status is read from
+    the calendar itself, never accepted as an argument, and gates the veto:
+    tentative moves automatically, confirmed asks first.
 
     Args:
-        event_id: Calendar id of the appointment (the ``id`` field of the
-            clashing event the Planner reported).
-        new_start: Proposed new start — ISO datetime or "HH:MM" on the
-            appointment's own day.
-        new_end: Proposed new end. Optional; omitted keeps the original
-            duration.
-        travel_date: The appointment's day as "YYYY-MM-DD" — normally the
-            travel date of the disrupted trip. Required whenever ``new_start``
-            is a bare "HH:MM" and the trip is not today, because a time alone
-            names no day.
+        appointment_title: The appointment's title/subject. Matched
+            case-insensitively against the calendar on ``travel_date``.
+        travel_date: The appointment's CURRENT day ("YYYY-MM-DD"). Required
+            for a title lookup, and whenever ``new_start`` is a bare "HH:MM".
+        old_start: The appointment's current start ("HH:MM" or ISO) — narrows
+            a title lookup that matches more than one event.
+        event_id: Calendar id, when already known verbatim; skips the title
+            lookup.
+        new_start: Proposed new start — ISO datetime or "HH:MM".
+        new_end: Proposed new end. Omitted keeps the original duration.
         user_approved: True only after the user approved a gated move.
 
     Returns:
-        ``status="executed"``, ``status="veto_required"``, or
-        ``status="revalidation_failed"`` when the event cannot be resolved.
+        ``status="executed"``, ``"veto_required"``, ``"revalidation_failed"``
+        (not found, or ambiguous — see ``candidates``), or ``"error"`` (a
+        connected Graph write failed; nothing moved).
     """
     name = "reschedule_outlook_event"
     not_found_hint = (
         "Do not claim the appointment was moved. Ask the Planner for a fresh "
-        "calendar check to get the current event id, and pass the "
-        "appointment's day as travel_date."
+        "calendar check to get the current event id, or retry with "
+        "appointment_title and travel_date so it can be looked up by name."
     )
     event_id = (event_id or "").strip()
     new_start = (new_start or "").strip()
     travel_date = (travel_date or "").strip()
-    if not event_id or not new_start:
+    appointment_title = (appointment_title or "").strip()
+    old_start = (old_start or "").strip()
+    if not new_start:
         return _revalidation_error(
-            "Both the calendar event id and the new start time are required.",
+            "The new start time is required.", tool=name, instruction=not_found_hint,
+        )
+    if not event_id and not appointment_title:
+        return _revalidation_error(
+            "Either the calendar event id or the appointment's title (with "
+            "its day as travel_date) is required to identify the appointment.",
             tool=name,
             instruction=not_found_hint,
         )
@@ -881,20 +995,59 @@ async def reschedule_outlook_event(
             tool=name,
             instruction=not_found_hint,
         )
-
-    dates = _candidate_event_dates(new_start, travel_date)
-    found = await _find_calendar_event(event_id, dates)
-    if found is None:
+    if not event_id and appointment_title and not travel_date:
         return _revalidation_error(
-            f"No calendar event with id '{event_id}' on {', '.join(dates)}. If "
-            "the appointment is on another day, call again with travel_date "
-            "set to that day.",
+            "travel_date (the appointment's current day) is required to "
+            "look up an appointment by title.",
             tool=name,
             instruction=not_found_hint,
-            event_id=event_id,
-            days_searched=dates,
         )
+
+    dates = _candidate_event_dates(new_start, travel_date)
+    if event_id:
+        found = await _find_calendar_event(event_id, dates)
+        if found is None:
+            return _revalidation_error(
+                f"No calendar event with id '{event_id}' on {', '.join(dates)}. "
+                "If the appointment is on another day, call again with "
+                "travel_date set to that day.",
+                tool=name,
+                instruction=not_found_hint,
+                event_id=event_id,
+                days_searched=dates,
+            )
+    else:
+        resolved = await _find_calendar_event_by_title(appointment_title, dates, old_start)
+        if resolved is None:
+            return _revalidation_error(
+                f"No appointment titled '{appointment_title}' found on "
+                f"{', '.join(dates)}.",
+                tool=name,
+                instruction=not_found_hint,
+                appointment_title=appointment_title,
+                days_searched=dates,
+            )
+        if isinstance(resolved, list):
+            return _revalidation_error(
+                f"'{appointment_title}' matches more than one appointment on "
+                f"{', '.join(dates)}. Ask the traveler which one, or retry "
+                "with old_start to disambiguate.",
+                tool=name,
+                instruction=not_found_hint,
+                appointment_title=appointment_title,
+                candidates=[
+                    {"id": e.get("id"), "title": e.get("title"), "start": e.get("start")}
+                    for e in resolved
+                ],
+            )
+        found = resolved
     event, event_date = found
+    # Use the authoritative id from the resolved event (not the possibly
+    # typographically-corrupted argument) for every downstream use — the
+    # veto payload, the Graph write, and the returned result — so a dash
+    # look-alike that happened to match here doesn't then fail the PATCH
+    # itself.
+    event_id = event.get("id") or event_id
 
     title = event.get("title") or "the appointment"
     event_status = event.get("status") or "confirmed"
@@ -920,6 +1073,51 @@ async def reschedule_outlook_event(
             new_end=new_end or None,
             attendees=event.get("attendee_emails") or [],
         )
+    if is_calendar_connected():
+        graph_start, graph_end = _resolve_new_window(event, event_date, new_start, new_end)
+        if graph_start is None:
+            return _revalidation_error(
+                f"'{new_start}' could not be parsed as a usable date/time.",
+                tool=name,
+                instruction=not_found_hint,
+                event_id=event_id,
+            )
+        try:
+            from ..integrations.outlook import reschedule_calendar_event
+
+            await reschedule_calendar_event(event_id, start=graph_start, end=graph_end)
+        except Exception as exc:
+            exc_name = type(exc).__name__
+            logger.warning("calendar reschedule failed: %s: %s", exc_name, exc)
+            result = {
+                "status": "error",
+                "tool": name,
+                "event_id": event_id,
+                "error": f"{exc_name}: {exc}",
+                "instruction_for_agent": (
+                    "Do not claim the appointment was moved — the Graph write "
+                    "failed."
+                ),
+            }
+            if "AuthenticationRequired" in exc_name or "Authentication" in str(exc):
+                result["hint"] = (
+                    "The cached login has no Calendars.ReadWrite consent yet. "
+                    "Reconnect Outlook once (onboarding or "
+                    "scripts/check_outlook.py --login) — calendar reading "
+                    "keeps working regardless."
+                )
+            return result
+        note = (
+            "Written back to Microsoft Graph — the appointment was actually "
+            "moved. Attendees are NOT notified by this action; offer the "
+            "notice email separately."
+        )
+    else:
+        note = (
+            "Outlook is not connected — the move was simulated (demo mode), "
+            "no real calendar was changed. Attendees are NOT notified by "
+            "this action; offer the notice email separately."
+        )
     logger.info(
         "calendar event rescheduled: id=%s date=%s status=%s %s -> %s",
         event_id,
@@ -939,11 +1137,7 @@ async def reschedule_outlook_event(
         new_start=new_start,
         new_end=new_end or None,
         attendees=event.get("attendee_emails") or [],
-        note=(
-            "Simulated effect (prototype) — the move is not written back to "
-            "Microsoft Graph. Attendees are NOT notified by this action; "
-            "offer the notice email separately."
-        ),
+        note=note,
     )
 
 

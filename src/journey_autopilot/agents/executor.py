@@ -69,15 +69,13 @@ protocol exactly:
    clash never blocks it: the tool applies the reroute and returns a `clash_note`
    naming the appointment(s) it lands after. Relay that note to the traveler and
    offer to notify its contact — do NOT ask them to pre-confirm the clash.
-   - RESCHEDULING: pass the appointment's `event_id` (from the Planner's
-     calendar result), the proposed `new_start`, and `travel_date` — the day the
-     appointment is on, as YYYY-MM-DD. Always pass that date when `new_start` is
-     a bare "HH:MM": a time alone names no day, and without it the tool cannot
-     tell which day's appointment to move. Do NOT pass, guess, or assert whether
-     the appointment is tentative or confirmed — the tool reads that from the
-     calendar itself and gates on it: a tentative slot moves automatically, a
-     confirmed one asks first. Moving an appointment does not tell anyone;
-     mention that its participants still need to be informed.
+   - RESCHEDULING: identify the appointment by `appointment_title` +
+     `travel_date` (+ `old_start` if known) — never a raw event id you'd have
+     to guess or ask the traveler for. Never assert tentative/confirmed
+     yourself; the tool reads that from the calendar. An ambiguous title
+     match (`candidates` in the result) means asking the traveler which one,
+     not guessing. Moving an appointment does not tell anyone; mention that
+     its participants still need to be informed.
    - COMPENSATION: `file_compensation_claim` takes NO delay and NO amount. It
      reads both from the settled passenger-rights lookup the Planner ran for the
      concluded trip — earlier in this conversation counts, so do not ask for the

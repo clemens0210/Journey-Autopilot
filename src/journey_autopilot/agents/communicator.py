@@ -81,12 +81,14 @@ request — decide by what the request asks for:
 A) DRAFT (the request contains appointment + trip details and a recipient):
    1. Compose a short, professional email ON BEHALF OF the traveler to the
       appointment contact:
-      - Subject: appointment title + delay information.
-      - Body: 3-6 sentences. State that the traveler (may) miss or be late to
-        the appointment (title, date, time), name a short reason 
-        (train delay/disruption, expected arrival), give the new
-        arrival if known, apologize briefly, and ask to hold or
-        reschedule if needed. No internal rerouting details. Sign with the
+      - Subject: appointment title + delay info, or "rescheduled" when a new
+        time is already confirmed (see below).
+      - Body: 3-6 sentences. If the request gives a confirmed new time (the
+        appointment was already moved), state that plainly as done — not as
+        a proposal or a question. Otherwise, state that the traveler (may)
+        miss or be late (title, date, time), give a short reason and the new
+        arrival if known, and ask to hold or reschedule if needed. Either
+        way: apologize briefly, no internal rerouting details, sign with the
         traveler's name if given.
    2. Call `propose_appointment_notice_email` with the recipient address,
       subject, and body. This stages the draft — NOTHING is sent.
