@@ -167,6 +167,36 @@ def _seed_prompt(trip: dict | None, message: str, account: dict | None = None) -
     return f"{context}\n\n{message}"
 
 
+def _rerouted_trip_context(trip: dict | None) -> str | None:
+    """Restate a trip whose itinerary changed under a running conversation.
+
+    The trip context is seeded once, on the first turn (``_seed_prompt``), and
+    the ADK session carries that description for the rest of the chat. Taking a
+    reroute invalidates it: the tools read the rewritten trip from the store and
+    are correct immediately, but the model still *remembers* the abandoned
+    trains and would keep narrating them. Prepending this block re-anchors it on
+    what is now being monitored.
+
+    Cheap enough to send on every turn after a reroute — it is a handful of
+    tokens, and there is no reliable way to tell which turn the model last saw
+    it in.
+    """
+    if not trip or not trip.get("rerouted_at"):
+        return None
+    previous = trip.get("rerouted_from") or {}
+    trains = " / ".join(trip.get("trains") or ([trip["train"]] if trip.get("train") else []))
+    return (
+        "Authoritative application state (not user-provided): this trip was "
+        f"REROUTED at {trip['rerouted_at']} and the booking was updated. It now "
+        f"runs {trip.get('origin')} -> {trip.get('destination')} via {trains or 'the new connection'}, "
+        f"departing {trip.get('planned_departure')} and arriving {trip.get('planned_arrival')} "
+        f"(previously {previous.get('previous_train') or 'the original train'}, arriving "
+        f"{previous.get('previous_planned_arrival')}). The earlier itinerary is void — "
+        "never quote its trains or arrival time again. Monitor and reason about the "
+        "connection above; the live status for this trip_id already reflects it."
+    )
+
+
 def _proposal_context(proposal: dict) -> str:
     """Compact authoritative state appended by the application, not the user."""
     payload = proposal.get("proposal") or {}
@@ -261,6 +291,10 @@ async def chat_turn(
         result of the WhatsApp notice the Orchestrator chose to send (or
         ``None`` when it sent none), plus the reroute option/proposal fields
         and any complaint draft the settled rights lookup produced.
+
+        ``trip`` and ``trips`` are populated only when a booked reroute rewrote
+        the monitored trip this turn — the updated trip and the refreshed list,
+        so the chat header and the dashboard can follow it without a reload.
     """
     from .. import request_context
 
@@ -362,6 +396,18 @@ async def _run_chat_turn(
         active_proposal = selected
     if active_proposal:
         text = f"{_proposal_context(active_proposal)}\n\n{text}"
+
+    # A reroute taken in an earlier turn rewrote the trip server-side, so the
+    # stored row — not the browser's snapshot, which may predate it — decides
+    # whether the session's seeded trip description is still valid.
+    stored_trip = (
+        next((t for t in store.get_trips(user_id) if t.get("trip_id") == trip_id), None)
+        if trip_id
+        else None
+    )
+    reroute_context = _rerouted_trip_context(stored_trip)
+    if reroute_context:
+        text = f"{reroute_context}\n\n{text}"
 
     new_message = types.Content(role="user", parts=[types.Part(text=text)])
     reply = ""
@@ -511,6 +557,13 @@ async def _run_chat_turn(
         user_id, trip, workspace["rights"]
     )
 
+    # A booked reroute rewrote the trip under this conversation (write_tools
+    # ._adopt_reroute_as_trip). Hand back both the trip itself — the chat header
+    # and this conversation's snapshot are bound to it — and the refreshed list,
+    # so the dashboard shows the new itinerary without waiting for a reload.
+    rerouted_trip = workspace["rerouted_trip"]
+    trips = store.get_trips(user_id) if rerouted_trip else None
+
     return {
         "session_id": session_id,
         "session_restarted": session_restarted,
@@ -526,4 +579,6 @@ async def _run_chat_turn(
         "proposal_id": response_proposal_id,
         "proposal_expires_at": proposal_expires_at,
         "complaint_created": complaint_created,
+        "trip": rerouted_trip,
+        "trips": trips,
     }

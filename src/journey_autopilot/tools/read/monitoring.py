@@ -18,7 +18,8 @@ from ... import risk, trip_status
 from ...demo import mock_data
 from ...integrations.db import ops as db_api
 from ...integrations.db import stations
-from ..constraints import parse_datetime
+from ...reroute_apply import onward_itinerary
+from ..constraints import minutes_between, parse_datetime
 
 
 def _find_trip_context(trip_id: str) -> dict | None:
@@ -41,6 +42,22 @@ def _find_trip_context(trip_id: str) -> dict | None:
     return None
 
 
+def _booked_arrival(trip: dict) -> str | None:
+    """The arrival the ticket was bought for — before any reroute rewrote it.
+
+    Compensation is assessed against the *booked* arrival, not against the
+    replacement connection's own timetable (EU 2021/782 Art. 19: the delay is
+    measured at the final destination against the original contract of carriage).
+    Taking a reroute therefore must not reset the reference: a traveler who
+    reaches Berlin 86 minutes after the booked arrival is owed the same amount
+    whether they got there on the booked train or on a punctual replacement.
+    ``reroute_apply`` preserves the original in ``rerouted_from``.
+    """
+    return (trip.get("rerouted_from") or {}).get("previous_planned_arrival") or trip.get(
+        "planned_arrival"
+    )
+
+
 def _journey_for_trip(trip: dict) -> dict | None:
     """Live search result for exactly the booked itinerary, or ``None``.
 
@@ -48,6 +65,7 @@ def _journey_for_trip(trip: dict) -> dict | None:
     would return a *different* connection — e.g. a later journey via another
     hub — and its delays/transfers would then be presented as the user's trip.
     """
+    trip = onward_itinerary(trip)
     origin = trip.get("origin")
     destination = trip.get("destination")
     if not origin or not destination:
@@ -329,7 +347,15 @@ def get_live_trip_status(trip_id: str) -> dict:
     Returns:
         A dict with current delay, trend, position, known incidents,
         connection risk, risk forecasts, the trip's lifecycle ``status``
-        (pre_trip / en_route / arrived) and ``source``. When ``source`` is
+        (pre_trip / en_route / arrived) and ``source``.
+
+        ``current_delay_minutes`` is always the delay against the arrival the
+        ticket was BOOKED for (``booked_arrival``) — on a rerouted trip that is
+        deliberately not the replacement connection's own punctuality, because
+        compensation is owed on the booked arrival the traveler missed. When
+        the two differ, ``note`` spells the distinction out.
+
+        When ``source`` is
         ``db_history_forecast`` no live data was available for the exact booked
         connection — the numbers are the historical forecast for the booked
         legs and ``current_delay_minutes`` is null (see ``note``). Contains
@@ -343,6 +369,15 @@ def get_live_trip_status(trip_id: str) -> dict:
     # making the canonical demo non-deterministic. Trips without a scripted
     # status (e.g. self-booked BK-… connections) stay live-first.
     scripted = mock_data.LIVE_TRIP_STATUS.get(trip_id)
+
+    # …unless the traveler has already acted on that disruption. The fixture
+    # describes the *booked* itinerary going wrong; once a reroute has been
+    # taken (``reroute_apply`` stamps ``rerouted_at``), the trip runs on
+    # different trains and replaying the scripted delay would keep reporting a
+    # missed transfer the traveler has left behind. The rewritten legs go back
+    # through the live/forecast path below like any other connection.
+    if trip is not None and trip.get("rerouted_at"):
+        scripted = None
 
     if trip is not None and scripted is None:
         try:
@@ -408,6 +443,31 @@ def get_live_trip_status(trip_id: str) -> dict:
                     arrived = _arrival_in_past(option.get("arrival"))
                     final_delay = delay_int
                     concluded_note = None
+                    # On a rerouted trip `delay_int` is how late the REPLACEMENT
+                    # connection runs against its own timetable — 0 for a
+                    # punctual replacement, even when the traveler reaches the
+                    # destination well after the arrival they booked. That is
+                    # the wrong figure for the field a compensation claim is
+                    # assessed from, so measure against the booked arrival
+                    # instead. Only here, on an intact itinerary: the broken
+                    # branch above has no trustworthy arrival to measure to.
+                    booked_arrival = _booked_arrival(trip)
+                    if booked_arrival != trip.get("planned_arrival"):
+                        versus_booking = minutes_between(
+                            booked_arrival,
+                            option.get("arrival") or option.get("planned_arrival"),
+                        )
+                        if versus_booking is not None:
+                            final_delay = versus_booking
+                            concluded_note = (
+                                "This trip was rerouted. The delay reported here is "
+                                "measured against the ARRIVAL ORIGINALLY BOOKED "
+                                f"({booked_arrival}) — that is what a compensation "
+                                "claim is assessed against, and it stands even when "
+                                "the replacement connection itself runs on time. Its "
+                                f"own punctuality is {delay_int} min against its "
+                                "timetable; do not quote that as the trip's delay."
+                            )
 
                 incidents = [
                     {"type": text, "location": trip.get("destination"), "impact": "DB live remark"}
@@ -426,7 +486,19 @@ def get_live_trip_status(trip_id: str) -> dict:
                         for change in option["platform_changes"]
                     )
 
-                planned_departure = option.get("planned_departure") or trip.get("planned_departure")
+                # After a reroute the searched journey is only the onward stretch
+                # (see reroute_apply.onward_itinerary), so its departure is the connection
+                # the traveler still has to board — not when their trip began.
+                # Reporting the latter would restart a running journey, and
+                # `departed` derived from those legs alone would read PRE_TRIP
+                # right up to the new departure. The kept legs settle both: a
+                # traveler who has already ridden one is under way, full stop.
+                kept_legs = (trip.get("rerouted_from") or {}).get("kept_legs") or 0
+                planned_departure = (
+                    trip.get("planned_departure")
+                    if kept_legs
+                    else (option.get("planned_departure") or trip.get("planned_departure"))
+                )
                 planned_arrival = option.get("planned_arrival") or trip.get("planned_arrival")
                 # The live legs are the only source precise enough to separate
                 # "not boarded yet" from "under way" — the schedule cannot.
@@ -436,7 +508,7 @@ def get_live_trip_status(trip_id: str) -> dict:
                         "planned_departure": planned_departure,
                         "planned_arrival": planned_arrival,
                     },
-                    departed=_has_departed(option),
+                    departed=True if kept_legs else _has_departed(option),
                 )
 
                 return {
@@ -458,6 +530,10 @@ def get_live_trip_status(trip_id: str) -> dict:
                     "legs": risk_legs,
                     "planned_departure": planned_departure,
                     "planned_arrival": planned_arrival,
+                    # The arrival the ticket was bought for. Differs from
+                    # planned_arrival only after a reroute, and is then the
+                    # reference current_delay_minutes is measured against.
+                    "booked_arrival": _booked_arrival(trip),
                     "status": phase,
                     "itinerary_broken": itinerary_broken,
                     "estimated_arrival": (
@@ -540,7 +616,10 @@ def get_live_trip_status(trip_id: str) -> dict:
     # simulated status exists): answer from the booked legs' historical
     # forecast instead of erroring — but clearly flagged, never as live data.
     if trip is not None:
-        risk_legs = _booked_risk_legs(trip)
+        # Forecast only what is still ahead: a rerouted trip's kept legs are
+        # already behind the traveler, and their historical delay stats say
+        # nothing about the connection now being monitored.
+        risk_legs = _booked_risk_legs(onward_itinerary(trip))
         if risk_legs:
             forecasts = risk.forecast_trip(trip, risk_legs)
             for leg, forecast in zip(risk_legs, forecasts):

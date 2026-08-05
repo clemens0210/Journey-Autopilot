@@ -31,6 +31,19 @@ def _travel_date(trip: dict | None) -> str:
     return dep[:10] if dep else ""
 
 
+def _booked_train(trip: dict | None) -> str:
+    """The train the claim is about: the one that was booked, not a replacement.
+
+    A reroute rewrites the trip in place (``reroute_apply``), so ``trip["train"]``
+    can name the connection the traveler switched TO. The claim is against the
+    booked contract of carriage, so it has to cite the original — DB matches a
+    Fahrgastrechte form against the ticket, and a replacement train the traveler
+    was never booked on would not be found on it. ``rerouted_from`` keeps it.
+    """
+    previous = (trip or {}).get("rerouted_from") or {}
+    return previous.get("previous_train") or (trip or {}).get("train") or ""
+
+
 def build_complaint_payload(
     trip: dict | None,
     rights: dict,
@@ -44,7 +57,7 @@ def build_complaint_payload(
         "trip_id": (trip or {}).get("trip_id"),
         "origin": (trip or {}).get("origin") or rights.get("origin") or "",
         "destination": (trip or {}).get("destination") or rights.get("destination") or "",
-        "train": (trip or {}).get("train") or "",
+        "train": _booked_train(trip),
         "travel_date": _travel_date(trip),
         "delay_minutes": int(rights.get("delay_minutes") or 0),
         "compensation_eur": float(rights.get("compensation_eur") or 0),

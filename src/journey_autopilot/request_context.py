@@ -18,6 +18,8 @@ Two things travel with a chat turn through ``contextvars``, so that nested
      the traveler).
    - ``reroute`` — the Planner's discovery/finalize workspace.
    - ``rights`` — the settled passenger-rights result (concluded trips only).
+   - ``rerouted_trip`` — the stored trip as the Executor rewrote it after a
+     booked reroute, so the browser can show the new itinerary without a reload.
 
    One workspace per turn is also what keeps concurrent turns apart: the
    binding lives in the request's asyncio task, so two travelers can never see
@@ -44,7 +46,13 @@ current_turn_workspace: ContextVar[dict | None] = ContextVar(
 
 def new_turn_workspace() -> dict:
     """An empty workspace for one chat turn."""
-    return {"trace": [], "whatsapp_sends": [], "reroute": None, "rights": None}
+    return {
+        "trace": [],
+        "whatsapp_sends": [],
+        "reroute": None,
+        "rights": None,
+        "rerouted_trip": None,
+    }
 
 
 # Direct scenario/demo calls (scenarios/*.py, scripts/*.py) drive the agent
