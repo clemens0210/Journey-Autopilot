@@ -16,6 +16,7 @@ from ...integrations.db import ops as db_api
 from ...integrations.db import stations as db_api_stations
 from ...onboarding import complaints
 from ...persistence import store
+from ...reroute_apply import onward_itinerary
 from .deps import current_user_id
 
 router = APIRouter(tags=["trips"])
@@ -49,7 +50,14 @@ def _live_leg_delays(trip: dict) -> dict[str, int]:
     and returns ``{train_name: delay_minutes}``. Returns ``{}`` on any sidecar
     miss or when the exact booked connection is not found — never the delays
     of a different journey.
+
+    On a rerouted trip only the onward stretch is searched: the spliced train
+    sequence (legs already travelled + the replacement connection) exists in no
+    timetable, so matching the whole trip would find nothing and every leg would
+    read as punctual. The legs left behind keep whatever delay the caller
+    already has for them — a train that has run is not re-queryable anyway.
     """
+    trip = onward_itinerary(trip)
     origin, destination = trip.get("origin"), trip.get("destination")
     if not origin or not destination:
         return {}

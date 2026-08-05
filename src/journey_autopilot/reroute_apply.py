@@ -165,6 +165,35 @@ def apply_reroute(
     return updated
 
 
+def onward_itinerary(trip: dict) -> dict:
+    """The stretch of ``trip`` a live journey search can actually find.
+
+    A rerouted trip is a hybrid: legs already travelled on the original booking,
+    plus legs from the connection the traveler switched to. No single journey in
+    the timetable runs that sequence, and both live lookups identify a booked
+    trip by its full train sequence (``db.ops.match_booked_journey``) — so
+    searching the whole trip matches nothing and every rerouted trip silently
+    loses its live delay. The part still ahead *is* a real connection, and it is
+    the only part whose live delay can still change anything.
+
+    Lives here rather than next to either caller because ``kept_legs`` — the
+    exact cut this reads — is written by ``apply_reroute`` right above.
+    Untouched trips are returned unchanged.
+    """
+    kept = (trip.get("rerouted_from") or {}).get("kept_legs")
+    legs = trip.get("legs") or []
+    if not kept or kept >= len(legs):
+        return trip
+    onward = legs[kept:]
+    return {
+        **trip,
+        "origin": onward[0].get("origin") or trip.get("origin"),
+        "train": onward[0].get("train") or trip.get("train"),
+        "planned_departure": onward[0].get("planned_departure") or trip.get("planned_departure"),
+        "legs": onward,
+    }
+
+
 def _platform_label(leg: dict) -> str | None:
     """Render a leg's platform the way stored trips spell it ("Platform 7")."""
     platform = leg.get("platform")

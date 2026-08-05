@@ -18,6 +18,7 @@ from ... import risk, trip_status
 from ...demo import mock_data
 from ...integrations.db import ops as db_api
 from ...integrations.db import stations
+from ...reroute_apply import onward_itinerary
 from ..constraints import minutes_between, parse_datetime
 
 
@@ -39,34 +40,6 @@ def _find_trip_context(trip_id: str) -> dict | None:
     if trip_id in mock_data.LIVE_TRIP_STATUS:
         return mock_data.DEMO_TRIP
     return None
-
-
-def _monitored_itinerary(trip: dict) -> dict:
-    """The stretch of ``trip`` a live search can actually find.
-
-    A rerouted trip is a hybrid: the legs already travelled on the original
-    booking, plus the ones from the connection the traveler switched to. No
-    single journey in the timetable runs that sequence, so searching the whole
-    trip would match nothing and demote every rerouted trip to the historical
-    forecast forever. The part still ahead — from the boarding station onwards —
-    *is* a real connection, and it is the only part whose live delay can still
-    change anything.
-
-    ``kept_legs`` is the exact cut ``reroute_apply`` recorded, so no re-matching
-    of station names is needed here. Untouched trips are returned as they are.
-    """
-    kept = (trip.get("rerouted_from") or {}).get("kept_legs")
-    legs = trip.get("legs") or []
-    if not kept or kept >= len(legs):
-        return trip
-    onward = legs[kept:]
-    return {
-        **trip,
-        "origin": onward[0].get("origin") or trip.get("origin"),
-        "train": onward[0].get("train") or trip.get("train"),
-        "planned_departure": onward[0].get("planned_departure") or trip.get("planned_departure"),
-        "legs": onward,
-    }
 
 
 def _booked_arrival(trip: dict) -> str | None:
@@ -92,7 +65,7 @@ def _journey_for_trip(trip: dict) -> dict | None:
     would return a *different* connection — e.g. a later journey via another
     hub — and its delays/transfers would then be presented as the user's trip.
     """
-    trip = _monitored_itinerary(trip)
+    trip = onward_itinerary(trip)
     origin = trip.get("origin")
     destination = trip.get("destination")
     if not origin or not destination:
@@ -514,7 +487,7 @@ def get_live_trip_status(trip_id: str) -> dict:
                     )
 
                 # After a reroute the searched journey is only the onward stretch
-                # (see _monitored_itinerary), so its departure is the connection
+                # (see reroute_apply.onward_itinerary), so its departure is the connection
                 # the traveler still has to board — not when their trip began.
                 # Reporting the latter would restart a running journey, and
                 # `departed` derived from those legs alone would read PRE_TRIP
@@ -646,7 +619,7 @@ def get_live_trip_status(trip_id: str) -> dict:
         # Forecast only what is still ahead: a rerouted trip's kept legs are
         # already behind the traveler, and their historical delay stats say
         # nothing about the connection now being monitored.
-        risk_legs = _booked_risk_legs(_monitored_itinerary(trip))
+        risk_legs = _booked_risk_legs(onward_itinerary(trip))
         if risk_legs:
             forecasts = risk.forecast_trip(trip, risk_legs)
             for leg, forecast in zip(risk_legs, forecasts):
