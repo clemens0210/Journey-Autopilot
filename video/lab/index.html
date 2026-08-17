@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <title>Journey Autopilot — Animation Lab reel</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "LabInter"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; }
+      body { font-family: "LabInter", system-ui, sans-serif; }
+
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+      /* opaque stage ground — nothing on the master timeline may show white through a seam */
+      #stage-ground { position: absolute; inset: 0; background: #101215; }
+
+      /* every scene slot fills the frame */
+      #root > div[data-composition-src] { position: absolute; inset: 0; }
+
+      /* ---- chapter tag: which idea you are looking at ---- */
+      #tag { position: absolute; left: 0; right: 0; bottom: 0; height: 132px; pointer-events: none; z-index: 40; }
+      /* bottom-RIGHT: every scene in the reel owns its own bottom-left corner
+         for captions, so the reel's own marker stays out of that lane.
+         It rides over both cream and near-black scenes, so it carries its own
+         opaque plate rather than trusting whatever is underneath. */
+      #tag-inner {
+        position: absolute; right: 84px; bottom: 46px; display: flex; align-items: baseline; gap: 18px;
+        padding: 13px 22px 12px; border-radius: 8px; background: #16181a;
+        font-size: 21px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase;
+      }
+      #tag-num { color: #9d8dff; }
+      #tag-name { color: #d5d8de; }
+      #tag-rule { position: absolute; right: 84px; bottom: 34px; width: 0; height: 3px; background: #533cfe; }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-ev5p" id="root" data-composition-id="lab" data-start="0" data-duration="99" data-width="1920" data-height="1080" data-fps="30">
+      <div data-hf-id="hf-eein" id="stage-ground"></div>
+
+      <!-- ============================================================
+           Each idea is a self-contained sub-composition. Preview one on
+           its own in Studio, or watch the whole reel here.
+           ============================================================ -->
+
+      <div data-hf-id="hf-17pb" id="el-delay-splitflap" data-composition-id="delay-splitflap" data-composition-src="compositions/01-delay-splitflap.html" data-start="0" data-duration="8" data-track-index="1"></div>
+
+      <div data-hf-id="hf-7bwd" id="el-delay-timeline" data-composition-id="delay-timeline" data-composition-src="compositions/02-delay-timeline.html" data-start="8" data-duration="9" data-track-index="1"></div>
+
+      <div data-hf-id="hf-4d9j" id="el-logo-db" data-composition-id="logo-db" data-composition-src="compositions/03-logo-db.html" data-start="17" data-duration="7" data-track-index="1"></div>
+
+      <div data-hf-id="hf-ihp4" id="el-logo-bcgp" data-composition-id="logo-bcgp" data-composition-src="compositions/04-logo-bcgp.html" data-start="24" data-duration="7" data-track-index="1"></div>
+
+      <div data-hf-id="hf-tveq" id="el-logo-koeln" data-composition-id="logo-koeln" data-composition-src="compositions/05-logo-koeln.html" data-start="31" data-duration="7" data-track-index="1"></div>
+
+      <div data-hf-id="hf-flfo" id="el-logo-lockup" data-composition-id="logo-lockup" data-composition-src="compositions/06-logo-lockup.html" data-start="38" data-duration="8" data-track-index="1"></div>
+
+      <div data-hf-id="hf-3kk2" id="el-arch-build" data-composition-id="arch-build" data-composition-src="compositions/07-arch-build.html" data-start="46" data-duration="16" data-track-index="1"></div>
+
+      <div data-hf-id="hf-xp54" id="el-arch-trace" data-composition-id="arch-trace" data-composition-src="compositions/08-arch-trace.html" data-start="62" data-duration="14" data-track-index="1"></div>
+
+
+      <div data-hf-id="hf-bxk9" id="el-reroute-map" data-composition-id="reroute-map" data-composition-src="compositions/09-reroute-map.html" data-start="76" data-duration="12" data-track-index="1"></div>
+
+      <div data-hf-id="hf-mu0q" id="el-veto-gate" data-composition-id="veto-gate" data-composition-src="compositions/10-veto-gate.html" data-start="88" data-duration="11" data-track-index="1"></div>
+      <!-- ---- chapter tag, on its own track above every scene ---- -->
+      <div data-hf-id="hf-jt0u" id="tag" class="clip" data-start="0" data-duration="99" data-track-index="9">
+        <div data-hf-id="hf-29ua" id="tag-rule"></div>
+        <div data-hf-id="hf-8kw8" id="tag-inner">
+          <span data-hf-id="hf-n9jq" id="tag-num">01</span>
+          <span data-hf-id="hf-istp" id="tag-name">split-flap delay</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // The reel is a contact sheet, not a film: it announces each idea rather
+      // than hiding the seams. One label, retyped on every scene boundary.
+      const CHAPTERS = [
+        [0, "01", "split-flap delay"],
+        [8, "02", "delay vs. connection"],
+        [17, "03", "DB — logo builds itself"],
+        [24, "04", "BCG Platinion — shards"],
+        [31, "05", "Universität zu Köln — seal"],
+        [38, "06", "the three-way lockup"],
+        [46, "07", "architecture — assembles"],
+        [62, "08", "architecture — traced"],
+        [76, "09", "reroute, on the network"],
+        [88, "10", "the veto gate"],
+      ];
+
+      const tagNum = document.getElementById("tag-num");
+      const tagName = document.getElementById("tag-name");
+      CHAPTERS.forEach(([at, n, label], i) => {
+        tl.set(tagNum, { textContent: n }, at + 0.28);
+        tl.set(tagName, { textContent: label }, at + 0.28);
+        tl.fromTo("#tag-inner", { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.34, ease: "power3.out" }, at + 0.3);
+        tl.fromTo("#tag-rule", { width: 0 }, { width: 54, duration: 0.32, ease: "power2.inOut" }, at + 0.34);
+        const next = CHAPTERS[i + 1];
+        if (next) {
+          tl.to("#tag-inner", { autoAlpha: 0, duration: 0.2, ease: "power2.in" }, next[0] - 0.24);
+          tl.to("#tag-rule", { width: 0, duration: 0.2, ease: "power2.in" }, next[0] - 0.24);
+        }
+      });
+
+      window.__timelines["lab"] = tl;
+    </script>
+  </body>
+</html>

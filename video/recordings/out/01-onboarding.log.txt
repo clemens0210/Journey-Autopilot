@@ -1,0 +1,6 @@
+SMS banner code: 9769
+detected events: 4
+calendar preview: 21:34 Journey Autopilot Travel Assistant Lucas Step 4 of 8 Connect Outlook calendar OPTIONAL The autopilot reads your appointments to protect hard deadlines (e.g. on-site client meetings) during every replan — and adds new connections directly to your calendar. ✓ Connected — Outlook calendar Detected events 11/08/2026 21:43 Team sync (Teams call) online 12/08/2026 00:43 Client meeting Berlin (on-s
+station suggestions: 🟢 München Hbf 🟢 MÜNCHEN 🟢 München Ost 🟢 München-Pasing 🟢 München-Berg am Laim 🟢 München Donnersbergerbrücke
+summary: 21:35 Journey Autopilot Travel Assistant Lucas Step 8 of 8 All set? 🚦 DB account ✓ Lucas Wild Imported trips 3 Phone number ✓ +4915120000042 Outlook calendar ✓ connected Class / seat 1st class · Window, Open seating, quiet zone Speed vs. comfort 50 / 100 Max. transfers 2 Home station München Hbf Latest arrival home 23:00 Autonomy Approve every action Once you finish, the autopilot will start monitoring your imported trips. Every setting can be changed later in your profile. Back Finish onboarding 🚀
+policy saved: book_alternative_connection = ask

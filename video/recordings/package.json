@@ -1,0 +1,12 @@
+{
+  "name": "ja-demo-recordings",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "onboarding": "node 01-onboarding.mjs",
+    "claim": "node 02-passenger-claim.mjs",
+    "book": "node 03-book-trip.mjs",
+    "clash": "node 04-calendar-clash.mjs"
+  },
+  "dependencies": { "playwright": "1.62.1" }
+}

@@ -1,0 +1,107 @@
+{
+ "source": "db.png",
+ "canvas": [
+  1200,
+  840
+ ],
+ "parts": [
+  {
+   "name": "red-1",
+   "file": "red-1.png",
+   "box": [
+    0,
+    0,
+    1200,
+    840
+   ],
+   "origin_pct": [
+    50.0,
+    50.0
+   ]
+  },
+  {
+   "name": "red-2",
+   "file": "red-2.png",
+   "box": [
+    646,
+    144,
+    406,
+    550
+   ],
+   "origin_pct": [
+    70.75,
+    49.88
+   ]
+  },
+  {
+   "name": "red-3",
+   "file": "red-3.png",
+   "box": [
+    166,
+    145,
+    422,
+    550
+   ],
+   "origin_pct": [
+    31.42,
+    50.0
+   ]
+  },
+  {
+   "name": "white-1",
+   "file": "white-1.png",
+   "box": [
+    88,
+    85,
+    1024,
+    669
+   ],
+   "origin_pct": [
+    50.0,
+    49.94
+   ]
+  },
+  {
+   "name": "white-2",
+   "file": "white-2.png",
+   "box": [
+    298,
+    232,
+    157,
+    374
+   ],
+   "origin_pct": [
+    31.37,
+    49.88
+   ]
+  },
+  {
+   "name": "white-3",
+   "file": "white-3.png",
+   "box": [
+    776,
+    464,
+    143,
+    142
+   ],
+   "origin_pct": [
+    70.62,
+    63.69
+   ]
+  },
+  {
+   "name": "white-4",
+   "file": "white-4.png",
+   "box": [
+    778,
+    230,
+    123,
+    132
+   ],
+   "origin_pct": [
+    69.96,
+    35.24
+   ]
+  }
+ ]
+}

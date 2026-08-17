@@ -1,0 +1,51 @@
+{
+ "source": "uni-koeln.png",
+ "canvas": [
+  1400,
+  534
+ ],
+ "parts": [
+  {
+   "name": "seal",
+   "file": "seal.png",
+   "box": [
+    0,
+    0,
+    537,
+    534
+   ],
+   "origin_pct": [
+    19.18,
+    50.0
+   ]
+  },
+  {
+   "name": "line1",
+   "file": "line1.png",
+   "box": [
+    624,
+    144,
+    776,
+    115
+   ],
+   "origin_pct": [
+    72.29,
+    37.73
+   ]
+  },
+  {
+   "name": "line2",
+   "file": "line2.png",
+   "box": [
+    622,
+    279,
+    514,
+    116
+   ],
+   "origin_pct": [
+    62.79,
+    63.11
+   ]
+  }
+ ]
+}

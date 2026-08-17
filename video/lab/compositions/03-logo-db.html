@@ -1,0 +1,97 @@
+<!-- IDEA 03 — the DB logo does not appear, it BUILDS.
+     The real mark (pulled out of the deck at 3840×2688, not redrawn) is split
+     by tools/logo_split.py into the pieces it is physically made of: the red
+     keeper frame, the white plate, the D, the B, and the letters' counters.
+     Each piece is a full-canvas PNG, so stacking them at inset:0 reassembles
+     the logo pixel-for-pixel — the animation is pure transform, and the mark
+     is never distorted.
+
+     Beats: the frame sweeps closed → the plate fills → D and B slam in from
+     opposite sides → the whole mark settles once and travels left. -->
+<template>
+  <div data-hf-id="hf-i13y" data-composition-id="logo-db" data-start="0" data-duration="7" data-width="1920" data-height="1080" style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "LabInter"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+
+      #db-bg { position: absolute; inset: 0; background: #eff0e8; }
+      #db-root { position: absolute; inset: 0; font-family: "LabInter", system-ui, sans-serif; }
+
+      #db-stage { position: absolute; left: 580px; top: 274px; width: 760px; height: 532px; }
+      #db-stage img { position: absolute; inset: 0; width: 100%; height: 100%; }
+      #db-d, #db-b { position: absolute; inset: 0; }
+
+      /* the keeper frame is revealed by a radar sweep, so it reads as being
+         drawn rather than faded in. --sweep 0 → 1 = one full turn from 12 o'clock. */
+      #db-frame {
+        -webkit-mask-image: conic-gradient(from -90deg, #000 0turn, #000 calc(var(--sweep) * 1turn), transparent calc(var(--sweep) * 1turn), transparent 1turn);
+        mask-image: conic-gradient(from -90deg, #000 0turn, #000 calc(var(--sweep) * 1turn), transparent calc(var(--sweep) * 1turn), transparent 1turn);
+      }
+
+      /* start states in CSS — a seek to frame 0 must match playback */
+      #db-frame { --sweep: 0; }
+      #db-plate, #db-d, #db-b { opacity: 0; }
+      #db-kicker, #db-name, #db-rule { opacity: 0; }
+
+      #db-kicker { position: absolute; left: 0; right: 0; top: 168px; text-align: center; font-size: 21px; font-weight: 700; letter-spacing: 0.26em; text-transform: uppercase; color: #6f757d; }
+      #db-name { position: absolute; left: 0; right: 0; top: 856px; text-align: center; font-size: 44px; font-weight: 700; letter-spacing: -0.02em; color: #16181a; }
+      #db-rule { position: absolute; left: 860px; top: 826px; width: 200px; height: 3px; background: #ec0016; transform-origin: 50% 50%; }
+    </style>
+
+    <div data-hf-id="hf-lhrp" id="db-bg"></div>
+    <div data-hf-id="hf-sf7o" id="db-root">
+      <div data-hf-id="hf-oo3k" id="db-kicker">The partner</div>
+
+      <div data-hf-id="hf-flm6" id="db-stage">
+        <img data-hf-id="hf-8t21" id="db-plate" src="assets/logos/db/white-1.png" alt="">
+        <img data-hf-id="hf-dm7o" id="db-frame" src="assets/logos/db/red-1.png" alt="">
+        <div data-hf-id="hf-fgqg" id="db-d">
+          <img data-hf-id="hf-g3fi" src="assets/logos/db/red-3.png" alt="">
+          <img data-hf-id="hf-npox" src="assets/logos/db/white-2.png" alt="">
+        </div>
+        <div data-hf-id="hf-7kie" id="db-b">
+          <img data-hf-id="hf-zbm7" src="assets/logos/db/red-2.png" alt="">
+          <img data-hf-id="hf-x5qg" src="assets/logos/db/white-3.png" alt="">
+          <img data-hf-id="hf-wvrr" src="assets/logos/db/white-4.png" alt="">
+        </div>
+      </div>
+
+      <div data-hf-id="hf-daoe" id="db-rule"></div>
+      <div data-hf-id="hf-wm7d" id="db-name">Deutsche Bahn</div>
+    </div>
+
+    <script>
+      (() => {
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+
+        tl.fromTo("#db-kicker", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.42, ease: OUT }, 0.2);
+
+        // 1 — the frame sweeps closed, clockwise from twelve.
+        tl.fromTo("#db-frame", { "--sweep": 0 }, { "--sweep": 1, duration: 0.9, ease: "power2.inOut" }, 0.5);
+
+        // 2 — it closes, and the plate fills the moment it does. Same frame,
+        //     no gap: the fill is caused by the frame completing.
+        tl.fromTo("#db-plate", { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.34, ease: OUT }, 1.4);
+
+        // 3 — the letters slam in from opposite sides and stop dead.
+        //     Counters ride inside their letter's wrapper, so nothing drifts.
+        tl.fromTo("#db-d", { opacity: 0, x: -300 }, { opacity: 1, x: 0, duration: 0.46, ease: "power4.out" }, 1.62);
+        tl.fromTo("#db-b", { opacity: 0, x: 300 }, { opacity: 1, x: 0, duration: 0.46, ease: "power4.out" }, 1.74);
+
+        // 4 — one settle on impact, then stillness before the name.
+        tl.fromTo("#db-stage", { scale: 1 }, { scale: 1.045, duration: 0.15, ease: "power2.out", yoyo: true, repeat: 1 }, 2.18);
+
+        tl.fromTo("#db-rule", { opacity: 1, scaleX: 0 }, { opacity: 1, scaleX: 1, duration: 0.4, ease: "power2.inOut" }, 2.85);
+        tl.fromTo("#db-name", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.44, ease: OUT }, 3.0);
+
+        // 5 — the whole lockup keeps moving left into whatever cuts next.
+        tl.to("#db-root", { x: -80, duration: 1.9, ease: "power2.in" }, 5.1);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["logo-db"] = tl;
+      })();
+    </script>
+  </div>
+</template>

@@ -1,0 +1,565 @@
+<!-- SCENE 4 — bars 28–40 · under the hood.
+     The music takes the kick out for eight bars, so this is where the phone
+     goes away and the machine that did all of that assembles itself.
+
+     The diagram is not redrawn: the markup between the pptx markers is
+     generated straight out of docs/Status_Update_BCG_DB.pptx by
+     lab/tools/pptx_extract.py, so every card, wire, icon and label sits where
+     the deck actually puts it. Change the slide, re-run lab/tools/build_arch.py,
+     and this scene follows.
+
+     The build-up is gone. Twice now the note on this act has been that it
+     takes too long to assemble, so the diagram simply arrives — one beat,
+     whole — and the seven bars that used to be spent constructing it are
+     spent on the thing worth watching instead: one real request walked
+     through the system, step by step, on the deck's own connector curves.
+     Then the second drop lands on bar 36 and simply puts the whole board back
+     on screen, undimmed, under the closing title — v3 ran the graph a second
+     time there and it read as a repeat of something already understood.
+
+     The chat-model block is deliberately generic. Slide 8 names a specific
+     model, but
+     the model is configured per role in config/settings.yaml and the recorded
+     runs were not on it. The neutral label is true on every configuration. -->
+<template>
+  <div data-composition-id="arch" data-start="0" data-duration="30.315789"
+       data-width="1920" data-height="1080"
+       style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "JA"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+
+      #ar-bg { position: absolute; inset: 0; background: #eff0e8; }
+      #ar-root { position: absolute; inset: 0; font-family: "JA", system-ui, sans-serif; }
+
+      /* The deck lays slide 8 out for a 4:3-ish text slide, so the graph sits
+         high with a wide right margin. One static reframe pulls it onto the
+         video frame; the camera tween rides a separate wrapper so the two
+         never fight over one transform. */
+      #ar-fit { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform: translate(28px, 74px) scale(0.93); transform-origin: 50% 50%; }
+      /* origin 0 0, so "put diagram point (px,py) in the middle of the frame"
+         is exactly x = CX - s·px, y = CY - s·py. With the default 50% 50%
+         origin that formula cancels its own px out and the camera lands
+         somewhere arbitrary — which is what made v2's moves read as drifting. */
+      #ar-cam { position: absolute; inset: 0; transform-origin: 0 0; }
+
+      /* --- generated-markup styling (matches pptx_to_html.py's classes) --- */
+      .pp-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+      .pp-shape, .pp-text, .pp-img { position: absolute; }
+      /* The deck sets its labels in two projector greys, inline on each span —
+         which beats any class rule. Remap by value, so re-running
+         lab/tools/build_arch.py cannot quietly bring them back. */
+      .pp-text { display: flex; flex-direction: column; line-height: 1.15; color: #16181a; }
+      #ar-cam [style*="#3e4148"], #ar-cam [style*="#3e4148"] span { color: #16181a !important; }
+      /* the deck's tertiary labels go to full ink too — this film has no grey
+         type at all, and the diagram's hierarchy is carried by size */
+      #ar-cam [style*="#686a6d"], #ar-cam [style*="#686a6d"] span { color: #16181a !important; }
+      .pp-img { object-fit: contain; }
+      #ar-cam [data-part="chrome"] { display: none; }
+
+      /* Hidden start states live in CSS, never in a set() at t=0 — a seek to
+         any frame before an entrance must land on the same picture playback
+         would show. */
+      #ar-cam [data-part] { opacity: 0; }
+      #ar-title, #ar-note { opacity: 0; }
+
+      /* Wires draw on. pathLength="1" is stamped by the extractor, so the
+         reveal is one strokeDashoffset 1 → 0 tween with no DOM measuring.
+         Opacity as well as the dash: an SVG marker-end arrowhead is not
+         clipped by stroke-dasharray, so a dash-hidden wire would still park
+         its arrowhead on the canvas from frame 0. */
+      #ar-cam .pp-wires path { stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; }
+      /* …except the dark hairlines, which are detail INSIDE an icon (a robot
+         antenna, the risk dial needle). Those belong to their card. */
+      #ar-cam .pp-wires path[stroke="#3e4148"] { stroke-dasharray: none; stroke-dashoffset: 0; }
+      #ar-cam .pp-wires path.live { stroke: #533cfe; stroke-width: 4; }
+
+      #ar-title {
+        position: absolute; left: 96px; top: 86px; width: 1500px;
+        font-size: 76px; font-weight: 900; letter-spacing: -0.035em; color: #16181a;
+      }
+      #ar-title b { color: #533cfe; font-weight: 900; }
+      #ar-note {
+        position: absolute; left: 96px; top: 182px; width: 1200px;
+        font-size: 34px; font-weight: 500; color: #16181a;
+      }
+      #ar-close {
+        position: absolute; left: 96px; top: 86px; width: 1500px;
+        font-size: 76px; font-weight: 900; letter-spacing: -0.035em; color: #16181a; opacity: 0;
+      }
+      #ar-close b { color: #533cfe; font-weight: 900; }
+      #ar-close-note {
+        position: absolute; left: 96px; top: 182px; width: 1300px;
+        font-size: 34px; font-weight: 500; color: #16181a; opacity: 0;
+      }
+
+      /* The request that travels the graph. It is parked at 0,0 and moved
+         only with x/y, so its position is one transform the whole way through
+         — no left/top writes, and sub-pixel under a seek-by-frame capture. */
+      #ar-packet {
+        position: absolute; left: 0; top: 0; width: 30px; height: 30px; margin: -15px 0 0 -15px;
+        border-radius: 50%; background: #533cfe; opacity: 0;
+        box-shadow: 0 0 0 9px rgba(83,60,254,0.20), 0 0 34px 10px rgba(83,60,254,0.55);
+      }
+      /* the caption band during the trace */
+      /* The caption owns its band outright: during the trace the camera can
+         frame any part of the diagram behind it, including the tool labels. */
+      #ar-caption {
+        position: absolute; left: 76px; bottom: 66px; width: 1420px; opacity: 0;
+        padding: 26px 40px 30px 34px; border-left: 8px solid #533cfe;
+        background: #eff0e8; box-shadow: 0 0 0 18px #eff0e8, 0 26px 60px rgba(22,24,26,0.16);
+      }
+      #ar-step { font-size: 30px; font-weight: 800; color: #533cfe; }
+      #ar-line { margin-top: 8px; font-size: 62px; font-weight: 800; letter-spacing: -0.03em; color: #16181a; line-height: 1.06; }
+
+      #ar-ignite { position: absolute; inset: 0; background: #533cfe; opacity: 0; }
+    </style>
+
+    <div id="ar-bg"></div>
+    <div id="ar-root">
+      <div id="ar-title">Five agents, <b>one orchestrator</b></div>
+      <div id="ar-note">Each agent is a tool the orchestrator can call.</div>
+      <div id="ar-close">One loop. <b>Every trip.</b></div>
+      <div id="ar-close-note">Nineteen tools behind it: twelve that read, seven that write.</div>
+
+      <div id="ar-fit">
+        <div id="ar-cam">
+<!-- pptx:slide8 begin -->
+    <svg id="arch-wires" class="pp-wires" viewBox="0 0 1920 1080">
+      <defs>
+        <marker id="arch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#a9adb5" />
+        </marker>
+      </defs>
+      <path id="arch-connector-26" d="M 1546.8 717.0 L 1439.2 811.5" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-27" d="M 1546.8 717.0 L 1546.8 811.5" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-28" d="M 1546.8 717.0 L 1654.4 811.5" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-122" d="M 1479.9 620.5 L 1479.9 630.3" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#3e4148" stroke-width="1.62" fill="none" stroke-linecap="round" />
+      <path id="arch-connector-7" d="M 295.5 401.4 L 459.9 402.3" pathLength="1" data-wire="trigger>orchestrator" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path id="arch-connector-8" d="M 387.2 653.7 L 469.5 653.7" pathLength="1" data-wire="monitoring>branch" data-part="monitoring" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path id="arch-connector-10" d="M 624.1 681.3 C 542.0 681.3 624.1 541.8 542.0 541.8 C 459.9 541.8 542.0 402.3 459.9 402.3" pathLength="1" data-wire="branch>orchestrator" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path id="arch-connector-11" d="M 623.3 295.3 L 612.8 258.5" pathLength="1" data-wire="chat-model>chat-model" data-part="chat-model" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-13" d="M 750.7 250.6 L 737.5 292.6" pathLength="1" data-wire="memory>memory" data-part="memory" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-14" d="M 268.4 588.1 L 819.9 511.3" pathLength="1" data-wire="monitoring>orchestrator" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-15" d="M 820.1 511.3 L 840.1 586.5" pathLength="1" data-wire="orchestrator>planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-16" d="M 820.1 511.3 L 1224.5 589.1" pathLength="1" data-wire="orchestrator>communicator" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-38" d="M 543.2 365.1 L 543.2 380.9" pathLength="1" data-wire="chat-model>orchestrator" data-part="orchestrator" stroke="#3e4148" stroke-width="2.62" fill="none" stroke-linecap="round" />
+      <path id="arch-connector-89" d="M 206.1 621.8 L 206.1 631.6" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#3e4148" stroke-width="1.62" fill="none" stroke-linecap="round" />
+      <path id="arch-connector-17" d="M 272.5 720.5 L 164.9 815.0" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-18" d="M 272.4 720.5 L 272.4 815.0" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-19" d="M 272.4 720.5 L 380.0 815.0" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-146" d="M 380.0 874.3 L 394.4 855.8" pathLength="1" data-wire="mon-tools>mon-tools" data-part="mon-tools" stroke="#3e4148" stroke-width="3.0" fill="none" stroke-linecap="round" />
+      <path id="arch-connector-24" d="M 1224.3 723.0 L 1231.2 820.5" pathLength="1" data-wire="communicator>comm-tools" data-part="communicator" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-111" d="M 1157.4 622.8 L 1157.4 632.6" pathLength="1" data-wire="communicator>communicator" data-part="communicator" stroke="#3e4148" stroke-width="1.62" fill="none" stroke-linecap="round" />
+      <path id="arch-connector-9" d="M 624.2 631.5 C 676.8 631.5 676.8 630.9 729.3 630.9" pathLength="1" data-wire="branch>branch" data-part="branch" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path id="arch-connector-16-2" d="M 820.1 511.3 L 1550.1 583.6" pathLength="1" data-wire="orchestrator>executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-9-2" d="M 859.3 402.3 C 1132.4 402.3 1132.4 315.6 1405.5 315.6" pathLength="1" data-wire="orchestrator>outputs" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path id="arch-connector-9-3" d="M 864.4 401.2 C 1134.9 401.2 1134.9 469.3 1405.4 469.3" pathLength="1" data-wire="orchestrator>outputs" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path id="arch-connector-11-2" d="M 164.2 729.9 L 199.7 721.5" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-21" d="M 843.1 723.0 L 691.5 813.6" pathLength="1" data-wire="planner>branch" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-22" d="M 843.2 723.0 L 798.2 813.6" pathLength="1" data-wire="planner>planner" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-23" d="M 843.2 723.0 L 907.3 816.9" pathLength="1" data-wire="planner>plan-tools" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-100" d="M 776.2 623.2 L 776.2 633.0" pathLength="1" data-wire="planner>planner" data-part="planner" stroke="#3e4148" stroke-width="1.62" fill="none" stroke-linecap="round" />
+      <path id="arch-connector-11-3" d="M 727.0 729.8 L 762.5 722.2" pathLength="1" data-wire="branch>planner" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-11-4" d="M 1111.2 729.8 L 1147.7 722.2" pathLength="1" data-wire="communicator>communicator" data-part="communicator" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-11-5" d="M 1437.6 729.9 L 1473.1 719.8" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path id="arch-connector-23-2" d="M 841.1 725.7 L 1011.8 813.8" pathLength="1" data-wire="planner>planner" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+    </svg>
+    <div id="arch-abgerundetes-rechteck-62" class="pp-shape" data-part="exec-tools" style="left:1613.2px;top:816.9px;width:180.4px;height:86.7px;background:#f0f1f3;border-radius:13.9px;border:1.88px solid #dbdde3"></div>
+    <div id="arch-textbox-163" class="pp-text" data-part="exec-tools" style="left:1689.0px;top:839.4px;width:144.3px;height:39.8px;text-align:left;justify-content:flex-start;font-size:18.0px;color:#3e4148"><span>Passenger </span><span>Rights RAG</span></div>
+    <img id="arch-grafik-84" class="pp-img" data-part="exec-tools" src="assets/arch/media/image18.png" alt="" style="left:1629.3px;top:835.2px;width:49.9px;height:49.9px" />
+    <img id="arch-picture-152" class="pp-img" data-part="exec-tools" src="assets/arch/media/image19.png" alt="" style="left:1627.1px;top:834.4px;width:27.3px;height:19.0px;transform:rotate(344.11deg)" />
+    <div id="arch-fu-zeilenplatzhalter-5" class="pp-text" data-part="chrome" style="left:1587.3px;top:994.9px;width:124.9px;height:38.5px;text-align:left;justify-content:center;font-size:12px"><span>22.07.2026</span></div>
+    <div id="arch-rounded-rectangle-120" class="pp-shape" data-part="executor" style="left:1437.9px;top:587.0px;width:217.8px;height:124.8px;background:#ffffff;border-radius:20.0px;border:1.88px solid #e0e2e7"></div>
+    <div id="arch-oval-202" class="pp-shape" data-part="executor" style="left:1542.1px;top:582.3px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-oval-204" class="pp-shape" data-part="executor" style="left:1476.4px;top:614.2px;width:6.9px;height:6.9px;background:#3e4148;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-124" class="pp-shape" data-part="executor" style="left:1456.3px;top:630.3px;width:47.1px;height:35.8px;background:#3e4148;border-radius:5.7px"></div>
+    <div id="arch-oval-206" class="pp-shape" data-part="executor" style="left:1466.8px;top:640.0px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-oval-207" class="pp-shape" data-part="executor" style="left:1484.4px;top:640.0px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-127" class="pp-shape" data-part="executor" style="left:1472.1px;top:654.8px;width:15.5px;height:4.5px;background:#ffffff;border-radius:0.7px"></div>
+    <div id="arch-textbox-128" class="pp-text" data-part="executor" style="left:1516.7px;top:624.9px;width:135.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;font-weight:700;color:#3e4148"><span>Executor</span><span>Agent</span></div>
+    <div id="arch-diamond-130" class="pp-shape" data-part="executor" style="left:1538.2px;top:703.2px;width:17.1px;height:17.1px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-oval-211" class="pp-shape" data-part="exec-tools" style="left:1395.9px;top:814.2px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div id="arch-oval-212" class="pp-shape" data-part="exec-tools" style="left:1434.6px;top:809.6px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-textbox-186" class="pp-text" data-part="exec-tools" style="left:1367.1px;top:908.7px;width:144.3px;height:19.4px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>Booking</span></div>
+    <div id="arch-oval-216" class="pp-shape" data-part="exec-tools" style="left:1503.4px;top:814.2px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div id="arch-oval-217" class="pp-shape" data-part="exec-tools" style="left:1542.1px;top:809.6px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-textbox-191" class="pp-text" data-part="exec-tools" style="left:1474.7px;top:908.7px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>Reschedule</span></div>
+    <div id="arch-textbox-196" class="pp-text" data-part="exec-tools" style="left:1621.4px;top:910.7px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>Compensation</span></div>
+    <div id="arch-oval-221" class="pp-shape" data-part="exec-tools" style="left:1649.7px;top:809.6px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img id="arch-grafik-197" class="pp-img" data-part="exec-tools" src="assets/arch/media/image20.png" alt="" style="left:1526.1px;top:835.5px;width:45.9px;height:46.0px" />
+    <img id="arch-picture-29" class="pp-img" data-part="trigger" src="assets/arch/media/image21.png" alt="" style="left:144.4px;top:332.0px;width:146.9px;height:147.1px" />
+    <div id="arch-rounded-rectangle-30" class="pp-shape" data-part="trigger" style="left:181.2px;top:376.6px;width:68.2px;height:48.6px;background:#3e4148;border-radius:7.8px"></div>
+    <div id="arch-isosceles-triangle-31" class="pp-shape" data-part="trigger" style="left:187.8px;top:418.7px;width:21.0px;height:18.5px;background:#3e4148;clip-path:polygon(50% 0,100% 100%,0 100%);transform:rotate(195.0deg)"></div>
+    <div id="arch-rounded-rectangle-32" class="pp-shape" data-part="trigger" style="left:229.8px;top:406.2px;width:39.3px;height:30.2px;background:#3e4148;border-radius:4.8px;border:2.1px solid #ffffff"></div>
+    <div id="arch-oval-194" class="pp-shape" data-part="trigger" style="left:285.5px;top:399.6px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-textbox-35" class="pp-text" data-part="trigger" style="left:108.6px;top:486.8px;width:216.6px;height:53.2px;text-align:center;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span>On start of the autopilot</span></div>
+    <div id="arch-rounded-rectangle-37" class="pp-shape" data-part="orchestrator" style="left:465.9px;top:303.8px;width:393.5px;height:197.0px;background:#ffffff;border-radius:31.5px;border:1.88px solid #e0e2e7"></div>
+    <div id="arch-oval-175" class="pp-shape" data-part="orchestrator" style="left:537.6px;top:354.9px;width:11.1px;height:11.1px;background:#3e4148;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-40" class="pp-shape" data-part="orchestrator" style="left:505.2px;top:380.9px;width:76.1px;height:57.8px;background:#3e4148;border-radius:9.2px"></div>
+    <div id="arch-oval-177" class="pp-shape" data-part="orchestrator" style="left:522.3px;top:396.6px;width:13.8px;height:13.8px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-oval-178" class="pp-shape" data-part="orchestrator" style="left:550.5px;top:396.6px;width:13.8px;height:13.8px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-43" class="pp-shape" data-part="orchestrator" style="left:530.7px;top:420.2px;width:24.9px;height:7.2px;background:#ffffff;border-radius:1.2px"></div>
+    <div id="arch-textbox-44" class="pp-text" data-part="orchestrator" style="left:603.6px;top:353.5px;width:249.1px;height:77.6px;text-align:left;justify-content:flex-start;font-size:31.99px;font-weight:700;color:#3e4148"><span>Orchestrator</span><span>Agent</span></div>
+    <div id="arch-textbox-45" class="pp-text" data-part="orchestrator" style="left:601.5px;top:437.7px;width:255.8px;height:26.7px;text-align:left;justify-content:flex-start;font-size:22.0px;color:#686a6d"><span>Orchestrator · ReAct</span></div>
+    <div id="arch-rounded-rectangle-46" class="pp-shape" data-part="orchestrator" style="left:459.9px;top:391.8px;width:7.2px;height:21.0px;background:#8f939c;border-radius:1.2px"></div>
+    <div id="arch-diamond-48" class="pp-shape" data-part="memory" style="left:728.1px;top:295.4px;width:21.0px;height:21.0px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-diamond-49" class="pp-shape" data-part="chat-model" style="left:612.8px;top:295.4px;width:21.0px;height:21.0px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-diamond-50" class="pp-shape" data-part="orchestrator" style="left:809.6px;top:490.3px;width:21.0px;height:21.0px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-textbox-51" class="pp-text" data-part="chat-model" style="left:508.7px;top:275.5px;width:131.1px;height:17.0px;text-align:center;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span>Chat Model</span></div>
+    <div id="arch-textbox-52" class="pp-text" data-part="memory" style="left:709.8px;top:276.9px;width:131.1px;height:15.5px;text-align:center;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span>Memory</span></div>
+    <div id="arch-textbox-53" class="pp-text" data-part="orchestrator" style="left:737.5px;top:518.0px;width:131.1px;height:17.0px;text-align:center;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span>Tools</span></div>
+    <div id="arch-rounded-rectangle-54" class="pp-shape" data-part="branch" style="left:471.5px;top:582.8px;width:146.9px;height:147.1px;background:#ffffff;border-radius:23.5px;border:1.88px solid #e0e2e7"></div>
+    <div id="arch-rectangle-55" class="pp-shape" data-part="branch" style="left:541.7px;top:619.7px;width:6.6px;height:73.5px;background:#12a150"></div>
+    <div id="arch-pentagon-56" class="pp-shape" data-part="branch" style="left:524.0px;top:624.9px;width:45.9px;height:21.0px;background:#12a150;clip-path:polygon(0 0,72% 0,100% 50%,72% 100%,0 100%)"></div>
+    <div id="arch-pentagon-57" class="pp-shape" data-part="branch" style="left:519.9px;top:655.0px;width:45.9px;height:21.0px;background:#12a150;clip-path:polygon(0 0,72% 0,100% 50%,72% 100%,0 100%);transform:rotate(180.0deg)"></div>
+    <div id="arch-rounded-rectangle-58" class="pp-shape" data-part="branch" style="left:465.9px;top:641.4px;width:7.2px;height:21.0px;background:#8f939c;border-radius:1.2px"></div>
+    <div id="arch-oval-22" class="pp-shape" data-part="branch" style="left:612.5px;top:625.5px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-oval-23" class="pp-shape" data-part="branch" style="left:612.5px;top:675.5px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-textbox-61" class="pp-text" data-part="branch" style="left:628.8px;top:607.8px;width:59.1px;height:15.5px;text-align:left;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span>true</span></div>
+    <div id="arch-textbox-62" class="pp-text" data-part="branch" style="left:628.8px;top:689.2px;width:59.1px;height:15.5px;text-align:left;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span>false</span></div>
+    <div id="arch-textbox-63" class="pp-text" data-part="branch" style="left:410.4px;top:737.2px;width:262.4px;height:22.0px;text-align:center;justify-content:flex-start;font-size:20.0px;color:#3e4148"><span>If risk of disruption </span></div>
+    <div id="arch-textbox-68" class="pp-text" data-part="outputs" style="left:1551.6px;top:295.8px;width:187.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span>Send WhatsApp Message</span></div>
+    <img id="arch-picture-29-2" class="pp-img" data-part="outputs" src="assets/arch/media/image21.png" alt="" style="left:1408.9px;top:402.9px;width:132.4px;height:132.9px" />
+    <div id="arch-rounded-rectangle-71" class="pp-shape" data-part="outputs" style="left:1438.2px;top:443.2px;width:61.5px;height:44.0px;background:#3e4148;border-radius:7.0px"></div>
+    <div id="arch-isosceles-triangle-72" class="pp-shape" data-part="outputs" style="left:1444.2px;top:481.2px;width:18.9px;height:16.6px;background:#3e4148;clip-path:polygon(50% 0,100% 100%,0 100%);transform:rotate(195.0deg)"></div>
+    <div id="arch-rounded-rectangle-73" class="pp-shape" data-part="outputs" style="left:1482.0px;top:470.0px;width:35.4px;height:27.3px;background:#3e4148;border-radius:4.4px;border:2.1px solid #ffffff"></div>
+    <div id="arch-rounded-rectangle-74" class="pp-shape" data-part="outputs" style="left:1405.5px;top:459.9px;width:6.4px;height:19.0px;background:#8f939c;border-radius:1.0px"></div>
+    <div id="arch-textbox-75" class="pp-text" data-part="outputs" style="left:1551.6px;top:459.3px;width:175.5px;height:26.7px;text-align:left;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span>Reply in chat</span></div>
+    <div id="arch-oval-166" class="pp-shape" data-part="chat-model" style="left:544.7px;top:176.1px;width:86.7px;height:86.8px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img id="arch-picture-78" class="pp-img" data-part="chat-model" src="assets/arch/media/image22.png" alt="" style="left:563.5px;top:195.0px;width:48.9px;height:49.1px" />
+    <div id="arch-textbox-80" class="pp-text" data-part="chat-model" style="left:424.2px;top:192.9px;width:139.9px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span>LLM</span></div>
+    <div id="arch-oval-32" class="pp-shape" data-part="chat-model" style="left:608.1px;top:252.0px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-87" class="pp-shape" data-part="monitoring" style="left:164.1px;top:588.2px;width:217.8px;height:124.8px;background:#ffffff;border-radius:20.0px;border:1.88px solid #e0e2e7"></div>
+    <div id="arch-oval-156" class="pp-shape" data-part="monitoring" style="left:268.4px;top:583.5px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-oval-158" class="pp-shape" data-part="monitoring" style="left:202.6px;top:615.5px;width:6.9px;height:6.9px;background:#3e4148;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-91" class="pp-shape" data-part="monitoring" style="left:182.6px;top:631.5px;width:47.1px;height:35.8px;background:#3e4148;border-radius:5.7px"></div>
+    <div id="arch-oval-160" class="pp-shape" data-part="monitoring" style="left:193.0px;top:641.2px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-oval-161" class="pp-shape" data-part="monitoring" style="left:210.6px;top:641.2px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-94" class="pp-shape" data-part="monitoring" style="left:198.3px;top:656.0px;width:15.5px;height:4.5px;background:#ffffff;border-radius:0.7px"></div>
+    <div id="arch-textbox-95" class="pp-text" data-part="monitoring" style="left:242.9px;top:624.9px;width:135.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;font-weight:700;color:#3e4148"><span>Monitoring</span><span>Agent</span></div>
+    <div id="arch-diamond-97" class="pp-shape" data-part="monitoring" style="left:264.5px;top:704.4px;width:17.1px;height:17.1px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-oval-165" class="pp-shape" data-part="monitoring" style="left:375.3px;top:647.7px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-oval-136" class="pp-shape" data-part="mon-tools" style="left:121.5px;top:817.7px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div id="arch-oval-137" class="pp-shape" data-part="mon-tools" style="left:160.2px;top:813.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img id="arch-picture-133" class="pp-img" data-part="mon-tools" src="assets/arch/media/image19.png" alt="" style="left:142.5px;top:845.4px;width:44.5px;height:31.2px" />
+    <div id="arch-textbox-134" class="pp-text" data-part="mon-tools" style="left:92.7px;top:912.3px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>DB Live Data</span></div>
+    <div id="arch-oval-141" class="pp-shape" data-part="mon-tools" style="left:229.0px;top:817.7px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div id="arch-oval-142" class="pp-shape" data-part="mon-tools" style="left:267.8px;top:813.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-138" class="pp-shape" data-part="mon-tools" style="left:252.0px;top:868.9px;width:10.5px;height:14.4px;background:#3e4148;border-radius:1.7px"></div>
+    <div id="arch-rounded-rectangle-139" class="pp-shape" data-part="mon-tools" style="left:267.1px;top:858.4px;width:10.5px;height:24.9px;background:#3e4148;border-radius:1.7px"></div>
+    <div id="arch-rounded-rectangle-140" class="pp-shape" data-part="mon-tools" style="left:282.1px;top:847.9px;width:10.5px;height:35.4px;background:#3e4148;border-radius:1.7px"></div>
+    <div id="arch-textbox-141" class="pp-text" data-part="mon-tools" style="left:200.2px;top:912.3px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>Delay History</span></div>
+    <div id="arch-oval-148" class="pp-shape" data-part="mon-tools" style="left:336.6px;top:817.7px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div id="arch-oval-149" class="pp-shape" data-part="mon-tools" style="left:375.3px;top:813.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-block-arc-145" class="pp-shape" data-part="mon-tools" style="left:357.6px;top:840.3px;width:44.5px;height:41.7px;border-radius:50%;border:9.2px solid #3e4148;border-bottom-color:transparent;background:none"></div>
+    <div id="arch-oval-152" class="pp-shape" data-part="mon-tools" style="left:376.0px;top:870.2px;width:7.8px;height:7.9px;background:#3e4148;border-radius:50%"></div>
+    <div id="arch-textbox-148" class="pp-text" data-part="mon-tools" style="left:307.8px;top:912.3px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>Risk Model</span></div>
+    <div id="arch-rounded-rectangle-109" class="pp-shape" data-part="communicator" style="left:1115.6px;top:589.2px;width:217.8px;height:124.8px;background:#ffffff;border-radius:20.0px;border:1.88px solid #e0e2e7"></div>
+    <div id="arch-oval-114" class="pp-shape" data-part="communicator" style="left:1219.8px;top:584.5px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-oval-116" class="pp-shape" data-part="communicator" style="left:1153.9px;top:616.5px;width:6.9px;height:6.9px;background:#3e4148;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-113" class="pp-shape" data-part="communicator" style="left:1133.8px;top:632.5px;width:47.1px;height:35.8px;background:#3e4148;border-radius:5.7px"></div>
+    <div id="arch-oval-118" class="pp-shape" data-part="communicator" style="left:1144.3px;top:642.3px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-oval-119" class="pp-shape" data-part="communicator" style="left:1161.9px;top:642.3px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-116" class="pp-shape" data-part="communicator" style="left:1149.8px;top:657.0px;width:15.5px;height:4.5px;background:#ffffff;border-radius:0.7px"></div>
+    <div id="arch-textbox-117" class="pp-text" data-part="communicator" style="left:1188.2px;top:628.8px;width:135.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;font-weight:700;color:#3e4148"><span>Communi-cator Agent</span></div>
+    <div id="arch-diamond-119" class="pp-shape" data-part="communicator" style="left:1215.9px;top:705.5px;width:17.1px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-oval-123" class="pp-shape" data-part="comm-tools" style="left:1186.9px;top:816.4px;width:86.6px;height:86.8px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div id="arch-oval-124" class="pp-shape" data-part="comm-tools" style="left:1226.7px;top:811.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img id="arch-picture-175" class="pp-img" data-part="comm-tools" src="assets/arch/media/image23.png" alt="" style="left:1210.5px;top:841.3px;width:40.2px;height:37.3px" />
+    <div id="arch-textbox-176" class="pp-text" data-part="comm-tools" style="left:1164.4px;top:910.9px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>Outlook Mail</span></div>
+    <div id="arch-oval-109" class="pp-shape" data-part="memory" style="left:728.4px;top:176.1px;width:86.7px;height:86.8px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img id="arch-picture-83" class="pp-img" data-part="memory" src="assets/arch/media/image25.png" alt="" style="left:741.6px;top:205.2px;width:60.3px;height:28.7px" />
+    <div id="arch-textbox-85" class="pp-text" data-part="memory" style="left:765.6px;top:204.6px;width:209.9px;height:26.7px;text-align:center;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span>Memory</span></div>
+    <div id="arch-oval-38" class="pp-shape" data-part="memory" style="left:743.4px;top:252.8px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img id="arch-picture-29-3" class="pp-img" data-part="outputs" src="assets/arch/media/image21.png" alt="" style="left:1408.9px;top:254.4px;width:132.8px;height:132.9px" />
+    <img id="arch-picture-66" class="pp-img" data-part="outputs" src="assets/arch/media/image24.png" alt="" style="left:1434.6px;top:281.5px;width:78.4px;height:78.6px" />
+    <div id="arch-rounded-rectangle-74-2" class="pp-shape" data-part="outputs" style="left:1405.5px;top:306.1px;width:6.4px;height:19.0px;background:#8f939c;border-radius:1.0px"></div>
+    <div id="arch-oval-78" class="pp-shape" data-part="orchestrator" style="left:852.6px;top:395.4px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-oval-104" class="pp-shape" data-part="monitoring" style="left:113.7px;top:721.2px;width:59.1px;height:59.2px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img id="arch-picture-78-2" class="pp-img" data-part="monitoring" src="assets/arch/media/image22.png" alt="" style="left:126.6px;top:734.1px;width:33.3px;height:33.5px" />
+    <div id="arch-diamond-49-2" class="pp-shape" data-part="monitoring" style="left:190.9px;top:704.0px;width:17.5px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-rounded-rectangle-98" class="pp-shape" data-part="planner" style="left:734.4px;top:589.7px;width:217.8px;height:124.8px;background:#ffffff;border-radius:20.0px;border:1.88px solid #e0e2e7"></div>
+    <div id="arch-oval-45" class="pp-shape" data-part="planner" style="left:838.7px;top:585.0px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-oval-47" class="pp-shape" data-part="planner" style="left:772.8px;top:617.0px;width:6.9px;height:6.9px;background:#3e4148;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-102" class="pp-shape" data-part="planner" style="left:752.7px;top:633.0px;width:47.1px;height:35.8px;background:#3e4148;border-radius:5.7px"></div>
+    <div id="arch-oval-49" class="pp-shape" data-part="planner" style="left:763.2px;top:642.8px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-oval-50" class="pp-shape" data-part="planner" style="left:780.8px;top:642.8px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div id="arch-rounded-rectangle-105" class="pp-shape" data-part="planner" style="left:768.6px;top:657.5px;width:15.5px;height:4.5px;background:#ffffff;border-radius:0.7px"></div>
+    <div id="arch-textbox-106" class="pp-text" data-part="planner" style="left:813.0px;top:629.1px;width:135.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;font-weight:700;color:#3e4148"><span>Planner</span><span>Agent</span></div>
+    <div id="arch-diamond-108" class="pp-shape" data-part="planner" style="left:834.6px;top:705.9px;width:17.1px;height:17.1px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-oval-54" class="pp-shape" data-part="plan-tools" style="left:644.1px;top:816.9px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img id="arch-picture-152-2" class="pp-img" data-part="plan-tools" src="assets/arch/media/image19.png" alt="" style="left:665.1px;top:844.7px;width:44.5px;height:31.2px" />
+    <div id="arch-textbox-153" class="pp-text" data-part="plan-tools" style="left:615.3px;top:911.4px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>DB Reroutes</span></div>
+    <div id="arch-oval-58" class="pp-shape" data-part="plan-tools" style="left:751.7px;top:816.9px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div id="arch-oval-59" class="pp-shape" data-part="plan-tools" style="left:790.3px;top:812.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-textbox-158" class="pp-text" data-part="plan-tools" style="left:722.8px;top:911.4px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>Calendar</span></div>
+    <div id="arch-oval-63" class="pp-shape" data-part="plan-tools" style="left:683.7px;top:812.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-oval-66" class="pp-shape" data-part="plan-tools" style="left:859.3px;top:816.9px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div id="arch-oval-67" class="pp-shape" data-part="plan-tools" style="left:898.1px;top:812.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div id="arch-textbox-171" class="pp-text" data-part="plan-tools" style="left:830.6px;top:911.4px;width:144.3px;height:19.4px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>Train Alternatives</span></div>
+    <div id="arch-rounded-rectangle-67" class="pp-shape" data-part="branch" style="left:729.5px;top:620.4px;width:7.2px;height:21.0px;background:#8f939c;border-radius:1.2px"></div>
+    <img id="arch-grafik-79" class="pp-img" data-part="plan-tools" src="assets/arch/media/image20.png" alt="" style="left:771.6px;top:835.5px;width:45.9px;height:45.9px" />
+    <div id="arch-oval-99" class="pp-shape" data-part="branch" style="left:676.5px;top:721.2px;width:59.1px;height:59.2px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img id="arch-picture-78-3" class="pp-img" data-part="branch" src="assets/arch/media/image22.png" alt="" style="left:689.4px;top:734.1px;width:33.3px;height:33.5px" />
+    <div id="arch-diamond-49-3" class="pp-shape" data-part="planner" style="left:753.9px;top:704.7px;width:17.5px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-oval-94" class="pp-shape" data-part="communicator" style="left:1060.7px;top:721.2px;width:59.1px;height:59.2px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img id="arch-picture-78-4" class="pp-img" data-part="communicator" src="assets/arch/media/image22.png" alt="" style="left:1073.6px;top:734.1px;width:33.3px;height:33.5px" />
+    <div id="arch-diamond-49-4" class="pp-shape" data-part="communicator" style="left:1138.8px;top:704.7px;width:17.5px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-oval-89" class="pp-shape" data-part="executor" style="left:1387.1px;top:721.2px;width:59.1px;height:59.2px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img id="arch-picture-78-5" class="pp-img" data-part="executor" src="assets/arch/media/image22.png" alt="" style="left:1399.9px;top:734.1px;width:33.3px;height:33.5px" />
+    <div id="arch-diamond-49-5" class="pp-shape" data-part="executor" style="left:1464.4px;top:702.3px;width:17.5px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div id="arch-oval-233" class="pp-shape" data-part="plan-tools" style="left:967.7px;top:816.9px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div id="arch-textbox-171-2" class="pp-text" data-part="plan-tools" style="left:960.4px;top:911.4px;width:99.8px;height:19.4px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span>Hotels</span></div>
+    <img id="arch-grafik-240" class="pp-img" data-part="plan-tools" src="assets/arch/media/image26.svg" alt="" style="left:990.0px;top:840.3px;width:44.0px;height:45.0px" />
+    <img id="arch-grafik-247" class="pp-img" data-part="trigger" src="assets/arch/media/image27.svg" alt="" style="left:121.9px;top:377.5px;width:50.1px;height:61.5px" />
+    <img id="arch-grafik-250" class="pp-img" data-part="exec-tools" src="assets/arch/media/image28.png" alt="" style="left:1418.6px;top:837.3px;width:47.1px;height:45.9px" />
+    <div id="arch-oval-252" class="pp-shape" data-part="plan-tools" style="left:1010.4px;top:812.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img id="arch-grafik-258" class="pp-img" data-part="memory" src="assets/arch/media/image29.png" alt="" style="left:704.0px;top:284.0px;width:0.0px;height:0.0px" />
+    <img id="arch-grafik-257" class="pp-img" data-part="plan-tools" src="assets/arch/media/image30.png" alt="" style="left:880.3px;top:863.7px;width:46.0px;height:21.0px" />
+    <img id="arch-grafik-261" class="pp-img" data-part="plan-tools" src="assets/arch/media/image29.png" alt="" style="left:880.3px;top:835.5px;width:46.0px;height:29.5px" />
+      <!-- pptx:slide8 end -->
+          <div id="ar-packet"></div>
+        </div>
+      </div>
+
+      <!-- the caption sits over whatever the camera is framing, and carries an
+           opaque plate to do it; verified readable at t=92.6 and t=93.9 -->
+      <div id="ar-caption" data-layout-allow-overlap>
+        <div id="ar-step">01 trigger</div>
+        <div id="ar-line">A trip is opened.</div>
+      </div>
+    </div>
+    <div id="ar-ignite"></div>
+
+    <script>
+      (() => {
+        const BAR = 2.5263157894736843;
+        const BEAT = BAR / 4;
+        const b = (n) => (n - 28) * BAR;      // scene-local: this scene is bar 28
+
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+        const INOUT = "power2.inOut";
+        const cam = document.getElementById("ar-cam");
+        const packet = document.getElementById("ar-packet");
+
+        // Two build-time tags do all the addressing, so nothing here has to
+        // know a PowerPoint shape name:
+        //   data-part="monitoring"                  which block of the diagram
+        //   data-wire="orchestrator>communicator"   which two blocks a wire joins
+        // Selectors are assembled by concatenation, never by template literal —
+        // the HTML bundler's CSS parser chokes on interpolated selectors.
+        // the deck separates its sub-labels with a middot; this film does not
+        cam.querySelectorAll(".pp-text span").forEach((el) => {
+          if (el.textContent.indexOf("\u00b7") !== -1) {
+            el.textContent = el.textContent.replace(/\s*\u00b7\s*/g, " \u2014 ");
+          }
+        });
+
+        const part = (name) => '#ar-cam [data-part="' + name + '"]';
+        const WIRES = "#ar-cam .pp-wires path";
+
+        // ================= REVEAL · bar 28 =================================
+        // v2 assembled this diagram over five bars and the brief called it out:
+        // too long, and the beat carried none of it. So there is no build any
+        // more. The whole system arrives inside one beat, region by region in
+        // reading order, and the act gets on with what it is actually for.
+        const REGIONS = [
+          "trigger", "orchestrator", "chat-model", "memory", "branch",
+          "monitoring", "mon-tools", "planner", "plan-tools",
+          "communicator", "comm-tools", "executor", "exec-tools", "outputs",
+        ];
+        REGIONS.forEach((name, i) => {
+          tl.fromTo(part(name), { opacity: 0, scale: 0.965 },
+            { opacity: 1, scale: 1, duration: 0.30, ease: OUT }, b(28) + i * 0.024);
+        });
+        // every wire draws at once — one gesture, not fourteen
+        tl.set(WIRES, { opacity: 1 }, b(28) + 0.10);
+        tl.fromTo(WIRES, { strokeDashoffset: 1 },
+          { strokeDashoffset: 0, duration: 0.44, ease: INOUT }, b(28) + 0.10);
+
+        tl.fromTo("#ar-title", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.36, ease: OUT }, b(28));
+        tl.fromTo("#ar-note", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.32, ease: OUT }, b(28) + BEAT);
+        tl.to(["#ar-title", "#ar-note"], { opacity: 0, y: -26, duration: 0.26, ease: "power3.in" }, b(29) - 0.30);
+
+        // ================= TRACE · bars 29–35 ==============================
+        // The part of this act that earns its screen time: one real request,
+        // walked through the system a step at a time. Eight steps, three
+        // quarters of a bar each, so a caption gets ~1.9 s to be read instead
+        // of the 1.2 s v2 gave it.
+        const STEP = BAR * 0.75;
+        const at = (i) => b(29) + i * STEP;
+
+        // the stage dims so the lit path reads as the live one
+        tl.to("#ar-cam [data-part]", { opacity: 0.34, duration: 0.34, ease: INOUT }, b(29) - 0.30);
+        tl.to(WIRES, { opacity: 0.36, duration: 0.34, ease: INOUT }, b(29) - 0.30);
+
+        // ---- camera -------------------------------------------------------
+        // The frame centre is diagram point (930, 460) once #ar-fit's static
+        // reframe is accounted for. Moves are decisive — half a second on the
+        // step, then dead still while the caption is read.
+        const CX = 930, CY = 460;
+        const frame = (px, py, s, atT, dur = 0.5, ease = "power3.inOut") =>
+          tl.to("#ar-cam", { x: CX - s * px, y: CY - s * py, scale: s, duration: dur, ease: ease }, atT);
+
+        // ---- the packet ---------------------------------------------------
+        // Everything below moves ONE element, with x/y only. `cur` is an
+        // authoring-time cursor holding where the packet will be when the next
+        // instruction starts, so no step has to guess and no handover between
+        // two wires can leave a gap for it to jump across.
+        const pathFor = (w) => cam.querySelector('.pp-wires path[data-wire="' + w + '"]');
+        let cur = { x: 0, y: 0 };
+
+        const put = (pt, atT) => { tl.set("#ar-packet", { x: pt.x, y: pt.y }, atT); cur = pt; };
+
+        // a short eased link between two wire ends — always authored, never
+        // implied, so the dot slides between agents instead of teleporting
+        const glide = (to, atT, dur) => {
+          tl.fromTo("#ar-packet", { x: cur.x, y: cur.y },
+            { x: to.x, y: to.y, duration: dur, ease: "power2.inOut", immediateRender: false }, atT);
+          cur = to;
+        };
+
+        // ride one of the deck's own connector curves. `back` walks it end to
+        // start, which is how the bus wires run (the deck draws them
+        // agent → orchestrator). Path geometry is static, so this is seek-safe.
+        const ride = (w, atT, dur, back) => {
+          const path = pathFor(w);
+          if (!path) return;
+          const len = path.getTotalLength();
+          const a = path.getPointAtLength(back ? len : 0);
+          const z = path.getPointAtLength(back ? 0 : len);
+          // close any gap to this wire's head BEFORE the ride begins
+          if (Math.hypot(a.x - cur.x, a.y - cur.y) > 1.5) glide(a, atT - 0.26, 0.26);
+          const p = { t: 0 };
+          tl.to(p, {
+            t: 1, duration: dur, ease: "power1.inOut",
+            onUpdate: () => {
+              const q = path.getPointAtLength((back ? 1 - p.t : p.t) * len);
+              gsap.set(packet, { x: q.x, y: q.y });
+            },
+          }, atT);
+          tl.set(path, { attr: { class: (path.getAttribute("class") || "") + " live" } }, atT);
+          cur = z;
+        };
+
+        const lite = (name, atT, dur) => {
+          tl.to(part(name), { opacity: 1, duration: 0.22, ease: OUT }, atT);
+          tl.to(part(name), { opacity: 0.34, duration: 0.34, ease: INOUT }, atT + dur);
+        };
+
+        const stepEl = document.getElementById("ar-step");
+        const lineEl = document.getElementById("ar-line");
+        const say = (atT, step, line) => {
+          tl.to("#ar-caption", { opacity: 0, y: -12, duration: 0.14, ease: "power2.in" }, atT - 0.16);
+          tl.set(stepEl, { textContent: step }, atT);
+          tl.set(lineEl, { textContent: line }, atT);
+          tl.fromTo("#ar-caption", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.26, ease: OUT }, atT);
+        };
+
+        // the packet starts exactly ON the head of the first wire, not near it
+        // — v2 parked it at a hand-typed coordinate and it visibly jumped onto
+        // the graph as soon as the first ride took over.
+        put(pathFor("trigger>orchestrator").getPointAtLength(0), at(0) - 0.34);
+        tl.fromTo("#ar-packet", { opacity: 0, scale: 0.3 },
+          { opacity: 1, scale: 1, duration: 0.26, ease: OUT }, at(0) - 0.34);
+
+        // 01 — the trigger
+        say(at(0), "01 trigger", "A trip is opened.");
+        frame(430, 420, 1.30, at(0) - 0.34, 0.6);
+        lite("trigger", at(0), STEP * 0.8);
+        ride("trigger>orchestrator", at(0) + 0.10, STEP * 0.62);
+
+        // 02 — the orchestrator takes it and reaches for its tool bus
+        say(at(1), "02 orchestrator", "The ReAct loop picks it up.");
+        frame(690, 420, 1.42, at(1));
+        lite("orchestrator", at(1), STEP * 0.8);
+        lite("chat-model", at(1) + 0.14, STEP * 0.7);
+        lite("memory", at(1) + 0.24, STEP * 0.7);
+        glide({ x: 820.1, y: 511.3 }, at(1) + STEP * 0.42, STEP * 0.5);
+
+        // 03 — down the bus to monitoring, which reads the live board
+        say(at(2), "03 monitoring", "It reads the live board.");
+        frame(545, 545, 1.20, at(2));
+        lite("monitoring", at(2) + 0.34, STEP * 0.8);
+        lite("mon-tools", at(2) + 0.46, STEP * 0.7);
+        ride("monitoring>orchestrator", at(2), STEP * 0.66, true);
+
+        // 04 — the gate. True carries on, false goes home; both arrows are on
+        //      screen, and the dot takes the one the deck actually draws.
+        say(at(3), "04 the gate", "Risk high enough to act on?");
+        frame(455, 655, 1.46, at(3));
+        lite("branch", at(3) + 0.30, STEP * 0.8);
+        ride("monitoring>branch", at(3) + 0.34, STEP * 0.44);
+
+        // 05 — true, out of the top port, along the deck's own true arrow
+        say(at(4), "05 planner", "True. Two ways out, checked against your calendar.");
+        frame(650, 650, 1.42, at(4));
+        lite("planner", at(4) + 0.40, STEP * 0.8);
+        lite("plan-tools", at(4) + 0.52, STEP * 0.7);
+        ride("branch>branch", at(4) + 0.34, STEP * 0.44);
+
+        // 06 — back up to the orchestrator, then out to the communicator
+        say(at(5), "06 communicator", "It drafts the heads-up.");
+        frame(1020, 550, 1.24, at(5));
+        lite("communicator", at(5) + 0.50, STEP * 0.8);
+        lite("comm-tools", at(5) + 0.62, STEP * 0.7);
+        glide({ x: 820.1, y: 511.3 }, at(5) - 0.34, 0.44);
+        ride("orchestrator>communicator", at(5) + 0.16, STEP * 0.6);
+
+        // 07 — and the executor, the one that may not act on its own
+        say(at(6), "07 executor", "Nothing is booked until you say yes.");
+        frame(1190, 545, 1.16, at(6));
+        lite("executor", at(6) + 0.50, STEP * 0.8);
+        lite("exec-tools", at(6) + 0.62, STEP * 0.7);
+        ride("orchestrator>communicator", at(6) - 0.36, 0.30, true);
+        ride("orchestrator>executor", at(6) + 0.12, STEP * 0.6);
+
+        // 08 — and out to you
+        say(at(7), "08 you", "Then it books, and tells the people waiting.");
+        frame(1140, 400, 1.22, at(7));
+        lite("outputs", at(7) + 0.46, STEP * 0.5);
+        ride("orchestrator>executor", at(7) - 0.36, 0.30, true);
+        ride("orchestrator>outputs", at(7) + 0.12, STEP * 0.58);
+
+        // ================= SWELL · bar 35 ==================================
+        // Out of the close-ups, back onto the whole board, everything coming
+        // up together — the bar the track spends climbing to the second drop.
+        tl.to("#ar-caption", { opacity: 0, y: -14, duration: 0.2, ease: "power2.in" }, b(35) - 0.2);
+        tl.to("#ar-packet", { opacity: 0, duration: 0.2, ease: "power2.in" }, b(35) - 0.2);
+        frame(930, 460, 1.0, b(35), 0.8);
+        tl.to("#ar-cam [data-part]", { opacity: 0.64, duration: BAR * 0.8, ease: "power2.in" }, b(35));
+        tl.to(WIRES, { opacity: 0.6, duration: BAR * 0.8, ease: "power2.in" }, b(35));
+
+        // ================= CLOSE · bars 36–40 ==============================
+        // The second run of the graph is gone. v3 sent four dots round the
+        // diagram again here and the note was that it was a second animation
+        // of something already shown; the drop now does one thing instead —
+        // it puts the WHOLE system back on screen, undimmed, under the closing
+        // title. One ignite, one board, one line. Nothing moves except a very
+        // slow push, so the four bars read as a held statement rather than as
+        // another sequence to follow.
+        tl.fromTo("#ar-ignite", { opacity: 0 }, { opacity: 0.6, duration: 0.06, ease: "power4.in" }, b(36) - 0.06);
+        tl.to("#ar-ignite", { opacity: 0, duration: 0.3, ease: "power2.out" }, b(36));
+        tl.to("#ar-cam [data-part]", { opacity: 1, duration: 0.18, ease: OUT }, b(36));
+        tl.to(WIRES, { opacity: 1, duration: 0.18 }, b(36));
+
+        tl.fromTo("#ar-close", { opacity: 0, y: 30 },
+          { opacity: 1, y: 0, duration: 0.34, ease: OUT }, b(36));
+        tl.fromTo("#ar-close-note", { opacity: 0, y: 18 },
+          { opacity: 1, y: 0, duration: 0.3, ease: OUT }, b(36) + BEAT);
+
+        // one continuous push from the drop to the wipe, so the act is still
+        // travelling when the host takes it to night on bar 40
+        frame(930, 460, 1.10, b(36), BAR * 4, "power1.inOut");
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["arch"] = tl;
+      })();
+    </script>
+  </div>
+</template>

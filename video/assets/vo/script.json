@@ -1,0 +1,236 @@
+[
+  {
+    "i": 1,
+    "bar": 0.75,
+    "at": 1.8947368421052633,
+    "dur": 2.1973333333333334,
+    "text": "One number on a board, and the evening's gone.",
+    "file": "vo-01.wav",
+    "gain_db": 2.0
+  },
+  {
+    "i": 2,
+    "bar": 2.0,
+    "at": 5.052631578947369,
+    "dur": 3.264,
+    "text": "From there it's your problem. The queue, the hotline, the hunt for a bed.",
+    "file": "vo-02.wav",
+    "gain_db": 2.1
+  },
+  {
+    "i": 3,
+    "bar": 5.5,
+    "at": 13.894736842105265,
+    "dur": 5.269333333333333,
+    "text": "So we taught something to worry about it for you. Not a chatbot. Something that actually goes and fixes it.",
+    "file": "vo-03.wav",
+    "gain_db": 2.2
+  },
+  {
+    "i": 4,
+    "bar": 7.75,
+    "at": 19.578947368421055,
+    "dur": 4.693333333333333,
+    "text": "First it learns you. What you've booked, where you need to be, and how far it's allowed to go on its own.",
+    "file": "vo-04.wav",
+    "gain_db": 2.2
+  },
+  {
+    "i": 5,
+    "bar": 9.75,
+    "at": 24.631578947368425,
+    "dur": 2.3893333333333335,
+    "text": "You set that up once, and then you forget about it.",
+    "file": "vo-05.wav",
+    "gain_db": 1.9
+  },
+  {
+    "i": 6,
+    "bar": 11.25,
+    "at": 28.421052631578952,
+    "dur": 1.8346666666666667,
+    "text": "Then it goes quiet, and just watches.",
+    "file": "vo-06.wav",
+    "gain_db": 1.5
+  },
+  {
+    "i": 7,
+    "bar": 14.25,
+    "at": 36.00000000000001,
+    "dur": 2.7306666666666666,
+    "text": "Until a signal box outside Nuremberg gives up.",
+    "file": "vo-07.wav",
+    "gain_db": 2.3
+  },
+  {
+    "i": 8,
+    "bar": 15.75,
+    "at": 39.789473684210535,
+    "dur": 3.3706666666666667,
+    "text": "Your train's fine. Your connection isn't. And you have no idea yet.",
+    "file": "vo-08.wav",
+    "gain_db": 2.2
+  },
+  {
+    "i": 9,
+    "bar": 17.25,
+    "at": 43.578947368421055,
+    "dur": 4.330666666666667,
+    "text": "By the time you look up, it's found two ways round, and checked them against tomorrow morning.",
+    "file": "vo-09.wav",
+    "gain_db": 2.4
+  },
+  {
+    "i": 10,
+    "bar": 19.75,
+    "at": 49.89473684210527,
+    "dur": 2.1973333333333334,
+    "text": "Train, car, bike. Whatever gets you home.",
+    "file": "vo-10.wav",
+    "gain_db": 1.8
+  },
+  {
+    "i": 11,
+    "bar": 21.25,
+    "at": 53.684210526315795,
+    "dur": 2.624,
+    "text": "And here's the bit I like. It stops, and waits for you.",
+    "file": "vo-11.wav",
+    "gain_db": 1.8
+  },
+  {
+    "i": 12,
+    "bar": 23.25,
+    "at": 58.736842105263165,
+    "dur": 2.432,
+    "text": "One tap. Same ticket, new seat, nothing to pay.",
+    "file": "vo-12.wav",
+    "gain_db": 1.9
+  },
+  {
+    "i": 13,
+    "bar": 25.5,
+    "at": 64.42105263157896,
+    "dur": 2.7093333333333334,
+    "text": "You never queued. You never called. You just kept reading.",
+    "file": "vo-13.wav",
+    "gain_db": 1.7
+  },
+  {
+    "i": 14,
+    "bar": 28.25,
+    "at": 71.36842105263159,
+    "dur": 2.538666666666667,
+    "text": "So what's doing all this? Not one program. A team.",
+    "file": "vo-14.wav",
+    "gain_db": 1.9
+  },
+  {
+    "i": 15,
+    "bar": 30.25,
+    "at": 76.42105263157896,
+    "dur": 3.3066666666666666,
+    "text": "One runs the show. It doesn't do the work; it decides who should.",
+    "file": "vo-15.wav",
+    "gain_db": 2.1
+  },
+  {
+    "i": 16,
+    "bar": 32.25,
+    "at": 81.47368421052633,
+    "dur": 5.888,
+    "text": "One watches the network. One finds the way round. One writes to you. And only one ever goes near your booking.",
+    "file": "vo-16.wav",
+    "gain_db": 2.4
+  },
+  {
+    "i": 17,
+    "bar": 34.75,
+    "at": 87.78947368421053,
+    "dur": 2.3466666666666667,
+    "text": "And none of them can book anything without asking you.",
+    "file": "vo-17.wav",
+    "gain_db": 2.0
+  },
+  {
+    "i": 18,
+    "bar": 36.5,
+    "at": 92.21052631578948,
+    "dur": 2.2826666666666666,
+    "text": "And they don't take turns. All of them, at once.",
+    "file": "vo-18.wav",
+    "gain_db": 1.6
+  },
+  {
+    "i": 19,
+    "bar": 40.5,
+    "at": 102.31578947368422,
+    "dur": 2.3466666666666667,
+    "text": "You're watching it work. None of this was staged.",
+    "file": "vo-19.wav",
+    "gain_db": 1.6
+  },
+  {
+    "i": 20,
+    "bar": 41.75,
+    "at": 105.47368421052633,
+    "dur": 2.688,
+    "text": "If it ever does something you don't like, you can see why.",
+    "file": "vo-20.wav",
+    "gain_db": 1.9
+  },
+  {
+    "i": 21,
+    "bar": 46.5,
+    "at": 117.47368421052633,
+    "dur": 5.482666666666667,
+    "text": "It remembers the ones that already went wrong. Two hours late means you're owed money, and it knows the rules.",
+    "file": "vo-21.wav",
+    "gain_db": 2.4
+  },
+  {
+    "i": 22,
+    "bar": 51.25,
+    "at": 129.47368421052633,
+    "dur": 3.541333333333333,
+    "text": "Planning a new trip? What you see is what the network is doing right now.",
+    "file": "vo-22.wav",
+    "gain_db": 2.1
+  },
+  {
+    "i": 23,
+    "bar": 53.0,
+    "at": 133.8947368421053,
+    "dur": 2.517333333333333,
+    "text": "From that second on, it's not your job any more.",
+    "file": "vo-23.wav",
+    "gain_db": 2.1
+  },
+  {
+    "i": 24,
+    "bar": 54.25,
+    "at": 137.0526315789474,
+    "dur": 2.688,
+    "text": "And most days? It has nothing to tell you. That's the point.",
+    "file": "vo-24.wav",
+    "gain_db": 2.0
+  },
+  {
+    "i": 25,
+    "bar": 56.5,
+    "at": 142.73684210526318,
+    "dur": 3.328,
+    "text": "It's the least dramatic thing we built, and the one you'd miss most.",
+    "file": "vo-25.wav",
+    "gain_db": 2.1
+  },
+  {
+    "i": 26,
+    "bar": 58.25,
+    "at": 147.1578947368421,
+    "dur": 2.965333333333333,
+    "text": "All of that, on an evening you'd otherwise have spent on the phone.",
+    "file": "vo-26.wav",
+    "gain_db": 2.2
+  }
+]

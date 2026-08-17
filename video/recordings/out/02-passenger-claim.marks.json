@@ -1,0 +1,90 @@
+{
+  "take": "02-passenger-claim",
+  "durationSeconds": 132.58,
+  "marks": [
+    {
+      "t": 0,
+      "label": "START"
+    },
+    {
+      "t": 1.1,
+      "label": "welcome-screen"
+    },
+    {
+      "t": 3.02,
+      "label": "tap:lets-go"
+    },
+    {
+      "t": 6.25,
+      "label": "typed:email"
+    },
+    {
+      "t": 8.1,
+      "label": "typed:password"
+    },
+    {
+      "t": 10.22,
+      "label": "tap:sign-in"
+    },
+    {
+      "t": 11.48,
+      "label": "dashboard"
+    },
+    {
+      "t": 14.78,
+      "label": "tap:trip-return-from-frankfurt"
+    },
+    {
+      "t": 18.58,
+      "label": "trip-detail"
+    },
+    {
+      "t": 24.7,
+      "label": "trip-detail:reviewed"
+    },
+    {
+      "t": 28.31,
+      "label": "tap:ask-the-autopilot"
+    },
+    {
+      "t": 30.31,
+      "label": "chat:open"
+    },
+    {
+      "t": 99.78,
+      "label": "replied:auto-monitor"
+    },
+    {
+      "t": 99.79,
+      "label": "read:rights-answer"
+    },
+    {
+      "t": 104.72,
+      "label": "rights:answer-read"
+    },
+    {
+      "t": 106.56,
+      "label": "tap:review-complaint"
+    },
+    {
+      "t": 108.97,
+      "label": "complaint:detail"
+    },
+    {
+      "t": 120.45,
+      "label": "complaint:read"
+    },
+    {
+      "t": 122.42,
+      "label": "tap:SUBMIT-COMPLAINT"
+    },
+    {
+      "t": 125.62,
+      "label": "complaint:submitted"
+    },
+    {
+      "t": 132.17,
+      "label": "END"
+    }
+  ]
+}

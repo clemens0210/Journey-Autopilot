@@ -1,0 +1,178 @@
+<!-- IDEA 09 — the reroute, drawn on the network.
+     The one thing neither the counter nor the timeline can show is WHERE the
+     journey breaks and what the alternative costs. A schematic line map does
+     both in one shot: the booked route draws, the train runs it, the onward
+     leg dies and RETRACTS (a route being un-drawn reads as loss far better
+     than a colour change), and the replan grows out of the same junction.
+
+     Geometry is schematic, not geographic — the stations are placed for
+     legibility. Every line has pathLength="1", so drawing and retracting are
+     the same tween run in opposite directions. -->
+<template>
+  <div data-hf-id="hf-933n" data-composition-id="reroute-map" data-start="0" data-duration="12" data-width="1920" data-height="1080" style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "LabInter"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+
+      #rm-bg { position: absolute; inset: 0; background: #101215; }
+      #rm-root { position: absolute; inset: 0; font-family: "LabInter", system-ui, sans-serif; color: #f2f3ef; }
+
+      #rm-kicker { position: absolute; left: 150px; top: 132px; font-size: 21px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: #6d737b; }
+      #rm-head { position: absolute; left: 150px; top: 176px; font-size: 64px; font-weight: 800; letter-spacing: -0.03em; }
+      #rm-head b { color: #533cfe; }
+
+      #rm-map { position: absolute; inset: 0; }
+      #rm-map path { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+      .rm-booked { stroke: #4d545c; stroke-width: 9; }
+      .rm-dead { stroke: #ec0016; stroke-width: 9; }
+      .rm-alt { stroke: #533cfe; stroke-width: 9; }
+
+      /* stations */
+      .rm-stop { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: #101215; border: 5px solid #8b9199; opacity: 0; }
+      .rm-name { position: absolute; font-size: 27px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; opacity: 0; }
+
+      /* the train, riding the line */
+      #rm-train { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: #f2f3ef; box-shadow: 0 0 0 10px rgba(242, 243, 239, 0.14); opacity: 0; }
+
+      /* the verdict chips */
+      .rm-chip { position: absolute; display: flex; align-items: center; gap: 16px; padding: 18px 28px; border-radius: 14px; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; opacity: 0; }
+      #rm-chip-bad { left: 150px; top: 700px; background: rgba(236, 0, 22, 0.14); border: 2px solid #ec0016; color: #ff5f6d; }
+      #rm-chip-good { left: 150px; top: 700px; background: rgba(83, 60, 254, 0.16); border: 2px solid #533cfe; color: #b4a9ff; }
+      #rm-chip-good small { display: block; margin-top: 6px; font-size: 21px; font-weight: 500; letter-spacing: 0.04em; color: #8b9199; }
+
+      #rm-kicker, #rm-head { opacity: 0; }
+    </style>
+
+    <div data-hf-id="hf-srm6" id="rm-bg"></div>
+    <div data-hf-id="hf-t07v" id="rm-root">
+      <div data-hf-id="hf-hgyd" id="rm-kicker">Planner agent</div>
+      <div data-hf-id="hf-stz1" id="rm-head">It finds the <b data-hf-id="hf-iz6t">way around</b>.</div>
+
+      <svg data-hf-id="hf-ea92" id="rm-map" viewBox="0 0 1920 1080">
+        <!-- booked: München → Nürnberg → Erfurt → Berlin -->
+        <path data-hf-id="hf-ocz6" id="rm-leg1" class="rm-booked" d="M 1290 900 C 1250 820 1180 760 1120 700" pathLength="1" />
+        <path data-hf-id="hf-c072" id="rm-leg2" class="rm-booked" d="M 1120 700 C 1040 620 960 560 900 500" pathLength="1" />
+        <path data-hf-id="hf-xnzn" id="rm-leg3" class="rm-booked" d="M 900 500 C 1000 400 1200 340 1330 260" pathLength="1" />
+        <!-- the same onward legs again, in red, drawn over the booked ones -->
+        <path data-hf-id="hf-l9i4" id="rm-dead2" class="rm-dead" d="M 1120 700 C 1040 620 960 560 900 500" pathLength="1" />
+        <path data-hf-id="hf-al85" id="rm-dead3" class="rm-dead" d="M 900 500 C 1000 400 1200 340 1330 260" pathLength="1" />
+        <!-- the replan: Nürnberg → Leipzig → Berlin -->
+        <path data-hf-id="hf-74qs" id="rm-alt1" class="rm-alt" d="M 1120 700 C 1180 620 1250 560 1300 500" pathLength="1" />
+        <path data-hf-id="hf-b1so" id="rm-alt2" class="rm-alt" d="M 1300 500 C 1350 430 1360 330 1330 260" pathLength="1" />
+      </svg>
+
+      <div data-hf-id="hf-ehtb" class="rm-stop" id="rm-s-muc" style="left: 1290px; top: 900px"></div>
+      <div data-hf-id="hf-woh2" class="rm-name" id="rm-n-muc" style="left: 1330px; top: 884px">München Hbf</div>
+
+      <div data-hf-id="hf-i3xs" class="rm-stop" id="rm-s-nue" style="left: 1120px; top: 700px"></div>
+      <div data-hf-id="hf-1oqt" class="rm-name" id="rm-n-nue" style="left: 1160px; top: 684px">Nürnberg Hbf</div>
+
+      <div data-hf-id="hf-ujns" class="rm-stop" id="rm-s-erf" style="left: 900px; top: 500px"></div>
+      <div data-hf-id="hf-g4b6" class="rm-name" id="rm-n-erf" style="left: 700px; top: 434px">Erfurt</div>
+
+      <div data-hf-id="hf-2qp9" class="rm-stop" id="rm-s-lej" style="left: 1300px; top: 500px"></div>
+      <div data-hf-id="hf-ioyc" class="rm-name" id="rm-n-lej" style="left: 1344px; top: 484px">Leipzig</div>
+
+      <div data-hf-id="hf-bkxr" class="rm-stop" id="rm-s-ber" style="left: 1330px; top: 260px"></div>
+      <div data-hf-id="hf-vg6p" class="rm-name" id="rm-n-ber" style="left: 1374px; top: 244px">Berlin Hbf</div>
+
+      <div data-hf-id="hf-dvzj" id="rm-train"></div>
+
+      <div data-hf-id="hf-wpt6" class="rm-chip" id="rm-chip-bad">Anschluss Erfurt · gone</div>
+      <div data-hf-id="hf-ntz0" class="rm-chip" id="rm-chip-good">
+        <div data-hf-id="hf-bsju">
+          Reroute via Leipzig
+          <small data-hf-id="hf-x14t">arrives 00:38 · +38 min · ticket stays valid</small>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+        const INOUT = "power2.inOut";
+        const train = document.getElementById("rm-train");
+
+        // Ride a path by arc length — same trick scene 08 uses, so the marker
+        // sits exactly on the curve rather than on a straight approximation.
+        function ride(id, at, dur, ease) {
+          const path = document.getElementById(id);
+          const len = path.getTotalLength();
+          const p = { t: 0 };
+          tl.to(
+            p,
+            {
+              t: 1,
+              duration: dur,
+              ease: ease || "power1.inOut",
+              onUpdate: () => {
+                const pt = path.getPointAtLength(p.t * len);
+                train.style.left = pt.x + "px";
+                train.style.top = pt.y + "px";
+              },
+            },
+            at
+          );
+        }
+
+        const draw = (sel, at, dur) =>
+          tl.fromTo(sel, { strokeDashoffset: 1 }, { strokeDashoffset: 0, duration: dur, ease: INOUT }, at);
+        // retracting is the same tween, run backwards — the line is taken away
+        const retract = (sel, at, dur) =>
+          tl.fromTo(sel, { strokeDashoffset: 0 }, { strokeDashoffset: 1, duration: dur, ease: "power2.in" }, at);
+
+        tl.fromTo("#rm-kicker", { opacity: 0, x: -28 }, { opacity: 1, x: 0, duration: 0.42, ease: OUT }, 0.2);
+        tl.fromTo("#rm-head", { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.5, ease: OUT }, 0.35);
+
+        // 1 — the booked route draws itself, station by station.
+        tl.fromTo("#rm-s-muc", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.3, ease: OUT }, 0.85);
+        tl.fromTo("#rm-n-muc", { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: 0.34, ease: OUT }, 0.95);
+        draw("#rm-leg1", 1.15, 0.5);
+        tl.fromTo("#rm-s-nue", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.3, ease: OUT }, 1.6);
+        tl.fromTo("#rm-n-nue", { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: 0.34, ease: OUT }, 1.7);
+        draw("#rm-leg2", 1.85, 0.5);
+        tl.fromTo("#rm-s-erf", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.3, ease: OUT }, 2.3);
+        tl.fromTo("#rm-n-erf", { opacity: 0, x: 14 }, { opacity: 1, x: 0, duration: 0.34, ease: OUT }, 2.4);
+        draw("#rm-leg3", 2.55, 0.6);
+        tl.fromTo("#rm-s-ber", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.3, ease: OUT }, 3.1);
+        tl.fromTo("#rm-n-ber", { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: 0.34, ease: OUT }, 3.2);
+
+        // 2 — the train runs the first leg and stops dead at the junction.
+        tl.fromTo("#rm-train", { opacity: 0, scale: 0.3 }, { opacity: 1, scale: 1, duration: 0.3, ease: OUT }, 3.5);
+        ride("rm-leg1", 3.6, 1.0, "power2.inOut");
+
+        // 3 — stillness on the junction, then the onward route goes red and is
+        //     taken away. Nothing else moves while it happens.
+        tl.set("#rm-dead2", { strokeDashoffset: 0 }, 5.05);
+        tl.set("#rm-dead3", { strokeDashoffset: 0 }, 5.05);
+        retract("#rm-dead2", 5.35, 0.42);
+        retract("#rm-leg2", 5.35, 0.42);
+        retract("#rm-dead3", 5.45, 0.5);
+        retract("#rm-leg3", 5.45, 0.5);
+        tl.fromTo("#rm-s-erf", { opacity: 1 }, { opacity: 0.2, duration: 0.4, ease: INOUT }, 5.5);
+        tl.fromTo("#rm-n-erf", { opacity: 1 }, { opacity: 0.2, duration: 0.4, ease: INOUT }, 5.5);
+        tl.fromTo("#rm-chip-bad", { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.4, ease: OUT }, 5.7);
+
+        // 4 — the replan grows out of the SAME junction the old route died at.
+        tl.to("#rm-chip-bad", { opacity: 0, y: -18, duration: 0.24, ease: "power2.in" }, 6.7);
+        draw("#rm-alt1", 6.85, 0.5);
+        tl.fromTo("#rm-s-lej", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.3, ease: OUT }, 7.3);
+        tl.fromTo("#rm-n-lej", { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: 0.34, ease: OUT }, 7.4);
+        draw("#rm-alt2", 7.6, 0.6);
+
+        // 5 — and the train takes it.
+        ride("rm-alt1", 8.3, 0.75, "power2.in");
+        ride("rm-alt2", 9.05, 0.8, "power2.out");
+        tl.fromTo("#rm-s-ber", { scale: 1 }, { scale: 1.4, duration: 0.18, ease: "power2.out", yoyo: true, repeat: 1 }, 9.75);
+        tl.fromTo("#rm-chip-good", { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.44, ease: OUT }, 9.9);
+
+        tl.to("#rm-root", { x: -70, duration: 1.7, ease: "power2.in" }, 10.3);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["reroute-map"] = tl;
+      })();
+    </script>
+  </div>
+</template>

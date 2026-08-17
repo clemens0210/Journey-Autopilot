@@ -1,0 +1,130 @@
+{
+  "take": "04-demo-trip-reroute",
+  "durationSeconds": 143.4,
+  "marks": [
+    {
+      "t": 0,
+      "label": "START"
+    },
+    {
+      "t": 1.1,
+      "label": "welcome-screen"
+    },
+    {
+      "t": 3.02,
+      "label": "tap:lets-go"
+    },
+    {
+      "t": 6.25,
+      "label": "typed:email"
+    },
+    {
+      "t": 8.1,
+      "label": "typed:password"
+    },
+    {
+      "t": 10.23,
+      "label": "tap:sign-in"
+    },
+    {
+      "t": 11.51,
+      "label": "dashboard"
+    },
+    {
+      "t": 14.85,
+      "label": "tap:trip-client-meeting-berlin"
+    },
+    {
+      "t": 18.85,
+      "label": "trip-detail"
+    },
+    {
+      "t": 25.58,
+      "label": "trip-detail:missed-connection"
+    },
+    {
+      "t": 34.38,
+      "label": "tap:ask-the-autopilot"
+    },
+    {
+      "t": 36.58,
+      "label": "chat:open"
+    },
+    {
+      "t": 90.69,
+      "label": "replied:auto-monitor"
+    },
+    {
+      "t": 90.71,
+      "label": "read:monitor"
+    },
+    {
+      "t": 97.16,
+      "label": "monitor:read"
+    },
+    {
+      "t": 98.36,
+      "label": "options:seen"
+    },
+    {
+      "t": 100.65,
+      "label": "tap:choose-R1"
+    },
+    {
+      "t": 108.09,
+      "label": "replied:veto-gate"
+    },
+    {
+      "t": 108.1,
+      "label": "read:veto-gate"
+    },
+    {
+      "t": 110.41,
+      "label": "veto-gate:read"
+    },
+    {
+      "t": 112.69,
+      "label": "typed:approve-rebooking"
+    },
+    {
+      "t": 114.8,
+      "label": "send:approve-rebooking"
+    },
+    {
+      "t": 122.33,
+      "label": "replied:approve-rebooking"
+    },
+    {
+      "t": 122.33,
+      "label": "read:rebooking"
+    },
+    {
+      "t": 124.64,
+      "label": "rebooking:result"
+    },
+    {
+      "t": 126.46,
+      "label": "tap:agent-trace"
+    },
+    {
+      "t": 128.26,
+      "label": "trace:open"
+    },
+    {
+      "t": 128.28,
+      "label": "read:trace"
+    },
+    {
+      "t": 132.08,
+      "label": "trace:read"
+    },
+    {
+      "t": 141.49,
+      "label": "trace:reviewed"
+    },
+    {
+      "t": 142.99,
+      "label": "END"
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+<!-- IDEA 06 — the three-way credit, as one move.
+     Where 03–05 each give a logo its own moment, this is the version that ends
+     a film: the three marks converge onto a single optical line, the dividers
+     draw between them, and the whole bar pushes in once. Marks arrive from the
+     depth they will end at, so nothing scales through its own lockup. -->
+<template>
+  <div data-hf-id="hf-kk25" data-composition-id="logo-lockup" data-start="0" data-duration="8" data-width="1920" data-height="1080" style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "LabInter"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+
+      #lk-bg { position: absolute; inset: 0; background: #eff0e8; }
+      #lk-root { position: absolute; inset: 0; font-family: "LabInter", system-ui, sans-serif; color: #16181a; }
+
+      #lk-mark { position: absolute; left: 0; right: 0; top: 300px; text-align: center; font-size: 106px; font-weight: 900; letter-spacing: -0.045em; }
+      #lk-tag { position: absolute; left: 0; right: 0; top: 428px; text-align: center; font-size: 34px; font-weight: 500; letter-spacing: -0.01em; color: #5a5f66; }
+
+      /* one optical line at y=640; each mark is height-matched, not width-matched */
+      #lk-bar { position: absolute; left: 0; top: 560px; width: 1920px; height: 160px; }
+      #lk-bar img { position: absolute; object-fit: contain; }
+      #lk-bcgp { left: 446px; top: 34px; width: 329px; height: 92px; }
+      #lk-uzk { left: 895px; top: 25px; width: 288px; height: 110px; }
+      #lk-db { left: 1303px; top: 20px; width: 172px; height: 120px; }
+
+      .lk-sep { position: absolute; top: 30px; width: 2px; height: 100px; background: #c8cabf; transform-origin: 50% 50%; }
+      #lk-sep1 { left: 835px; }
+      #lk-sep2 { left: 1243px; }
+
+      #lk-foot { position: absolute; left: 0; right: 0; top: 806px; text-align: center; font-size: 21px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: #6f757d; }
+
+      #lk-mark, #lk-tag, #lk-foot, #lk-bar img, .lk-sep { opacity: 0; }
+    </style>
+
+    <div data-hf-id="hf-0yau" id="lk-bg"></div>
+    <div data-hf-id="hf-sprn" id="lk-root">
+      <div data-hf-id="hf-pl2b" id="lk-mark">Journey Autopilot</div>
+      <div data-hf-id="hf-30o0" id="lk-tag">Detects. Replans. Asks first.</div>
+
+      <div data-hf-id="hf-yxq2" id="lk-bar">
+        <img data-hf-id="hf-wpjs" id="lk-bcgp" src="assets/logos/bcgp/full.png" alt="BCG Platinion">
+        <div data-hf-id="hf-9otn" id="lk-sep1" class="lk-sep"></div>
+        <img data-hf-id="hf-r7yq" id="lk-uzk" src="assets/logos/unikoeln/full.png" alt="Universität zu Köln">
+        <div data-hf-id="hf-ytc0" id="lk-sep2" class="lk-sep"></div>
+        <img data-hf-id="hf-o3xq" id="lk-db" src="assets/logos/db/full.png" alt="Deutsche Bahn">
+      </div>
+
+      <div data-hf-id="hf-ppr5" id="lk-foot">Multi-agent system · Google ADK</div>
+    </div>
+
+    <script>
+      (() => {
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+
+        tl.fromTo("#lk-mark", { opacity: 0, y: 52 }, { opacity: 1, y: 0, duration: 0.56, ease: OUT }, 0.25);
+        tl.fromTo("#lk-tag", { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.48, ease: OUT }, 0.62);
+
+        // The three marks converge onto the line from the outside in, so the
+        // last thing to seat is the middle — the bar closes rather than fills.
+        tl.fromTo("#lk-bcgp", { opacity: 0, x: -110 }, { opacity: 1, x: 0, duration: 0.55, ease: "power4.out" }, 1.5);
+        tl.fromTo("#lk-db", { opacity: 0, x: 110 }, { opacity: 1, x: 0, duration: 0.55, ease: "power4.out" }, 1.62);
+        tl.fromTo("#lk-uzk", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.5, ease: "power4.out" }, 1.86);
+
+        // dividers draw from the middle out, on the frame the last mark lands
+        tl.fromTo(".lk-sep", { opacity: 1, scaleY: 0 }, { opacity: 1, scaleY: 1, duration: 0.34, ease: "power2.inOut", stagger: 0.06 }, 2.3);
+
+        tl.fromTo("#lk-foot", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.44, ease: OUT }, 2.9);
+
+        // one slow push across the hold — the shot is arriving, not waiting
+        tl.fromTo("#lk-root", { scale: 1 }, { scale: 1.035, duration: 4.2, ease: "none" }, 3.4);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["logo-lockup"] = tl;
+      })();
+    </script>
+  </div>
+</template>

@@ -1,0 +1,15 @@
+# Tool-local state — regenerated on demand, never shared
+.tts-venv/
+node_modules/
+__pycache__/
+*.pyc
+.hyperframes/
+.thumbnails/
+.waveform-cache/
+.DS_Store
+
+# Renders are large and superseded quickly, so only the shipped cut is tracked.
+# Rebuild any other with: npm run render -- -o renders/<name>.mp4
+renders/*
+!renders/journey-autopilot-v4.mp4
+lab/renders/

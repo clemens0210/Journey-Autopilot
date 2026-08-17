@@ -1,0 +1,208 @@
+<!-- SCENE 1 — bars 0–4 · the problem, on a departure board.
+     The delay is not tweened text: it is a split-flap board physically flipping
+     to +55, driven by one scalar so any seek is exact. Mechanism carried over
+     from lab/compositions/01-delay-splitflap.html; retimed onto the 95 BPM bar
+     grid, and the deck's grey label copy replaced — this film uses no grey and
+     no letter-spacing.
+
+     bar 0  station plate + the train
+     bar 1  the departure time sets
+     bar 2  the flaps start rolling
+     bar 3  they land on 55, then the consequence lands with them
+     bar 4  DROP — the host flashes to paper over the top of this -->
+<template>
+  <div data-composition-id="coldopen" data-start="0" data-duration="10.105263"
+       data-width="1920" data-height="1080"
+       style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "JA"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+      #co-bg { position: absolute; inset: 0; background: #0b0d10; }
+
+      #co-plate-wrap { position: absolute; inset: 0; overflow: hidden; opacity: 0; }
+      #co-plate { position: absolute; inset: 0; width: 1920px; height: 1080px; object-fit: cover; }
+      /* the plate never carries the frame alone — it is always under something */
+      #co-scrim {
+        position: absolute; inset: 0;
+        background: linear-gradient(100deg, #0b0d10 22%, rgba(11,13,16,0.72) 54%, rgba(11,13,16,0.34) 100%);
+      }
+
+      #co-root {
+        position: absolute; inset: 0;
+        font-family: "JA", system-ui, sans-serif; color: #f2f3ef;
+      }
+
+      #co-head { position: absolute; left: 150px; top: 176px; display: flex; align-items: center; gap: 26px; }
+      #co-badge {
+        padding: 9px 20px 8px; border: 3px solid #ec0016; border-radius: 7px;
+        font-size: 27px; font-weight: 900; color: #ec0016;
+      }
+      #co-route { font-size: 34px; font-weight: 600; text-transform: uppercase; color: #f2f3ef; opacity: 0.78; }
+
+      #co-time { position: absolute; left: 150px; top: 258px; font-size: 172px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
+      #co-time .soft { opacity: 0.42; }
+
+      #co-board { position: absolute; left: 150px; top: 482px; display: flex; align-items: flex-start; gap: 14px; opacity: 0; }
+      .co-cell {
+        position: relative; width: 148px; height: 214px; border-radius: 12px;
+        background: #1b1e23; overflow: hidden;
+        box-shadow: 0 18px 44px rgba(0,0,0,0.55);
+      }
+      .co-cell::after {
+        content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 3px;
+        margin-top: -1.5px; background: #0b0d10; z-index: 6;
+      }
+      .co-half { position: absolute; left: 0; width: 148px; height: 107px; overflow: hidden; }
+      .co-half.top { top: 0; }
+      .co-half.bot { top: 107px; }
+      .co-glyph {
+        position: absolute; left: 0; width: 148px; height: 214px;
+        font-size: 158px; font-weight: 800; letter-spacing: -0.05em;
+        display: flex; align-items: center; justify-content: center; color: #f2f3ef;
+      }
+      .co-half.top .co-glyph { top: 0; }
+      .co-half.bot .co-glyph { top: -107px; }
+      .co-leaf { position: absolute; left: 0; top: 0; width: 148px; height: 107px; transform-origin: 50% 100%; z-index: 5; }
+      .co-face { position: absolute; inset: 0; overflow: hidden; backface-visibility: hidden; background: #1b1e23; border-radius: 12px 12px 0 0; }
+      .co-face.back { transform: rotateX(180deg); border-radius: 0 0 12px 12px; }
+      .co-face.back .co-glyph { top: -107px; }
+
+      #co-plus { position: absolute; left: 92px; top: 552px; font-size: 96px; font-weight: 800; color: #ec0016; opacity: 0; }
+      #co-unit { position: absolute; left: 486px; top: 592px; font-size: 62px; font-weight: 700; letter-spacing: -0.02em; color: #f2f3ef; opacity: 0; }
+
+      #co-conseq { position: absolute; left: 150px; top: 792px; display: flex; align-items: center; gap: 22px; }
+      #co-strike { width: 0; height: 4px; background: #ec0016; }
+      #co-conn { font-size: 54px; font-weight: 700; letter-spacing: -0.02em; color: #f2f3ef; opacity: 0; }
+      #co-conn b { color: #ec0016; font-weight: 800; }
+
+      #co-note {
+        position: absolute; left: 150px; top: 884px;
+        font-size: 30px; font-weight: 500; color: #f2f3ef; opacity: 0;
+      }
+    </style>
+
+    <div id="co-bg"></div>
+    <div id="co-plate-wrap">
+      <video id="co-plate" class="clip" src="assets/plates/boards.mp4"
+             data-start="0" data-duration="8.4" data-track-index="0"
+             data-media-start="0.2" muted playsinline
+             data-color-grading='{"adjust":{"exposure":-0.18,"contrast":0.26,"highlights":-0.2,"shadows":-0.34,"blacks":-0.26,"whites":-0.08,"temperature":-0.14,"vibrance":0.1,"saturation":-0.5},"wheels":{"shadows":{"hue":252,"amount":0.2,"level":-0.05},"highlights":{"hue":10,"amount":0.08,"level":0}}}'></video>
+    </div>
+    <div id="co-scrim"></div>
+
+    <div id="co-root">
+      <div id="co-head">
+        <div id="co-badge">ICE 528</div>
+        <div id="co-route">Munich Central → Berlin Central</div>
+      </div>
+      <div id="co-time">19:10<span class="soft"> dep</span></div>
+
+      <div id="co-plus">+</div>
+      <!-- a split-flap unit is four stacked glyph layers with exactly one facing
+           the camera; the layout inspector measures DOM boxes and cannot see the
+           3D flip, so the overlap it reports here is the mechanism working -->
+      <div id="co-board" data-layout-allow-overlap data-layout-allow-overflow></div>
+      <div id="co-unit">min</div>
+
+      <div id="co-conseq">
+        <div id="co-strike"></div>
+        <div id="co-conn">Connection in Nürnberg <b>missed</b></div>
+      </div>
+      <div id="co-note">Right now, sorting that out is the passenger's job.</div>
+    </div>
+
+    <script>
+      (() => {
+        const BAR = 2.5263157894736843;
+        const BEAT = BAR / 4;
+        const b = (n) => n * BAR;
+
+        const board = document.getElementById("co-board");
+        const units = [];
+        for (let i = 0; i < 2; i++) {
+          const cell = document.createElement("div");
+          cell.className = "co-cell";
+          cell.innerHTML =
+            '<div class="co-half top"><div class="co-glyph"></div></div>' +
+            '<div class="co-half bot"><div class="co-glyph"></div></div>' +
+            '<div class="co-leaf">' +
+            '<div class="co-face front"><div class="co-glyph"></div></div>' +
+            '<div class="co-face back"><div class="co-glyph"></div></div>' +
+            "</div>";
+          board.appendChild(cell);
+          units.push({
+            top: cell.querySelector(".co-half.top .co-glyph"),
+            bot: cell.querySelector(".co-half.bot .co-glyph"),
+            leaf: cell.querySelector(".co-leaf"),
+            front: cell.querySelector(".co-face.front .co-glyph"),
+            back: cell.querySelector(".co-face.back .co-glyph"),
+          });
+        }
+
+        // One flap unit at a continuous position `v`: floor(v) is the digit on
+        // show, frac(v) is how far the leaf has fallen (0 → 1 = 0° → -180°).
+        function renderUnit(u, v) {
+          const d = Math.floor(v);
+          const f = v - d;
+          const cur = ((d % 10) + 10) % 10;
+          const next = (cur + 1) % 10;
+          u.top.textContent = f > 0 ? next : cur;
+          u.bot.textContent = cur;
+          u.front.textContent = cur;
+          u.back.textContent = next;
+          if (f <= 0.001) { u.leaf.style.opacity = "0"; return; }
+          u.leaf.style.opacity = "1";
+          u.leaf.style.transform = "rotateX(" + -180 * f + "deg)";
+          u.leaf.style.visibility = f > 0.995 ? "hidden" : "visible";
+        }
+
+        const v = { n: 0 };
+        function paint() {
+          const n = v.n;
+          // The tens flap is CARRIED by the ones flap, exactly as on a real
+          // board: it sits still until the ones is passing 9, then goes with it.
+          const carry = Math.min(1, Math.max(0, (n % 10) - 9));
+          renderUnit(units[0], Math.floor(n / 10) + carry);
+          renderUnit(units[1], n);
+        }
+        paint();
+
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+
+        // --- bar 0 · the platform, then the train ------------------------
+        tl.fromTo("#co-plate-wrap", { opacity: 0, scale: 1.16 },
+          { opacity: 1, duration: 0.9, ease: "power2.out" }, 0);
+        tl.to("#co-plate-wrap", { scale: 1.03, duration: 8.4, ease: "none" }, 0);
+        tl.fromTo("#co-head", { autoAlpha: 0, x: -44 }, { autoAlpha: 1, x: 0, duration: 0.5, ease: OUT }, b(0) + BEAT);
+        tl.fromTo("#co-route", { autoAlpha: 0 }, { autoAlpha: 0.78, duration: 0.4, ease: OUT }, b(0) + BEAT * 2);
+
+        // --- bar 1 · the departure this was supposed to be ---------------
+        tl.fromTo("#co-time", { autoAlpha: 0, y: 38 }, { autoAlpha: 1, y: 0, duration: 0.46, ease: OUT }, b(1));
+        tl.fromTo("#co-board", { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.44, ease: OUT }, b(1) + BEAT * 2);
+        tl.fromTo("#co-plus", { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.26 }, b(1) + BEAT * 2.5);
+        tl.fromTo("#co-unit", { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.26 }, b(1) + BEAT * 2.7);
+
+        // --- bar 2 → 3 · the roll. Ends exactly on bar 3. ----------------
+        tl.to(v, { n: 55, duration: BAR, ease: "power2.out", onUpdate: paint }, b(2));
+
+        // --- bar 3 · it lands, and so does what it costs -----------------
+        tl.fromTo("#co-board", { scale: 1 },
+          { scale: 1.04, duration: 0.14, ease: "power2.out", yoyo: true, repeat: 1 }, b(3));
+        tl.fromTo("#co-strike", { width: 0 }, { width: 96, duration: 0.3, ease: "power2.inOut" }, b(3) + BEAT * 1.9);
+        tl.fromTo("#co-conn", { autoAlpha: 0, x: -24 }, { autoAlpha: 1, x: 0, duration: 0.36, ease: OUT }, b(3) + BEAT * 2);
+        tl.fromTo("#co-note", { autoAlpha: 0, y: 14 }, { autoAlpha: 0.66, y: 0, duration: 0.36, ease: OUT }, b(3) + BEAT * 3);
+
+        // --- into the cut · the board is still travelling when it is taken
+        tl.to("#co-root", { x: -84, duration: 0.9, ease: "power2.in" }, b(3) + BEAT * 2.6);
+        tl.to("#co-plate-wrap", { opacity: 0.35, duration: 0.5, ease: "power2.in" }, b(3) + BEAT * 3);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["coldopen"] = tl;
+      })();
+    </script>
+  </div>
+</template>

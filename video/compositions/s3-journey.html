@@ -1,0 +1,392 @@
+<!-- SCENE 3 — bars 7–28 · one journey, front to back.
+     The iPhone enters once and stays for twenty-one bars. The headline beside
+     it swaps on the bar; the screen inside it does NOT. That is the change in
+     v4 and it is the whole point of this act now:
+
+     TWO CLIPS, NOT TWENTY
+     ---------------------
+     v3 cut a fresh one-bar fragment of the app for every headline, and the
+     note on it was exactly right — it read as twenty unrelated screenshots
+     rather than as somebody using the thing. This act now runs two continuous
+     cuts of the real takes: six bars of onboarding and twelve bars of the
+     disruption, replan and approval. Inside each one the only edits are the
+     loading spinners and the dead waiting; the order, the scrolling and the
+     pointer are the take's own. See tools/cut_media.py, which builds them from
+     range lists rather than from single in-points.
+
+     The four-flash recap that used to close the act is gone with them.
+
+     Two footage bars (13 and 26) break the rhythm so the middle never reads as
+     a feature list.
+
+     Every frame on the phone is a real run of the real system. -->
+<template>
+  <div data-composition-id="journey" data-start="0" data-duration="53.052631"
+       data-width="1920" data-height="1080"
+       style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "JA"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+      #jo-bg { position: absolute; inset: 0; background: #101215; }
+      #jo-glow {
+        position: absolute; inset: 0;
+        background:
+          radial-gradient(760px 620px at 78% 42%, rgba(83,60,254,0.20) 0%, rgba(83,60,254,0) 68%),
+          radial-gradient(680px 520px at 8% 88%, rgba(236,0,22,0.11) 0%, rgba(236,0,22,0) 70%);
+      }
+      #jo-rules { position: absolute; inset: 0; opacity: 0.5; }
+      .jo-hair { position: absolute; left: 150px; width: 1620px; height: 1px; background: #f2f3ef; opacity: 0.09; }
+
+      /* ------------------------------------------------------------------
+         iPhone 15 Pro Max. The takes were recorded at 430×932, which is this
+         device's logical resolution, so the screen is pixel-native — no
+         resampling of the UI at all.
+         ------------------------------------------------------------------ */
+      #jo-phone {
+        position: absolute; left: 1268px; top: 44px;
+        width: 474px; height: 976px;
+        opacity: 0; will-change: transform, opacity;
+      }
+      #jo-shadow {
+        position: absolute; left: 34px; top: 62px; width: 406px; height: 900px;
+        border-radius: 60px; background: #000;
+        filter: blur(56px); opacity: 0.72;
+      }
+      #jo-rail {
+        position: absolute; inset: 0; border-radius: 68px;
+        background: linear-gradient(146deg, #8f949c 0%, #4a4f56 16%, #2b2f35 34%, #6b7078 50%, #2b2f35 66%, #4a4f56 84%, #9aa0a8 100%);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22), 0 30px 70px rgba(0,0,0,0.6);
+      }
+      #jo-bezel {
+        position: absolute; left: 8px; top: 8px; width: 458px; height: 960px;
+        border-radius: 61px; background: #05070a;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07);
+      }
+      #jo-screen {
+        position: absolute; left: 22px; top: 22px; width: 430px; height: 932px;
+        border-radius: 51px; overflow: hidden; background: #0b0d10;
+      }
+      /* Screens are opaque from the moment their clip window opens and are
+         stacked by z-index in reverse slot order, so a clip whose window has
+         already opened waits UNDERNEATH the one on show. A cut therefore only
+         retires the outgoing screen — the incoming one has been decoding for
+         half a second and is already showing the right frame. Revealing them
+         instead put five to six empty frames at the head of every single cut,
+         because a <video> that has just been switched on takes about ten
+         frames to present and shows nothing at all until it does. */
+      .jo-shot {
+        position: absolute; left: 0; top: 0; width: 430px; height: 932px;
+        object-fit: cover; object-position: top center;
+      }
+      /* the island sits where the app already leaves a gap between the clock
+         and the status icons, so it covers UI chrome and never content */
+      #jo-island {
+        position: absolute; left: 50%; top: 34px; width: 108px; height: 31px;
+        margin-left: -54px; border-radius: 17px; background: #05070a;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+      }
+      #jo-island::after {
+        content: ""; position: absolute; right: 9px; top: 50%; margin-top: -4px;
+        width: 8px; height: 8px; border-radius: 50%;
+        background: radial-gradient(circle at 34% 30%, #2b3550 0%, #0a0c12 72%);
+      }
+      #jo-glare {
+        position: absolute; left: 22px; top: 22px; width: 430px; height: 932px;
+        border-radius: 51px; pointer-events: none;
+        background: linear-gradient(122deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 17%, rgba(255,255,255,0) 38%);
+      }
+      .jo-btn { position: absolute; background: linear-gradient(180deg, #7e848c, #3a3f45); border-radius: 3px; }
+      #jo-b1 { left: -3px; top: 196px; width: 4px; height: 34px; }
+      #jo-b2 { left: -3px; top: 262px; width: 4px; height: 62px; }
+      #jo-b3 { left: -3px; top: 342px; width: 4px; height: 62px; }
+      #jo-b4 { right: -3px; top: 296px; width: 4px; height: 96px; }
+
+      /* ---- the copy column ---- */
+      #jo-copy { position: absolute; left: 150px; top: 300px; width: 1010px; }
+      .jo-hl {
+        position: absolute; left: 0; top: 0; width: 1010px;
+        font-family: "JA", system-ui, sans-serif;
+        font-size: 88px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.03;
+        color: #f2f3ef; opacity: 0; will-change: transform, opacity;
+      }
+      .jo-hl em { font-style: normal; color: #ec0016; }
+      .jo-hl i { font-style: normal; color: #533cfe; }
+
+      #jo-chips { position: absolute; left: 150px; top: 640px; width: 1010px; display: flex; flex-wrap: wrap; gap: 16px; }
+      .jo-chipset { position: absolute; left: 0; top: 0; display: flex; gap: 16px; opacity: 0; }
+      .jo-chip {
+        padding: 13px 26px 12px; border-radius: 999px;
+        border: 2px solid rgba(242,243,239,0.24);
+        font-size: 30px; font-weight: 600; color: #f2f3ef;
+        white-space: nowrap;
+      }
+      .jo-chip.hot { border-color: #ec0016; color: #ec0016; }
+      .jo-chip.cool { border-color: #533cfe; color: #9d8dff; }
+      .jo-chip.gold { border-color: #fed508; color: #fed508; }
+
+      /* a progress hair that fills across the whole act — the trip, running */
+      #jo-prog { position: absolute; left: 150px; top: 962px; width: 1620px; height: 3px; background: rgba(242,243,239,0.12); }
+      #jo-prog-fill { position: absolute; left: 0; top: 0; height: 3px; width: 0; background: #533cfe; }
+
+      /* ---- full-frame footage bars ---- */
+      .jo-plate-wrap { position: absolute; inset: 0; overflow: hidden; opacity: 0; }
+      .jo-plate { position: absolute; inset: 0; width: 1920px; height: 1080px; object-fit: cover; }
+      .jo-plate-scrim {
+        position: absolute; inset: 0; opacity: 0;
+        background: linear-gradient(180deg, rgba(11,13,16,0.5) 0%, rgba(11,13,16,0.1) 40%, rgba(11,13,16,0.86) 100%);
+      }
+      .jo-plate-line {
+        position: absolute; left: 150px; bottom: 176px; width: 1400px;
+        font-family: "JA", system-ui, sans-serif;
+        font-size: 74px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.08;
+        color: #f2f3ef; opacity: 0;
+      }
+      .jo-plate-line span { color: #fed508; }
+      #jo-redpulse { position: absolute; inset: 0; background: #ec0016; opacity: 0; }
+
+      /* ---- the section label ----
+             It names the capability on screen and lands a few frames before
+             the block it belongs to. A full beat's lead read as the label
+             arriving during the PREVIOUS block, which is what "the section
+             titles come half a second too early" was describing. It sits above
+             the footage plates in DOM order on purpose. */
+      #jo-sec { position: absolute; left: 150px; top: 196px; display: flex; align-items: center; gap: 22px; opacity: 0; }
+      #jo-sec-bar { width: 8px; height: 46px; background: #533cfe; transform-origin: 50% 50%; }
+      #jo-sec-name { font-size: 44px; font-weight: 800; letter-spacing: -0.02em; color: #9d8dff; white-space: nowrap; }
+    </style>
+
+    <div id="jo-bg"></div>
+    <div id="jo-glow"></div>
+    <div id="jo-rules">
+      <div class="jo-hair" style="top: 118px"></div>
+      <div class="jo-hair" style="top: 962px"></div>
+    </div>
+
+    <div id="jo-prog"><div id="jo-prog-fill"></div></div>
+
+    <!-- ================= the phone ================= -->
+    <div id="jo-phone">
+      <div id="jo-shadow"></div>
+      <div id="jo-rail"></div>
+      <div class="jo-btn" id="jo-b1"></div>
+      <div class="jo-btn" id="jo-b2"></div>
+      <div class="jo-btn" id="jo-b3"></div>
+      <div class="jo-btn" id="jo-b4"></div>
+      <div id="jo-bezel"></div>
+      <div id="jo-screen">
+        <!-- Two clips for twenty-one bars. The second window opens 0.5 s
+             before its block and the element is opaque from the moment it
+             opens; z-index descends with slot order, so it waits UNDERNEATH
+             the first and the timeline only ever retires the outgoing one. -->
+        <img id="jo-poster" class="jo-shot" src="assets/screens/poster-journey.png" alt="" style="z-index: 0" />
+        <video id="sh-setup" class="jo-shot clip" src="assets/screens/seg-setup.mp4" style="z-index: 20" data-start="0.000000" data-duration="15.157895" data-media-start="0.000000" data-track-index="2" muted playsinline></video>
+        <video id="sh-main" class="jo-shot clip" src="assets/screens/seg-journey.mp4" style="z-index: 19" data-start="17.184211" data-duration="35.868421" data-media-start="0.000000" data-track-index="3" muted playsinline></video>
+      </div>
+      <div id="jo-island"></div>
+      <div id="jo-glare"></div>
+    </div>
+
+    <!-- ================= the copy ================= -->
+    <div id="jo-copy">
+      <div class="jo-hl" id="h1">It starts with your <em>DB account</em>.</div>
+      <div class="jo-hl" id="h2">And your personal <i>Outlook calendar</i>.</div>
+      <div class="jo-hl" id="h3">How you like to travel.</div>
+      <div class="jo-hl" id="h4">And how far it may go alone.</div>
+      <div class="jo-hl" id="h5">Then it takes over.</div>
+      <div class="jo-hl" id="h6"><em>Something breaks.</em></div>
+      <div class="jo-hl" id="h7">It sees it before you do.</div>
+      <div class="jo-hl" id="h8">On DB's own punctuality record.</div>
+      <div class="jo-hl" id="h9">Two ways out.</div>
+      <div class="jo-hl" id="h10">Both priced. Both timed.</div>
+      <div class="jo-hl" id="h11">Checked against your meetings.</div>
+      <div class="jo-hl" id="h12">Trains. Cars. Bikes.</div>
+      <div class="jo-hl" id="h13">Then it <i>asks</i>.</div>
+      <div class="jo-hl" id="h14">Nothing is booked before you say so.</div>
+      <div class="jo-hl" id="h15">Rebooked.</div>
+      <div class="jo-hl" id="h17">That was one trip.</div>
+    </div>
+
+    <div id="jo-chips">
+      <div class="jo-chipset" id="c1"><div class="jo-chip">BahnCard 50</div><div class="jo-chip">3 trips imported</div></div>
+      <div class="jo-chipset" id="c2"><div class="jo-chip">4 appointments</div><div class="jo-chip hot">2 hard deadlines</div></div>
+      <div class="jo-chipset" id="c3"><div class="jo-chip">1st class</div><div class="jo-chip">Quiet zone</div><div class="jo-chip">Window</div></div>
+      <div class="jo-chipset" id="c4"><div class="jo-chip cool">Approve every action</div></div>
+      <div class="jo-chipset" id="c5"><div class="jo-chip">3 trips, monitored live</div></div>
+      <div class="jo-chipset" id="c6"><div class="jo-chip hot">Signal box malfunction, Nuremberg</div></div>
+      <div class="jo-chipset" id="c7"><div class="jo-chip hot">+55 min</div><div class="jo-chip hot">43 min short</div></div>
+      <div class="jo-chipset" id="c8"><div class="jo-chip">85 % confidence</div></div>
+      <div class="jo-chipset" id="c10"><div class="jo-chip cool">+86 min</div><div class="jo-chip cool">+107 min</div><div class="jo-chip">No added cost</div></div>
+      <div class="jo-chipset" id="c11"><div class="jo-chip cool">No calendar clash</div></div>
+      <div class="jo-chipset" id="c12"><div class="jo-chip">Car-sharing</div><div class="jo-chip">E-bike</div><div class="jo-chip">Taxi</div></div>
+      <div class="jo-chipset" id="c15"><div class="jo-chip gold">€ 0.00 extra</div><div class="jo-chip">Ticket still valid</div></div>
+    </div>
+
+    <!-- ================= footage bars ================= -->
+    <div class="jo-plate-wrap" id="p13a">
+      <video class="jo-plate clip" id="pv13a" src="assets/plates/board-clock.mp4"
+             data-start="15.157895" data-duration="1.263158" data-media-start="0.4" data-track-index="4" muted playsinline
+             data-color-grading='{"adjust":{"exposure":-0.12,"contrast":0.3,"highlights":-0.18,"shadows":-0.34,"blacks":-0.26,"temperature":-0.1,"vibrance":0.14,"saturation":-0.34},"wheels":{"shadows":{"hue":252,"amount":0.16,"level":-0.05},"highlights":{"hue":2,"amount":0.14,"level":0}}}'></video>
+    </div>
+    <div class="jo-plate-wrap" id="p13b">
+      <video class="jo-plate clip" id="pv13b" src="assets/plates/commuters.mp4"
+             data-start="16.421053" data-duration="1.263158" data-media-start="0.5" data-track-index="4" muted playsinline
+             data-color-grading='{"adjust":{"exposure":-0.14,"contrast":0.32,"highlights":-0.2,"shadows":-0.36,"blacks":-0.28,"temperature":-0.1,"vibrance":0.14,"saturation":-0.34},"wheels":{"shadows":{"hue":252,"amount":0.16,"level":-0.05},"highlights":{"hue":2,"amount":0.14,"level":0}}}'></video>
+    </div>
+    <!-- bar 26 · the payoff. A quiet train interior, not a road: the line is
+         about the time the passenger did NOT spend sorting this out, and the
+         night-traffic plate that used to sit here read as "driving", which is
+         the one thing this reroute is not. -->
+    <div class="jo-plate-wrap" id="p26">
+      <video class="jo-plate clip" id="pv26" src="assets/plates/seats.mp4"
+             data-start="47.500000" data-duration="2.526315" data-media-start="0.8" data-track-index="4" muted playsinline
+             data-color-grading='{"adjust":{"exposure":-0.1,"contrast":0.26,"highlights":-0.16,"shadows":-0.3,"blacks":-0.24,"temperature":-0.14,"vibrance":0.16,"saturation":-0.36},"wheels":{"shadows":{"hue":252,"amount":0.2,"level":-0.04},"highlights":{"hue":10,"amount":0.08,"level":0}}}'></video>
+    </div>
+    <div class="jo-plate-scrim" id="ps26"></div>
+    <div class="jo-plate-line" id="pl26">55 minutes lost.<br /><span>Not your issue.</span></div>
+    <div id="jo-redpulse"></div>
+
+    <div id="jo-sec"><div id="jo-sec-bar"></div><div id="jo-sec-name">Setup</div></div>
+
+    <script>
+      (() => {
+        const BAR = 2.5263157894736843;
+        const BEAT = BAR / 4;
+        const b = (n) => (n - 7) * BAR; // scene-local: this scene starts at bar 7
+
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+        const IN = "power3.in";
+
+        // ---- the phone arrives on bar 7, moving the way the train was ------
+        tl.fromTo("#jo-phone",
+          { opacity: 0, x: 190, rotationY: -13, scale: 0.94, transformPerspective: 1400 },
+          { opacity: 1, x: 0, rotationY: 0, scale: 1, duration: 0.52, ease: "power4.out" }, b(7) - 0.16);
+
+        // ---- the trip, running underneath the whole act --------------------
+        tl.fromTo("#jo-prog-fill", { width: 0 }, { width: 1620, duration: BAR * 20, ease: "none" }, b(7));
+
+        // ---- which screen is on the phone ----------------------------------
+        // Two retirements in twenty-one bars. Nothing is ever revealed here; a
+        // screen is only ever retired, and the one underneath it — already
+        // open, already decoded — becomes the picture on the same frame.
+        tl.set("#sh-setup", { opacity: 0 }, b(13));
+        // the still under the first clip, for the ten frames it needs to present
+        tl.set("#jo-poster", { opacity: 0 }, b(7) + 0.6);
+
+        // ---- the section label ---------------------------------------------
+        const LEAD = 0.13;
+        const secName = document.getElementById("jo-sec-name");
+        const sect = (n, name) => {
+          const t = Math.max(0.02, b(n) - LEAD);
+          tl.to("#jo-sec", { opacity: 0, x: -20, duration: 0.14, ease: IN }, t - 0.18);
+          tl.set(secName, { textContent: name }, t);
+          tl.fromTo("#jo-sec-bar", { scaleY: 0 }, { scaleY: 1, duration: 0.24, ease: "power4.out" }, t);
+          tl.fromTo("#jo-sec", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.26, ease: OUT }, t);
+        };
+        const unsect = (at) => tl.to("#jo-sec", { opacity: 0, x: -20, duration: 0.16, ease: IN }, at);
+
+        sect(7, "Setup");
+        unsect(b(13) - 0.24);
+        sect(14, "Disruption");
+        sect(17, "Replanning");
+        sect(21, "Your call");
+        sect(25, "Rebooked");
+        unsect(b(26) - 0.24);
+
+        // ---- headline + chips ----------------------------------------------
+        // in on the bar, out a beat before the next card.
+        //
+        // Three cards hold two bars each rather than one, and each of them is
+        // matched to what the recording beside it is doing: the Outlook step
+        // (the brief asked for it explicitly), and then the two bars where the
+        // autopilot stops and asks and the two where it asks again before it
+        // writes. Those four bars are the film's whole argument, and in v3 they
+        // went past in one.
+        const SHOTS = [
+          [7,  "#h1",  "#c1",  1],
+          [8,  "#h2",  "#c2",  2],
+          [10, "#h3",  "#c3",  1],
+          [11, "#h4",  "#c4",  1],
+          [12, "#h5",  "#c5",  1],
+          [14, "#h6",  "#c6",  1],
+          [15, "#h7",  "#c7",  1],
+          [16, "#h8",  "#c8",  1],
+          [17, "#h9",  null,   1],
+          [18, "#h10", "#c10", 1],
+          [19, "#h11", "#c11", 1],
+          [20, "#h12", "#c12", 1],
+          [21, "#h13", null,   2],
+          [23, "#h14", null,   2],
+          [25, "#h15", "#c15", 1],
+        ];
+        SHOTS.forEach(([n, hl, chip, bars]) => {
+          const at = b(n);
+          const end = at + BAR * bars - 0.24;
+          tl.fromTo(hl,
+            { opacity: 0, y: 46, filter: "blur(12px)" },
+            { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.34, ease: OUT }, at);
+          tl.to(hl, { opacity: 0, y: -34, filter: "blur(10px)", duration: 0.2, ease: IN }, end);
+          if (chip) {
+            tl.fromTo(chip, { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.28, ease: OUT }, at + BEAT * 0.55);
+            tl.to(chip, { opacity: 0, y: -18, duration: 0.18, ease: IN }, end);
+          }
+        });
+
+        // ---- the phone reacts to the copy rather than sitting inert --------
+        // One small settle per card — NOT per bar. The screen inside no longer
+        // cuts, so a settle on a bar with no card on it would be a move with
+        // nothing behind it.
+        SHOTS.forEach(([n]) => {
+          if (n === 7) return;
+          const k = n === 14 ? 1.0 : 0.36;
+          tl.fromTo("#jo-phone", { y: 0 },
+            { y: -9 * k, duration: 0.13, ease: "power2.out", yoyo: true, repeat: 1 }, b(n));
+        });
+
+        // ---- bar 13 · the trip goes wrong. Two half-bar cuts and a red frame
+        tl.to("#jo-phone", { opacity: 0, x: -150, scale: 0.96, duration: 0.22, ease: IN }, b(13) - 0.22);
+        tl.fromTo("#p13a", { opacity: 0, scale: 1.1 }, { opacity: 1, scale: 1.02, duration: 0.08, ease: OUT }, b(13));
+        tl.to("#p13a", { opacity: 0, duration: 0.1 }, b(13) + BEAT * 2 - 0.1);
+        tl.fromTo("#p13b", { opacity: 0, scale: 1.14, x: 70 }, { opacity: 1, scale: 1.02, x: 0, duration: 0.18, ease: OUT }, b(13) + BEAT * 2);
+        tl.to("#p13b", { opacity: 0, duration: 0.1 }, b(14) - 0.1);
+        // one frame of red, ON the downbeat — a ramp put the biggest visual
+        // change two frames early, which is exactly what reads as off-beat
+        tl.set("#jo-redpulse", { opacity: 0.52 }, b(14));
+        tl.to("#jo-redpulse", { opacity: 0, duration: 0.22, ease: "power2.out" }, b(14) + 0.033);
+
+        // ---- bar 14 · the phone comes back, hard --------------------------
+        tl.fromTo("#jo-phone",
+          { opacity: 0, x: 120, scale: 1.06 },
+          { opacity: 1, x: 0, scale: 1, duration: 0.16, ease: "power4.out" }, b(14));
+
+        // ---- bar 26 · the payoff, on footage ------------------------------
+        tl.to("#jo-phone", { opacity: 0, x: -140, scale: 0.95, duration: 0.22, ease: IN }, b(26) - 0.22);
+        tl.fromTo("#p26", { opacity: 0, scale: 1.08 }, { opacity: 1, scale: 1, duration: 0.1, ease: OUT }, b(26));
+        tl.to("#p26", { scale: 1.06, duration: 2.3, ease: "none" }, b(26) + 0.3);
+        tl.fromTo("#ps26", { opacity: 0 }, { opacity: 1, duration: 0.1 }, b(26));
+        tl.fromTo("#pl26", { opacity: 0, y: 32 }, { opacity: 1, y: 0, duration: 0.32, ease: OUT }, b(26) + BEAT * 0.6);
+        tl.to(["#p26", "#ps26", "#pl26"], { opacity: 0, duration: 0.14, ease: IN }, b(27) - 0.14);
+
+        // ---- bar 27 · it steps back, and says what that was ----------------
+        tl.fromTo("#jo-phone",
+          { opacity: 0, scale: 1.06, x: 60 },
+          { opacity: 1, scale: 0.8, x: 96, y: 24, duration: 0.46, ease: "power3.out" }, b(27));
+        tl.fromTo("#h17",
+          { opacity: 0, y: 44, filter: "blur(12px)" },
+          { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.4, ease: OUT }, b(27) + BEAT * 0.5);
+        tl.to("#jo-prog-fill", { opacity: 0.35, duration: 0.4 }, b(27));
+
+        // No exit here. The host's paper wipe covers the frame on bar 28, so
+        // this act plays right up to the cut — emptying it out beforehand left
+        // three black frames of nothing, which is what made that seam read as
+        // broken rather than as a transition.
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["journey"] = tl;
+      })();
+    </script>
+  </div>
+</template>

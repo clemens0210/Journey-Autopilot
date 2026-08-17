@@ -1,0 +1,84 @@
+--- auto-monitor @90.7s ---
+Risk: HIGH
+Your train ICE 528 from Munich Hbf to Berlin Hbf is currently EN ROUTE but the trip is broken – a transfer in Nuremberg has been missed. The live forecast shows a 55 minute delay and the delay is still rising.
+
+What this means for you
+
+Your original arrival time (00:23) can no longer be met.
+Because the delay exceeds 60 minutes, the train‑binding on your 2nd‑class ticket is lifted: you can travel on any of the alternative connections without paying extra.
+The earliest you can board a new service from Nuremberg Hbf is 22:18.
+
+Reroute proposals
+
+R1 – Direct ICE (recommended)
+
+Departure: 22:44 from Nuremberg Hbf
+Arrival: 01:49 at Berlin Hbf
+Transfers: 0
+Added delay: ~86 min
+Cost: no extra charge (your ticket remains valid)
+
+R2 – ICE via Leipzig
+
+Departure: 22:37 from Nuremberg Hbf
+Arrival: 02:10 at Berlin Hbf (after a 13‑minute change in Leipzig)
+Transfers: 1
+Added delay: ~107 min
+Cost: no extra charge
+
+Both options respect your profile limits (max 2 transfers) and are free to re‑book with your existing ticket.
+
+Next step
+Please choose one of the options above by replying with its ID (R1 or R2). I will then confirm the details and, after your approval, proceed with the re‑booking.
+
+R1
+Recommended
+Demo fallback
+ICE 1002
+22:44 → 01:49
+0 changes
++86 min
+No added cost
+22:44
+Nuremberg Hbf
+ICE 1002
+01:49
+Berlin Hbf
+R2
+Demo fallback
+ICE 1704 → ICE 808
+22:37 → 02:10
+1 change
++107 min
+No added cost
+22:37
+Nuremberg Hbf
+ICE 1704
+00:42
+Leipzig Hbf
+13 min transfer · dep 00:55
+ICE 808
+02:10
+Berlin Hbf
+Agent trace (20)
+
+--- veto-gate @108.1s ---
+The executor is ready to book the reroute you selected (option R1).
+
+Please confirm that you’d like me to go ahead and secure this direct ICE connection from Nuremberg → Berlin.
+
+Agent trace (4)
+
+VETO GATE (ok=true): The executor is ready to book the reroute you selected (option R1).
+
+Please confirm that you’d like me to go ahead and secure this direct ICE connection from Nuremberg → Berlin.
+
+Agent trace (4)
+--- approve-rebooking @122.3s ---
+Your reroute is now confirmed. You’ve been booked onto the direct ICE R1 from Nuremberg Hbf to Berlin Hbf (departure 22:44, arrival 01:49). No extra charge applies. Safe travels!
+
+Agent trace (4)
+
+AFTER APPROVAL (ok=true): Your reroute is now confirmed. You’ve been booked onto the direct ICE R1 from Nuremberg Hbf to Berlin Hbf (departure 22:44, arrival 01:49). No extra charge applies. Safe travels!
+
+Agent trace (4)

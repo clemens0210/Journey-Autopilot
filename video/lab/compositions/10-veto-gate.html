@@ -1,0 +1,149 @@
+<!-- IDEA 10 — the veto gate, which is the whole promise of the product.
+     The system has done the work; the last frame before it acts is a question.
+     Built as cursor-led action: the message types, the two buttons arrive, an
+     oversized cursor walks in from off-frame and CLICKS — and the click is what
+     ignites everything after it (button squash → confirmation → receipt).
+     Nothing here breathes while it waits; the cursor's travel is the motion. -->
+<template>
+  <div data-hf-id="hf-nsa9" data-composition-id="veto-gate" data-start="0" data-duration="11" data-width="1920" data-height="1080" style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "LabInter"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+
+      #vg-bg { position: absolute; inset: 0; background: #101215; }
+      #vg-root { position: absolute; inset: 0; font-family: "LabInter", system-ui, sans-serif; color: #f2f3ef; }
+
+      #vg-kicker { position: absolute; left: 150px; top: 150px; font-size: 21px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: #6d737b; }
+      #vg-head { position: absolute; left: 150px; top: 194px; font-size: 64px; font-weight: 800; letter-spacing: -0.03em; }
+      #vg-head b { color: #533cfe; }
+
+      /* the conversation */
+      #vg-thread { position: absolute; left: 150px; top: 356px; width: 1080px; }
+      .vg-bubble {
+        position: relative; padding: 30px 36px; border-radius: 22px 22px 22px 6px;
+        background: #1b1e23; font-size: 34px; font-weight: 500; line-height: 1.34; opacity: 0;
+      }
+      .vg-bubble b { font-weight: 800; }
+      #vg-b1 { width: 1080px; }
+      #vg-plan { margin-top: 22px; padding: 26px 32px; border-radius: 18px; background: #16181a; border: 2px solid #2b2f34; opacity: 0; }
+      .vg-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 26px; font-weight: 600; padding: 9px 0; color: #b9bec5; }
+      .vg-row span:last-child { color: #f2f3ef; font-weight: 700; }
+      .vg-row + .vg-row { border-top: 1px solid #24282d; }
+
+      /* the two answers */
+      #vg-actions { position: absolute; left: 150px; top: 780px; display: flex; gap: 24px; }
+      .vg-btn {
+        padding: 26px 46px; border-radius: 16px; font-size: 32px; font-weight: 800;
+        letter-spacing: -0.01em; opacity: 0;
+      }
+      #vg-yes { background: #533cfe; color: #fff; }
+      #vg-no { background: #1b1e23; color: #b9bec5; border: 2px solid #2b2f34; }
+
+      /* the receipt the click produces */
+      #vg-done { position: absolute; left: 150px; top: 780px; display: flex; align-items: center; gap: 22px; opacity: 0; }
+      #vg-done-tick {
+        width: 66px; height: 66px; border-radius: 50%; background: #12a150;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 36px; font-weight: 800; color: #fff;
+      }
+      #vg-done-text { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; }
+      #vg-done-text small { display: block; margin-top: 6px; font-size: 24px; font-weight: 500; letter-spacing: 0.03em; color: #8b9199; }
+
+      /* house-style oversized cursor: it enters from off-frame, never fades in */
+      #vg-cursor { position: absolute; left: 0; top: 0; width: 74px; height: 74px; }
+      #vg-cursor svg { width: 74px; height: 74px; display: block; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.55)); }
+
+      #vg-kicker, #vg-head { opacity: 0; }
+    </style>
+
+    <div data-hf-id="hf-wx9g" id="vg-bg"></div>
+    <div data-hf-id="hf-ek65" id="vg-root">
+      <div data-hf-id="hf-mj86" id="vg-kicker">Every write asks first</div>
+      <div data-hf-id="hf-sgio" id="vg-head">It plans. <b data-hf-id="hf-8axq">You decide.</b></div>
+
+      <div data-hf-id="hf-rlyx" id="vg-thread">
+        <div data-hf-id="hf-q7s5" id="vg-b1" class="vg-bubble">
+          Your Nürnberg connection is gone. I found a reroute via Leipzig —
+          <b data-hf-id="hf-kq08">shall I rebook it?</b>
+        </div>
+        <div data-hf-id="hf-zrp8" id="vg-plan">
+          <div data-hf-id="hf-5udi" class="vg-row"><span data-hf-id="hf-k7fg">New route</span><span data-hf-id="hf-km5p">ICE 1704 · via Leipzig</span></div>
+          <div data-hf-id="hf-m68a" class="vg-row"><span data-hf-id="hf-io56">Arrival Berlin Hbf</span><span data-hf-id="hf-t4vt">00:38 · +38 min</span></div>
+          <div data-hf-id="hf-mkjb" class="vg-row"><span data-hf-id="hf-pnn2">Extra cost</span><span data-hf-id="hf-9nsw">€0 · ticket stays valid</span></div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-ppwq" id="vg-actions">
+        <div data-hf-id="hf-boiu" id="vg-yes" class="vg-btn">Yes, rebook</div>
+        <div data-hf-id="hf-j1j0" id="vg-no" class="vg-btn">No, leave it</div>
+      </div>
+
+      <div data-hf-id="hf-wg5h" id="vg-done">
+        <div data-hf-id="hf-tot2" id="vg-done-tick">✓</div>
+        <div data-hf-id="hf-gdsc" id="vg-done-text">
+          Rebooked.
+          <small data-hf-id="hf-cniz">Ticket in your wallet · calendar updated</small>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-z9z7" id="vg-cursor">
+        <svg data-hf-id="hf-cku8" viewBox="0 0 24 24" aria-hidden="true">
+          <path data-hf-id="hf-wuof" d="M4.2 2.4 L18.6 12.1 L11.9 12.7 L15.4 19.9 L12.6 21.2 L9.1 14.1 L4.2 18.3 Z" fill="#fff" stroke="#101215" stroke-width="1.3" stroke-linejoin="round" />
+        </svg>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+
+        tl.fromTo("#vg-kicker", { opacity: 0, x: -28 }, { opacity: 1, x: 0, duration: 0.42, ease: OUT }, 0.2);
+        tl.fromTo("#vg-head", { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.5, ease: OUT }, 0.35);
+
+        // 1 — the question, then the plan it is asking about.
+        tl.fromTo("#vg-b1", { opacity: 0, y: 30, scale: 0.985 }, { opacity: 1, y: 0, scale: 1, duration: 0.46, ease: OUT }, 0.95);
+        tl.fromTo("#vg-plan", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.44, ease: OUT }, 1.5);
+        tl.fromTo(".vg-row", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.34, ease: OUT, stagger: 0.12 }, 1.7);
+
+        // 2 — both answers arrive together. The gate is real: refusing has to
+        //     look exactly as available as agreeing.
+        tl.fromTo("#vg-yes", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: OUT }, 2.6);
+        tl.fromTo("#vg-no", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: OUT }, 2.72);
+
+        // 3 — the cursor walks in from off-frame bottom-right. Its travel IS
+        //     the scene's motion for these two seconds; nothing else moves.
+        //     Tip lands on the "Yes, rebook" button, not on its own top-left.
+        tl.fromTo(
+          "#vg-cursor",
+          { x: 2120, y: 1180 },
+          { x: 1010, y: 940, duration: 1.15, ease: "power2.inOut" },
+          3.4
+        );
+        tl.to("#vg-cursor", { x: 268, y: 802, duration: 0.85, ease: "power2.inOut" }, 4.55);
+
+        // 4 — the click, and everything after it is caused by the click.
+        tl.to("#vg-cursor", { scale: 0.86, duration: 0.09, ease: "power2.out" }, 5.5);
+        tl.to("#vg-cursor", { scale: 1, duration: 0.16, ease: "power2.out" }, 5.59);
+        tl.to("#vg-yes", { scale: 0.94, duration: 0.09, ease: "power2.out" }, 5.5);
+        tl.to("#vg-yes", { scale: 1, duration: 0.2, ease: "power2.out" }, 5.59);
+
+        // the gate closes: both buttons leave, the receipt takes their place
+        tl.to("#vg-actions", { opacity: 0, y: -16, duration: 0.24, ease: "power2.in" }, 5.86);
+        tl.to("#vg-cursor", { x: 320, y: 1180, duration: 0.6, ease: "power2.in" }, 5.9);
+        tl.fromTo("#vg-done", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.44, ease: OUT }, 6.15);
+        tl.fromTo("#vg-done-tick", { scale: 0.4 }, { scale: 1, duration: 0.36, ease: "back.out(1.6)" }, 6.2);
+
+        // 5 — the thread acknowledges it, and the shot leaves still moving
+        tl.to("#vg-b1", { opacity: 0.4, duration: 0.5, ease: "power2.inOut" }, 6.6);
+        tl.to("#vg-plan", { opacity: 0.4, duration: 0.5, ease: "power2.inOut" }, 6.6);
+        tl.to("#vg-root", { x: -70, duration: 2.2, ease: "power2.in" }, 8.5);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["veto-gate"] = tl;
+      })();
+    </script>
+  </div>
+</template>

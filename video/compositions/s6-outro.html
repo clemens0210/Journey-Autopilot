@@ -1,0 +1,197 @@
+<!-- SCENE 6 — bars 65–69 · who built it.
+     The brief asked for the three logo builds combined rather than run as
+     three separate cards, so they hard-cut into each other and the lockup then
+     holds while the track plays itself out.
+
+     v4 runs this act a bar shorter and each build three quarters of a bar
+     instead of a whole one: the note was that the outro dragged and the marks
+     sat too long. Every build now lands inside three beats and the bar it gave
+     back went to the phone recordings in act 3, which is what the film is
+     actually about. The cuts stay on the quarter-note grid — 0.75 of a bar is
+     exactly three beats — so nothing here has come off the beat.
+
+     No captions under the marks and no line under the lockup: the marks are
+     recognisable on their own, and the caption under the DB keeper actually
+     collided with the bottom of the mark.
+
+     Every mark is the print-resolution original lifted out of the deck by
+     lab/tools/extract_logos.py and cut into the pieces it is physically made
+     of. All pieces are written on the same canvas as the whole logo, so
+     stacking them at inset 0 reproduces the original pixel-for-pixel — which
+     is what makes it safe to animate them: the motion is pure transform and
+     opacity, and the mark can never end up subtly reshaped. -->
+<template>
+  <div data-composition-id="outro" data-start="0" data-duration="10.089474"
+       data-width="1920" data-height="1080"
+       style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "JA"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+
+      #ou-bg { position: absolute; inset: 0; background: #eff0e8; }
+      #ou-root { position: absolute; inset: 0; font-family: "JA", system-ui, sans-serif; color: #16181a; }
+
+      /* --- centre stage: one mark at a time, one bar each --- */
+      .ou-stage { position: absolute; left: 50%; top: 50%; opacity: 0; }
+      .ou-part { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+
+      #ou-db { width: 620px; height: 434px; margin: -217px 0 0 -310px; }
+      #ou-bcgp { width: 800px; height: 224px; margin: -112px 0 0 -400px; }
+      #ou-koeln { width: 760px; height: 290px; margin: -145px 0 0 -380px; }
+
+      /* --- the lockup --- */
+      #ou-lock { position: absolute; inset: 0; opacity: 0; }
+      #ou-name { position: absolute; left: 0; right: 0; top: 306px; text-align: center; font-size: 152px; font-weight: 900; letter-spacing: -0.045em; line-height: 0.96; opacity: 0; }
+      #ou-rule { position: absolute; left: 50%; top: 486px; width: 208px; height: 7px; margin-left: -104px; background: #533cfe; transform: scaleX(0); }
+      #ou-tag { position: absolute; left: 0; right: 0; top: 528px; text-align: center; font-size: 52px; font-weight: 700; letter-spacing: -0.02em; opacity: 0; }
+      #ou-tag b { font-weight: 700; color: #533cfe; }
+      #ou-tag i { font-style: normal; color: #ec0016; }
+
+      #ou-row { position: absolute; left: 0; right: 0; top: 754px; display: flex; align-items: center; justify-content: center; gap: 64px; }
+      .ou-slot { position: relative; opacity: 0; }
+      #ou-r-db { width: 214px; height: 150px; }
+      #ou-r-bcgp { width: 268px; height: 75px; }
+      #ou-r-koeln { width: 276px; height: 105px; }
+      .ou-div { width: 2px; height: 88px; background: #16181a; opacity: 0.18; transform: scaleY(0); }
+
+    </style>
+
+    <div id="ou-bg"></div>
+    <div id="ou-root">
+      <!-- bar 64 — the keeper frame closes, the plate fills, D and B slam in -->
+      <div class="ou-stage" id="ou-db">
+        <img class="ou-part" id="db-frame" src="assets/logos/db/red-1.png" alt="" />
+        <img class="ou-part" id="db-plate" src="assets/logos/db/white-1.png" alt="" />
+        <img class="ou-part" id="db-d" src="assets/logos/db/red-3.png" alt="" />
+        <img class="ou-part" id="db-b" src="assets/logos/db/red-2.png" alt="" />
+        <img class="ou-part ou-count" id="db-c1" src="assets/logos/db/white-2.png" alt="" />
+        <img class="ou-part ou-count" id="db-c2" src="assets/logos/db/white-3.png" alt="" />
+        <img class="ou-part ou-count" id="db-c3" src="assets/logos/db/white-4.png" alt="" />
+      </div>
+
+      <!-- bar 65 — the prism folds: five real colour facets onto one solid -->
+      <div class="ou-stage" id="ou-bcgp">
+        <img class="ou-part ou-facet" id="bp-1" src="assets/logos/bcgp/mark-green.png" alt="" />
+        <img class="ou-part ou-facet" id="bp-2" src="assets/logos/bcgp/mark-mint.png" alt="" />
+        <img class="ou-part ou-facet" id="bp-3" src="assets/logos/bcgp/mark-black.png" alt="" />
+        <img class="ou-part ou-facet" id="bp-4" src="assets/logos/bcgp/mark-grey.png" alt="" />
+        <img class="ou-part ou-facet" id="bp-5" src="assets/logos/bcgp/mark-silver.png" alt="" />
+        <img class="ou-part" id="bp-w1" src="assets/logos/bcgp/bcg-black.png" alt="" />
+        <img class="ou-part" id="bp-w2" src="assets/logos/bcgp/platinion-black.png" alt="" />
+      </div>
+
+      <!-- bar 66 — the seal drops into its ring and stamps -->
+      <div class="ou-stage" id="ou-koeln">
+        <img class="ou-part" id="uk-seal" src="assets/logos/unikoeln/seal.png" alt="" />
+        <img class="ou-part" id="uk-l1" src="assets/logos/unikoeln/line1.png" alt="" />
+        <img class="ou-part" id="uk-l2" src="assets/logos/unikoeln/line2.png" alt="" />
+      </div>
+
+      <!-- bars 67–68 — the lockup -->
+      <div id="ou-lock">
+        <div id="ou-name">Journey Autopilot</div>
+        <div id="ou-rule"></div>
+        <div id="ou-tag">Monitor. <b>Detect.</b> <i>Replan.</i></div>
+        <div id="ou-row">
+          <div class="ou-slot" id="ou-r-db"><img class="ou-part" src="assets/logos/db/full.png" alt="Deutsche Bahn" /></div>
+          <div class="ou-div" id="ou-d1"></div>
+          <div class="ou-slot" id="ou-r-bcgp"><img class="ou-part" src="assets/logos/bcgp/full.png" alt="BCG Platinion" /></div>
+          <div class="ou-div" id="ou-d2"></div>
+          <div class="ou-slot" id="ou-r-koeln"><img class="ou-part" src="assets/logos/unikoeln/full.png" alt="Universität zu Köln" /></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        const BAR = 2.5263157894736843;
+        const BEAT = BAR / 4;
+        const b = (n) => (n - 65) * BAR;   // scene-local: this scene is bar 65
+
+        // Three beats per mark, not four. Every offset below is a fraction of
+        // SLOT rather than a fixed number of beats, so the whole act is one
+        // constant away from being re-timed again — and every build finishes
+        // inside the first 0.75 s of its 1.9 s slot, so each mark then stands
+        // COMPLETE for over a second. A shorter outro is only worth having if
+        // the marks are still legible in it; the first pass at this had the
+        // Köln wordmark drawing itself into its own cut.
+        const SLOT = BAR * 0.75;
+        const stage = (i) => b(65) + i * SLOT;
+        const LOCK = b(65) + SLOT * 3;     // bar 67.25
+
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+        const SNAP = "power4.out";
+
+        // ---- bar 65 · DB assembles itself ---------------------------------
+        tl.set("#ou-db", { opacity: 1 }, stage(0));
+        // Bar 65 cuts paper to paper, so without this the downbeat carries no
+        // visual event: the mark has to ARRIVE on it, not begin to draw.
+        tl.fromTo("#ou-db", { scale: 1.16 }, { scale: 1, duration: 0.26, ease: "power4.out" }, stage(0));
+        // the keeper frame sweeps closed from the left
+        tl.fromTo("#db-frame", { opacity: 1, clipPath: "inset(0 100% 0 0)" },
+          { clipPath: "inset(0 0% 0 0)", duration: 0.18, ease: "power3.out" }, stage(0));
+        // the white plate fills from the middle out
+        tl.fromTo("#db-plate", { opacity: 0, scaleX: 0.02 },
+          { opacity: 1, scaleX: 1, duration: 0.22, ease: OUT }, stage(0) + SLOT * 0.10);
+        // D and B slam in from opposite sides, on the same beat
+        tl.fromTo("#db-d", { opacity: 0, xPercent: -34 }, { opacity: 1, xPercent: 0, duration: 0.24, ease: SNAP }, stage(0) + SLOT * 0.20);
+        tl.fromTo("#db-b", { opacity: 0, xPercent: 34 }, { opacity: 1, xPercent: 0, duration: 0.24, ease: SNAP }, stage(0) + SLOT * 0.20);
+        tl.fromTo(".ou-count", { opacity: 0 }, { opacity: 1, duration: 0.16 }, stage(0) + SLOT * 0.28);
+        tl.set("#ou-db", { opacity: 0 }, stage(1) - 0.001);
+
+        // ---- BCG Platinion folds -------------------------------------------
+        tl.set("#ou-bcgp", { opacity: 1 }, stage(1));
+        const FACETS = [
+          ["#bp-1", -180, -120], ["#bp-2", 170, -140],
+          ["#bp-3", -150, 150], ["#bp-4", 190, 130], ["#bp-5", 0, -200],
+        ];
+        FACETS.forEach(([sel, dx, dy], i) => {
+          tl.fromTo(sel, { opacity: 0, x: dx, y: dy, rotation: dx > 0 ? 22 : -22, scale: 0.7 },
+            { opacity: 1, x: 0, y: 0, rotation: 0, scale: 1, duration: 0.28, ease: SNAP }, stage(1) + i * 0.05);
+        });
+        tl.fromTo("#bp-w1", { opacity: 0, clipPath: "inset(0 100% 0 0)" },
+          { opacity: 1, clipPath: "inset(0 0% 0 0)", duration: 0.22, ease: "power3.inOut" }, stage(1) + SLOT * 0.20);
+        tl.fromTo("#bp-w2", { opacity: 0, clipPath: "inset(0 100% 0 0)" },
+          { opacity: 1, clipPath: "inset(0 0% 0 0)", duration: 0.22, ease: "power3.inOut" }, stage(1) + SLOT * 0.28);
+        tl.set("#ou-bcgp", { opacity: 0 }, stage(2) - 0.001);
+
+        // ---- the seal stamps ------------------------------------------------
+        tl.set("#ou-koeln", { opacity: 1 }, stage(2));
+        tl.fromTo("#uk-seal", { opacity: 0, scale: 1.9, rotation: -34 },
+          { opacity: 1, scale: 1, rotation: 0, duration: 0.30, ease: SNAP }, stage(2));
+        tl.fromTo("#uk-seal", { y: 0 }, { y: -7, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1 }, stage(2) + 0.30);
+        tl.fromTo("#uk-l1", { opacity: 0, clipPath: "inset(0 100% 0 0)" },
+          { opacity: 1, clipPath: "inset(0 0% 0 0)", duration: 0.22, ease: "power3.inOut" }, stage(2) + SLOT * 0.18);
+        tl.fromTo("#uk-l2", { opacity: 0, clipPath: "inset(0 100% 0 0)" },
+          { opacity: 1, clipPath: "inset(0 0% 0 0)", duration: 0.22, ease: "power3.inOut" }, stage(2) + SLOT * 0.26);
+        tl.set("#ou-koeln", { opacity: 0 }, LOCK - 0.001);
+
+        // ---- bar 67.25 → 69 · the lockup, and the hold ----------------------
+        tl.set("#ou-lock", { opacity: 1 }, LOCK);
+        tl.fromTo("#ou-name", { opacity: 0, scale: 1.2, filter: "blur(22px)" },
+          { opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.34, ease: SNAP }, LOCK);
+        tl.fromTo("#ou-rule", { scaleX: 0 },
+          { scaleX: 1, duration: 0.26, ease: "power3.inOut" }, LOCK + BEAT * 0.7);
+        tl.fromTo("#ou-tag", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.26, ease: OUT }, LOCK + BEAT * 1.0);
+
+        // the three marks converge onto one optical line
+        [["#ou-r-db", -120], ["#ou-r-bcgp", 0], ["#ou-r-koeln", 120]].forEach(([sel, dx], i) => {
+          tl.fromTo(sel, { opacity: 0, x: dx, y: 26 },
+            { opacity: 1, x: 0, y: 0, duration: 0.30, ease: SNAP }, LOCK + BEAT * 1.4 + i * (BEAT * 0.35));
+        });
+        tl.fromTo(["#ou-d1", "#ou-d2"], { scaleY: 0 },
+          { scaleY: 1, duration: 0.24, ease: "power3.inOut", stagger: 0.07 }, LOCK + BEAT * 2.4);
+
+        // one slow breath under the last bars, so the hold is not a freeze
+        tl.fromTo("#ou-lock", { scale: 1 }, { scale: 1.014, duration: BAR * 1.75, ease: "sine.out" }, LOCK);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["outro"] = tl;
+      })();
+    </script>
+  </div>
+</template>

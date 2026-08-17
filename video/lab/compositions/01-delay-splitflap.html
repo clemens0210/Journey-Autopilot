@@ -1,0 +1,181 @@
+<!-- IDEA 01 — the delay count-up, as a Fallblattanzeige (split-flap board).
+     Keeps the count-up the current film opens on, but gives it a mechanism: the
+     number is not tweened text, it is a departure board physically flipping to
+     +55. The flap stack rolls fast enough to blur, then settles — which is the
+     whole point of the beat: the delay ARRIVES, it does not fade in.
+     Everything is derived from one tweened scalar, so any seek is exact. -->
+<template>
+  <div data-hf-id="hf-ybn6" data-composition-id="delay-splitflap" data-start="0" data-duration="8" data-width="1920" data-height="1080" style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "LabInter"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+
+      #sf-bg { position: absolute; inset: 0; background: #101215; }
+      #sf-root { position: absolute; inset: 0; font-family: "LabInter", system-ui, sans-serif; color: #f2f3ef; }
+
+      /* board header — the real ICE 528 line the film opens on */
+      #sf-head { position: absolute; left: 150px; top: 168px; display: flex; align-items: center; gap: 26px; }
+      #sf-badge {
+        padding: 9px 20px 8px; border: 3px solid #ec0016; border-radius: 7px;
+        font-size: 27px; font-weight: 900; letter-spacing: 0.02em; color: #ec0016;
+      }
+      #sf-route { font-size: 33px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: #8b9199; }
+
+      #sf-time { position: absolute; left: 150px; top: 262px; font-size: 172px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
+      #sf-time .dim { color: #6d737b; }
+
+      /* the flap board itself */
+      #sf-board { position: absolute; left: 150px; top: 486px; display: flex; align-items: flex-start; gap: 14px; }
+      .sf-cell {
+        position: relative; width: 148px; height: 214px; border-radius: 12px;
+        background: #1b1e23; overflow: hidden;
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+      }
+      /* the seam every split-flap unit has, dead centre */
+      .sf-cell::after {
+        content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 3px;
+        margin-top: -1.5px; background: #101215; z-index: 6;
+      }
+      .sf-half { position: absolute; left: 0; width: 148px; height: 107px; overflow: hidden; }
+      .sf-half.top { top: 0; }
+      .sf-half.bot { top: 107px; }
+      .sf-glyph {
+        position: absolute; left: 0; width: 148px; height: 214px;
+        font-size: 158px; font-weight: 800; letter-spacing: -0.05em;
+        display: flex; align-items: center; justify-content: center; color: #f2f3ef;
+      }
+      .sf-half.top .sf-glyph { top: 0; }
+      .sf-half.bot .sf-glyph { top: -107px; }
+      /* the leaf that falls: front = the digit leaving, back = the digit arriving */
+      .sf-leaf { position: absolute; left: 0; top: 0; width: 148px; height: 107px; transform-origin: 50% 100%; z-index: 5; }
+      .sf-face { position: absolute; inset: 0; overflow: hidden; backface-visibility: hidden; background: #1b1e23; border-radius: 12px 12px 0 0; }
+      .sf-face.back { transform: rotateX(180deg); border-radius: 0 0 12px 12px; }
+      .sf-face.back .sf-glyph { top: -107px; }
+
+      #sf-unit { position: absolute; left: 486px; top: 596px; font-size: 62px; font-weight: 700; letter-spacing: -0.02em; color: #8b9199; }
+      #sf-plus { position: absolute; left: 90px; top: 556px; font-size: 96px; font-weight: 800; color: #ec0016; }
+
+      /* the consequence line, flipped in after the number lands */
+      #sf-consequence { position: absolute; left: 150px; top: 790px; display: flex; align-items: center; gap: 22px; }
+      #sf-strike { width: 0; height: 4px; background: #ec0016; }
+      #sf-conn { font-size: 54px; font-weight: 700; letter-spacing: -0.02em; color: #f2f3ef; }
+      #sf-conn b { color: #ec0016; font-weight: 800; }
+      #sf-note { position: absolute; left: 150px; top: 880px; font-size: 27px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: #6d737b; }
+    </style>
+
+    <div data-hf-id="hf-h0zq" id="sf-bg"></div>
+    <div data-hf-id="hf-45jn" id="sf-root">
+      <div data-hf-id="hf-me9h" id="sf-head">
+        <div data-hf-id="hf-cc3q" id="sf-badge">ICE 528</div>
+        <div data-hf-id="hf-vwir" id="sf-route">München Hbf → Berlin Hbf</div>
+      </div>
+      <div data-hf-id="hf-o045" id="sf-time">21:00<span data-hf-id="hf-si4y" class="dim"> ab</span></div>
+
+      <div data-hf-id="hf-6zfs" id="sf-plus">+</div>
+      <div data-hf-id="hf-hgh9" id="sf-board"></div>
+      <div data-hf-id="hf-nms3" id="sf-unit">min</div>
+
+      <div data-hf-id="hf-rou2" id="sf-consequence">
+        <div data-hf-id="hf-6zep" id="sf-strike"></div>
+        <div data-hf-id="hf-xa5s" id="sf-conn">Anschluss in Nürnberg <b data-hf-id="hf-am11">verpasst</b></div>
+      </div>
+      <div data-hf-id="hf-ugbb" id="sf-note">Right now, replanning it is the passenger&#8217;s job</div>
+    </div>
+
+    <script>
+      (() => {
+        const board = document.getElementById("sf-board");
+        const CELLS = 2;
+
+        // Build two flap units. Each carries four glyph slots; all four are
+        // rewritten from one scalar on every frame, so scrubbing is exact.
+        const units = [];
+        for (let i = 0; i < CELLS; i++) {
+          const cell = document.createElement("div");
+          cell.className = "sf-cell";
+          cell.innerHTML =
+            '<div class="sf-half top"><div class="sf-glyph"></div></div>' +
+            '<div class="sf-half bot"><div class="sf-glyph"></div></div>' +
+            '<div class="sf-leaf">' +
+            '<div class="sf-face front"><div class="sf-glyph"></div></div>' +
+            '<div class="sf-face back"><div class="sf-glyph"></div></div>' +
+            "</div>";
+          board.appendChild(cell);
+          units.push({
+            top: cell.querySelector(".sf-half.top .sf-glyph"),
+            bot: cell.querySelector(".sf-half.bot .sf-glyph"),
+            leaf: cell.querySelector(".sf-leaf"),
+            front: cell.querySelector(".sf-face.front .sf-glyph"),
+            back: cell.querySelector(".sf-face.back .sf-glyph"),
+          });
+        }
+
+        // One flap unit at a continuous position `v`:
+        //   floor(v)   = the digit currently shown
+        //   frac(v)    = how far the leaf has fallen (0 → 1 = 0° → -180°)
+        // The static top already shows the NEXT digit; the falling leaf hides it
+        // until it has passed 90°, which is exactly how the real mechanism reads.
+        function renderUnit(u, v) {
+          const d = Math.floor(v);
+          const f = v - d;
+          const cur = ((d % 10) + 10) % 10;
+          const next = (cur + 1) % 10;
+          u.top.textContent = f > 0 ? next : cur;
+          u.bot.textContent = cur;
+          u.front.textContent = cur;
+          u.back.textContent = next;
+          const leaf = u.leaf;
+          if (f <= 0.001) {
+            leaf.style.opacity = "0";
+            return;
+          }
+          leaf.style.opacity = "1";
+          leaf.style.transform = "rotateX(" + -180 * f + "deg)";
+          // hide the leaf's own edge-on frame so it never flashes as a hairline
+          leaf.style.visibility = f > 0.995 ? "hidden" : "visible";
+        }
+
+        // value = the delay in minutes, as a real number
+        const v = { n: 0 };
+        function paint() {
+          const n = v.n;
+          // A real board's tens flap is CARRIED by the ones flap: it sits still
+          // until the ones is passing 9, then flips with it. Driving it off n/10
+          // would leave it parked mid-flip at every value that is not a multiple
+          // of ten — the tens would read 6 while the ones reads 5.
+          const carry = Math.min(1, Math.max(0, (n % 10) - 9));
+          renderUnit(units[0], Math.floor(n / 10) + carry);
+          renderUnit(units[1], n);
+        }
+        paint();
+
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+
+        tl.fromTo("#sf-head", { autoAlpha: 0, x: -40 }, { autoAlpha: 1, x: 0, duration: 0.5, ease: OUT }, 0.2);
+        tl.fromTo("#sf-time", { autoAlpha: 0, y: 34 }, { autoAlpha: 1, y: 0, duration: 0.5, ease: OUT }, 0.45);
+        tl.fromTo("#sf-board", { autoAlpha: 0, y: 46 }, { autoAlpha: 1, y: 0, duration: 0.5, ease: OUT }, 0.9);
+        tl.fromTo("#sf-plus", { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.3 }, 1.0);
+        tl.fromTo("#sf-unit", { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.3 }, 1.05);
+
+        // the roll — fast enough that the ones flap blurs, then decays into place
+        tl.to(v, { n: 55, duration: 2.6, ease: "power3.out", onUpdate: paint }, 1.35);
+
+        // the board lands, then a beat of stillness before the consequence
+        tl.fromTo("#sf-board", { scale: 1 }, { scale: 1.035, duration: 0.16, ease: "power2.out", yoyo: true, repeat: 1 }, 3.85);
+        tl.fromTo("#sf-strike", { width: 0 }, { width: 96, duration: 0.34, ease: "power2.inOut" }, 4.6);
+        tl.fromTo("#sf-conn", { autoAlpha: 0, x: -22 }, { autoAlpha: 1, x: 0, duration: 0.42, ease: OUT }, 4.7);
+        tl.fromTo("#sf-note", { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.5, ease: OUT }, 5.6);
+
+        // the board keeps travelling left through the cut — it does not settle
+        tl.to("#sf-root", { x: -70, duration: 1.4, ease: "power2.in" }, 6.6);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["delay-splitflap"] = tl;
+      })();
+    </script>
+  </div>
+</template>

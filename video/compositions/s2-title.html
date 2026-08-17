@@ -1,0 +1,118 @@
+<!-- SCENE 2 — bars 4–7 · the drop, the name, the promise.
+     The host flashes one paper frame at bar 4; this scene is already paper
+     underneath it, so the register flip reads as a cut, not a dissolve.
+     Three words, three beats — the film's thesis stated before anything is
+     demonstrated. -->
+<template>
+  <div data-composition-id="title" data-start="0" data-duration="7.578947"
+       data-width="1920" data-height="1080"
+       style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "JA"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+      #ti-bg { position: absolute; inset: 0; background: #eff0e8; }
+      #ti-root { position: absolute; inset: 0; font-family: "JA", system-ui, sans-serif; color: #16181a; }
+
+      #ti-block { position: absolute; left: 0; right: 0; top: 372px; text-align: center; }
+      #ti-name { font-size: 168px; font-weight: 900; letter-spacing: -0.045em; line-height: 0.94; }
+      #ti-rule { width: 0; height: 8px; background: #533cfe; margin: 34px auto 0; }
+      #ti-sub { margin-top: 30px; font-size: 40px; font-weight: 500; color: #16181a; opacity: 0; }
+
+      /* the three words share one stage centre and knock each other out */
+      .ti-word {
+        position: absolute; left: 0; right: 0; top: 430px; text-align: center;
+        font-size: 208px; font-weight: 900; letter-spacing: -0.05em; line-height: 1;
+        opacity: 0; will-change: transform, opacity, filter;
+      }
+      #ti-w2 { color: #533cfe; }
+      #ti-w3 { color: #ec0016; }
+
+      /* bar 6 — the world the product lives in */
+      #ti-plate-wrap { position: absolute; inset: 0; overflow: hidden; opacity: 0; }
+      #ti-plate { position: absolute; inset: 0; width: 1920px; height: 1080px; object-fit: cover; }
+      #ti-plate-scrim {
+        position: absolute; inset: 0; opacity: 0;
+        background: linear-gradient(180deg, rgba(11,13,16,0.62) 0%, rgba(11,13,16,0.12) 42%, rgba(11,13,16,0.82) 100%);
+      }
+      #ti-line {
+        position: absolute; left: 150px; bottom: 168px; width: 1300px;
+        font-size: 64px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.12;
+        color: #f2f3ef; opacity: 0;
+      }
+      #ti-line em { font-style: normal; color: #fed508; }
+    </style>
+
+    <div id="ti-bg"></div>
+    <div id="ti-root">
+      <div id="ti-block">
+        <div id="ti-name">Journey Autopilot</div>
+        <div id="ti-rule"></div>
+        <div id="ti-sub">A multi-agent assistant for Deutsche Bahn journeys</div>
+      </div>
+
+      <div class="ti-word" id="ti-w1">Monitor.</div>
+      <div class="ti-word" id="ti-w2">Detect.</div>
+      <div class="ti-word" id="ti-w3">Replan.</div>
+    </div>
+
+    <div id="ti-plate-wrap">
+      <video id="ti-plate" class="clip" src="assets/plates/ice-bridge.mp4"
+             data-start="5.052632" data-duration="2.526315" data-track-index="0"
+             data-media-start="1.4" muted playsinline
+             data-color-grading='{"adjust":{"exposure":-0.12,"contrast":0.24,"highlights":-0.16,"shadows":-0.3,"blacks":-0.22,"temperature":-0.12,"vibrance":0.12,"saturation":-0.42},"wheels":{"shadows":{"hue":252,"amount":0.18,"level":-0.04},"highlights":{"hue":8,"amount":0.09,"level":0}}}'></video>
+    </div>
+    <div id="ti-plate-scrim"></div>
+    <div id="ti-line">Every trip you book,<br />watched <em>end to end</em>.</div>
+
+    <script>
+      (() => {
+        const BAR = 2.5263157894736843;
+        const BEAT = BAR / 4;
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power4.out";
+
+        // --- bar 4 · the name arrives with the kick ----------------------
+        tl.fromTo("#ti-name",
+          { opacity: 0, scale: 1.34, filter: "blur(26px)" },
+          { opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.42, ease: OUT }, 0);
+        tl.fromTo("#ti-rule", { width: 0 }, { width: 232, duration: 0.34, ease: "power3.inOut" }, BEAT * 1.6);
+        tl.fromTo("#ti-sub", { opacity: 0, y: 20 }, { opacity: 0.72, y: 0, duration: 0.36, ease: "power3.out" }, BEAT * 2);
+
+        // --- bar 5 · the title steps aside, one word per beat ------------
+        tl.to("#ti-block", { y: -196, scale: 0.46, duration: 0.34, ease: "power3.inOut" }, BAR);
+        tl.to("#ti-sub", { opacity: 0, duration: 0.18 }, BAR - 0.1);
+
+        const words = ["#ti-w1", "#ti-w2", "#ti-w3"];
+        words.forEach((w, i) => {
+          const at = BAR + i * BEAT;
+          tl.fromTo(w,
+            { opacity: 0, yPercent: 26, scale: 1.18, filter: "blur(18px)" },
+            { opacity: 1, yPercent: 0, scale: 1, filter: "blur(0px)", duration: 0.26, ease: OUT }, at);
+          // knocked out by the next word, or dropped on the last beat of the bar
+          tl.to(w, { opacity: 0, yPercent: -22, filter: "blur(14px)", duration: 0.18, ease: "power3.in" },
+            at + BEAT - 0.06);
+        });
+
+        // --- bar 6 · out of the studio, onto the network ------------------
+        // Exit accelerating up, enter decelerating up: one continuous move.
+        tl.to("#ti-block", { yPercent: -160, opacity: 0, duration: 0.24, ease: "power3.in" }, BAR * 2 - 0.24);
+        tl.set("#ti-block", { opacity: 0 }, BAR * 2);
+        tl.fromTo("#ti-plate-wrap",
+          { opacity: 0, scale: 1.12, yPercent: 8 },
+          { opacity: 1, scale: 1, yPercent: 0, duration: 0.34, ease: "power3.out" }, BAR * 2);
+        tl.to("#ti-plate-wrap", { scale: 1.07, duration: 2.2, ease: "none" }, BAR * 2 + 0.34);
+        tl.fromTo("#ti-plate-scrim", { opacity: 0 }, { opacity: 1, duration: 0.3 }, BAR * 2);
+        tl.fromTo("#ti-line", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.36, ease: "power3.out" }, BAR * 2 + BEAT * 0.5);
+
+        // hand the motion to the next act: the frame is still moving at the cut
+        tl.to("#ti-line", { x: -60, opacity: 0, duration: 0.3, ease: "power3.in" }, BAR * 3 - 0.3);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["title"] = tl;
+      })();
+    </script>
+  </div>
+</template>

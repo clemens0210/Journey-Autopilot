@@ -1,0 +1,174 @@
+<!-- IDEA 02 — the same 55 minutes, but as a CONSEQUENCE instead of a number.
+     A count-up tells you the delay is big. This tells you why it matters: the
+     ICE bar physically grows until it runs past the moment the connection
+     leaves, and the transfer window closes underneath it. The number and the
+     failure are the same motion, so there is nothing to explain.
+     Every position is derived from one px-per-minute scale, so retiming the
+     scenario is a data edit, not a redraw. -->
+<template>
+  <div data-hf-id="hf-3c25" data-composition-id="delay-timeline" data-start="0" data-duration="9" data-width="1920" data-height="1080" style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "LabInter"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+
+      #dt-bg { position: absolute; inset: 0; background: #101215; }
+      #dt-root { position: absolute; inset: 0; font-family: "LabInter", system-ui, sans-serif; color: #f2f3ef; }
+
+      #dt-kicker { position: absolute; left: 150px; top: 128px; font-size: 21px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: #6d737b; }
+      #dt-head { position: absolute; left: 150px; top: 172px; font-size: 64px; font-weight: 800; letter-spacing: -0.03em; }
+
+      /* --- time axis --- */
+      #dt-axis { position: absolute; left: 200px; top: 372px; width: 1560px; height: 2px; background: #2b2f34; transform-origin: left center; }
+      .dt-tick { position: absolute; top: 372px; width: 1px; height: 12px; background: #363b41; }
+      .dt-tick-label { position: absolute; top: 396px; font-size: 19px; font-weight: 600; letter-spacing: 0.1em; color: #5d636b; transform: translateX(-50%); }
+
+      /* --- trip bars --- */
+      .dt-row { position: absolute; height: 74px; }
+      .dt-bar { position: absolute; left: 0; top: 0; height: 74px; border-radius: 10px; transform-origin: left center; }
+      .dt-label { position: absolute; left: 22px; top: 22px; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
+      .dt-caption { position: absolute; font-size: 20px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #6d737b; }
+
+      /* position lives on the id rule, so the row lands even if the class is
+         missing — these two rows are the scene's whole vertical rhythm */
+      #dt-row1 { position: absolute; left: 0; top: 470px; width: 1920px; height: 74px; }
+      #dt-bar1 { background: #2d3239; }
+      #dt-row2 { position: absolute; left: 0; top: 604px; width: 1920px; height: 74px; }
+      #dt-bar2 { background: #2d3239; }
+
+      /* the delay is a separate, red extension of bar 1 — it is the new thing */
+      #dt-delay { position: absolute; top: 470px; height: 74px; border-radius: 0 10px 10px 0; background: #ec0016; transform-origin: left center; }
+      #dt-delay-num { position: absolute; top: 486px; font-size: 40px; font-weight: 800; letter-spacing: -0.02em; color: #fff; white-space: nowrap; }
+
+      /* the transfer window, and the moment it stops existing */
+      #dt-gap { position: absolute; top: 448px; height: 300px; border-left: 2px dashed #6f6bc4; border-right: 2px dashed #6f6bc4; background: rgba(83, 60, 254, 0.18); }
+      #dt-gap-label { position: absolute; top: 766px; font-size: 20px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #7d7bff; transform: translateX(-50%); white-space: nowrap; }
+
+      #dt-verdict { position: absolute; left: 150px; top: 866px; display: flex; align-items: center; gap: 20px; }
+      #dt-verdict-dot { width: 18px; height: 18px; border-radius: 50%; background: #ec0016; }
+      #dt-verdict-text { font-size: 46px; font-weight: 800; letter-spacing: -0.025em; }
+      #dt-verdict-text b { color: #ec0016; }
+
+      #dt-kicker, #dt-head, #dt-verdict, #dt-gap-label { opacity: 0; }
+      .dt-tick, .dt-tick-label, .dt-label, .dt-caption { opacity: 0; }
+      #dt-delay-num { opacity: 0; }
+    </style>
+
+    <div data-hf-id="hf-bv43" id="dt-bg"></div>
+    <div data-hf-id="hf-7i5i" id="dt-root">
+      <div data-hf-id="hf-d2q6" id="dt-kicker">Munich → Berlin · 3 August</div>
+      <div data-hf-id="hf-vbco" id="dt-head">One delay, two trains.</div>
+
+      <div data-hf-id="hf-3my1" id="dt-axis"></div>
+
+      <div data-hf-id="hf-knq3" id="dt-row1">
+        <div data-hf-id="hf-yclv" id="dt-bar1" class="dt-bar"></div>
+        <div data-hf-id="hf-tr77" id="dt-label1" class="dt-label">ICE 528 · München → Nürnberg</div>
+      </div>
+      <div data-hf-id="hf-y8lf" id="dt-delay"></div>
+      <div data-hf-id="hf-za47" id="dt-delay-num">+55 min</div>
+
+      <div data-hf-id="hf-9s8g" id="dt-row2">
+        <div data-hf-id="hf-poq0" id="dt-bar2" class="dt-bar"></div>
+        <div data-hf-id="hf-doi5" id="dt-label2" class="dt-label">ICE 1006 · Nürnberg → Berlin</div>
+      </div>
+
+      <div data-hf-id="hf-nbha" id="dt-gap"></div>
+      <div data-hf-id="hf-mbyn" id="dt-gap-label">12 min transfer</div>
+
+      <div data-hf-id="hf-sbpp" id="dt-verdict">
+        <div data-hf-id="hf-2r07" id="dt-verdict-dot"></div>
+        <div data-hf-id="hf-gide" id="dt-verdict-text">The connection <b data-hf-id="hf-qyvq">leaves without you</b></div>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        // ---- the scenario, in minutes past 20:30 --------------------------
+        const X0 = 200; // 20:30 sits here
+        const PPM = 1560 / 180; // 3 hours across 1560 px
+        const at = (m) => X0 + m * PPM;
+        const TRIP = { dep: 30, arr: 120 }; // ICE 528  21:00 → 22:30
+        const CONN = { dep: 132, arr: 180 }; // ICE 1006 22:42 → beyond frame
+        const DELAY = 55;
+
+        // ---- lay the scene out from that data, once, at build time -------
+        const el = (id) => document.getElementById(id);
+        const px = (v) => v + "px";
+
+        el("dt-bar1").style.left = px(at(TRIP.dep));
+        el("dt-bar1").style.width = px((TRIP.arr - TRIP.dep) * PPM);
+        el("dt-label1").style.left = px(at(TRIP.dep) + 22);
+
+        el("dt-bar2").style.left = px(at(CONN.dep));
+        el("dt-bar2").style.width = px((CONN.arr - CONN.dep) * PPM + 120);
+        el("dt-label2").style.left = px(at(CONN.dep) + 22);
+
+        el("dt-delay").style.left = px(at(TRIP.arr));
+        el("dt-delay").style.width = px(DELAY * PPM);
+        el("dt-delay-num").style.left = px(at(TRIP.arr) + 26);
+
+        el("dt-gap").style.left = px(at(TRIP.arr));
+        el("dt-gap").style.width = px((CONN.dep - TRIP.arr) * PPM);
+        el("dt-gap-label").style.left = px(at((TRIP.arr + CONN.dep) / 2));
+
+        // hour ticks, written into the DOM from the same scale
+        const ticks = ["20:30", "21:30", "22:30", "23:30"];
+        ticks.forEach((label, i) => {
+          const m = i * 60;
+          const t = document.createElement("div");
+          t.className = "dt-tick";
+          t.style.left = px(at(m));
+          const l = document.createElement("div");
+          l.className = "dt-tick-label";
+          l.style.left = px(at(m));
+          l.textContent = label;
+          el("dt-root").appendChild(t);
+          el("dt-root").appendChild(l);
+        });
+
+        // ---- timeline ------------------------------------------------------
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+
+        tl.fromTo("#dt-kicker", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.44, ease: OUT }, 0.2);
+        tl.fromTo("#dt-head", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: OUT }, 0.36);
+
+        tl.fromTo("#dt-axis", { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: "power2.inOut" }, 0.75);
+        tl.fromTo(".dt-tick", { opacity: 0 }, { opacity: 1, duration: 0.3, stagger: 0.06 }, 1.1);
+        tl.fromTo(".dt-tick-label", { opacity: 0, y: -8 }, { opacity: 1, y: 0, duration: 0.32, stagger: 0.06 }, 1.16);
+
+        // the two trains, as booked
+        tl.fromTo("#dt-bar1", { scaleX: 0 }, { scaleX: 1, duration: 0.5, ease: "power3.out" }, 1.5);
+        tl.fromTo("#dt-label1", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.36, ease: OUT }, 1.75);
+        tl.fromTo("#dt-bar2", { scaleX: 0 }, { scaleX: 1, duration: 0.5, ease: "power3.out" }, 2.0);
+        tl.fromTo("#dt-label2", { opacity: 0, x: -18 }, { opacity: 1, x: 0, duration: 0.36, ease: OUT }, 2.25);
+
+        // the transfer window that the whole booking depends on
+        tl.fromTo("#dt-gap", { opacity: 0, scaleY: 0.75 }, { opacity: 1, scaleY: 1, duration: 0.4, ease: OUT }, 2.6);
+        tl.fromTo("#dt-gap-label", { opacity: 0, y: -10 }, { opacity: 1, y: 0, duration: 0.36, ease: OUT }, 2.72);
+
+        // stillness — the plan is on screen and intact for three quarters of
+        // a second before anything breaks it
+        // …then the delay grows out of the arrival, and does not stop in time.
+        tl.fromTo("#dt-delay", { opacity: 1, scaleX: 0 }, { opacity: 1, scaleX: 1, duration: 1.5, ease: "power2.inOut" }, 3.55);
+        tl.fromTo("#dt-delay-num", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.4, ease: OUT }, 4.5);
+
+        // the moment the red passes the connection's departure, the transfer
+        // window is gone and the second train greys out of the plan
+        tl.to("#dt-gap", { opacity: 0.15, duration: 0.3, ease: "power2.in" }, 4.35);
+        tl.to("#dt-gap-label", { opacity: 0.2, duration: 0.3, ease: "power2.in" }, 4.35);
+        tl.to("#dt-bar2", { backgroundColor: "#1b1e23", duration: 0.4, ease: "power2.inOut" }, 4.5);
+        tl.to("#dt-label2", { opacity: 0.32, duration: 0.4, ease: "power2.inOut" }, 4.5);
+
+        tl.fromTo("#dt-verdict", { opacity: 0, x: -26 }, { opacity: 1, x: 0, duration: 0.46, ease: OUT }, 5.5);
+
+        tl.to("#dt-root", { x: -70, duration: 1.8, ease: "power2.in" }, 7.1);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["delay-timeline"] = tl;
+      })();
+    </script>
+  </div>
+</template>

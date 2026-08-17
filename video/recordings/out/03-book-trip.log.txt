@@ -1,0 +1,83 @@
+from suggestions: 🟢 München Hbf 🟢 MÜNCHEN 🟢 München Ost 🟢 München-Pasing 🟢 München-Berg am Laim 🟢 München Donnersbergerbrü
+to suggestions: 🟢 Hamburg Hbf 🟢 Hamburg Hbf (Kirchenallee) 🟢 Hamburg Hbf (Spitalerstraße) 🟢 HBF/Kirchenallee, Hamburg 🟢 H
+departure field: 2026-08-11T21:38
+connections: Connections 22:01 → 06:42 8h 41min · direct ICE 1080 · from 71.99 € ＋ Add to my trips 22:05 → 09:17 11h 12min · 1 transfer ICE 698 -> ICE 778 · from 99.99 € ＋ Add to my trips 23:12 → 09:24 10h 12min · 1 transfer ICE 904 -> ICE 606 · from 125.99 € ＋ Add to my trips 23:20 → 08:45 9h 25min · 2 transfers RE1 -> NJ 40420 -> RE4 · from 80.90 € ＋ Add to my trips 23:25 → 09:29 10h 4min · 1 transfer ICE 618 -> ICE 78 · from 99.99 € ＋ Add to my trips
+--- autopilot-on-new-trip @177.3s ---
+Risk: MEDIUM
+
+Here's your complete picture for tonight's journey — note that this describes the pre-trip forecast, not a confirmed disruption.
+
+🚄 ICE 1080 | München Hbf → Hamburg Hbf
+
+Planned: dep. 22:01 → arr. 06:42
+Expected: arr. ~06:53 (+11 min) | Worst case: 07:15–07:30
+
+Why MEDIUM? Hamburg Hbf has only a 62% on-time rate for ICE trains (mean delay ~11 min). More importantly, ICE 1081 — the sister train on the same Munich–Hamburg corridor — already has a confirmed crew delay in Hamburg tonight, signalling operational pressure that could carry over to your train.
+
+✅ Recommendation: Stay on ICE 1080 (Option R1)
+
+All four alternative connections that were checked are slower than your scheduled arrival on ICE 1080. Switching now would be counterproductive.
+
+Key point on your ticket: At the current expected delay of ~11 minutes, your Zugbindung (train binding) is NOT lifted — the threshold is 20 minutes. Your ticket is fully valid on ICE 1080 as booked; switching would require rebooking at extra cost.
+
+What to watch: If ICE 1080's own expected delay climbs past 20 minutes before or during the trip, the Zugbindung lifts and alternatives become ticket-compatible — the app will flag that automatically.
+
+📱 WhatsApp Notice
+
+A heads-up has been sent to your phone so you have it without opening the app.
+
+Bottom line: Board ICE 1080 as planned at 22:01. No action needed right now — just keep an eye on live updates tonight. Want me to monitor actively once the train departs, or is there anything else you'd like to check?
+
+R1
+Recommended
+● Live DB
+ICE 1080
+22:01 → 06:42
+0 changes
++0 min
+Added cost unknown
+Information.
+22:01
+München Hbf
+ICE 1080
+06:42
+Hamburg Hbf
+Agent trace (21)
+
+VERDICT (ok=true): Risk: MEDIUM
+
+Here's your complete picture for tonight's journey — note that this describes the pre-trip forecast, not a confirmed disruption.
+
+🚄 ICE 1080 | München Hbf → Hamburg Hbf
+
+Planned: dep. 22:01 → arr. 06:42
+Expected: arr. ~06:53 (+11 min) | Worst case: 07:15–07:30
+
+Why MEDIUM? Hamburg Hbf has only a 62% on-time rate for ICE trains (mean delay ~11 min). More importantly, ICE 1081 — the sister train on the same Munich–Hamburg corridor — already has a confirmed crew delay in Hamburg tonight, signalling operational pressure that could carry over to your train.
+
+✅ Recommendation: Stay on ICE 1080 (Option R1)
+
+All four alternative connections that were checked are slower than your scheduled arrival on ICE 1080. Switching now would be counterproductive.
+
+Key point on your ticket: At the current expected delay of ~11 minutes, your Zugbindung (train binding) is NOT lifted — the thresho
+--- follow-up @200.7s ---
+The risk assessment and recommendation are already established from this turn's analysis — no need to re-run any specialists.
+
+Risk: MEDIUM
+
+To recap what we know for your specific trip:
+
+ICE 1080, München Hbf → Hamburg Hbf, dep. 22:01 tonight
+Expected arrival ~06:53 (+11 min late), worst case 07:15–07:30
+Driven by Hamburg Hbf's historically low ICE punctuality (62% on time) and the active ICE 1081 crew delay in Hamburg — a leading indicator of pressure on your exact corridor
+
+Would I change anything? No. Here's why:
+
+Every alternative is slower. All four other connections checked arrive later than ICE 1080's scheduled 06:42 — switching would only make things worse.
+Your ticket stays valid as-is. The Zugbindung isn't lifted until the expected delay hits 20 minutes. At ~11 minutes, your current ticket covers ICE 1080 and only ICE 1080 without extra cost.
+The delay is modest. An 11-minute expected delay (even a 30–45 min worst case) doesn't warrant disrupting a direct overnight journey with no transfers.
+
+The one thing worth doing: Keep live updates on. If ICE 1080's own delay crosses 20 minutes before departure, that changes the calculus — the train binding lifts and rerouting becomes ticket-compatible at no extra cost. The app will flag that if it happens.
+
+So the plan stands: board as scheduled at 22:01. Anything else you'd like to dig into?
+

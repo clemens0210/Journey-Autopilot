@@ -1,0 +1,17 @@
+{
+  "name": "journey-autopilot-animation-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes hyperframes@0.7.92 preview",
+    "check": "npx --yes hyperframes@0.7.92 check",
+    "render": "npx --yes hyperframes@0.7.92 render",
+    "publish": "npx --yes hyperframes@0.7.92 publish",
+    "snap": "npx --yes hyperframes@0.7.92 snapshot",
+    "extract:slide": "python3 tools/pptx_extract.py ../../docs/Status_Update_BCG_DB.pptx 8 -o assets/arch --scale 1.5",
+    "extract:logos": "python3 tools/extract_logos.py",
+    "build:arch": "python3 tools/build_arch.py",
+    "build:assets": "npm run extract:slide && npm run extract:logos && npm run build:arch",
+    "preview:slide": "python3 tools/pptx_to_html.py assets/arch/slide8.json --prefix arch --media-prefix ../assets/arch/media --regions tools/arch-regions.json -o build/slide8.html"
+  }
+}

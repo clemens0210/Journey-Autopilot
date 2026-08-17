@@ -1,0 +1,202 @@
+{
+  "take": "01-onboarding",
+  "durationSeconds": 157.76,
+  "marks": [
+    {
+      "t": 0,
+      "label": "START"
+    },
+    {
+      "t": 1.1,
+      "label": "welcome-screen"
+    },
+    {
+      "t": 2.99,
+      "label": "tap:lets-go"
+    },
+    {
+      "t": 6.22,
+      "label": "typed:email"
+    },
+    {
+      "t": 8.07,
+      "label": "typed:password"
+    },
+    {
+      "t": 10.23,
+      "label": "tap:sign-in"
+    },
+    {
+      "t": 11.44,
+      "label": "onboarding:trips-imported"
+    },
+    {
+      "t": 14.69,
+      "label": "trips:reviewed"
+    },
+    {
+      "t": 17.91,
+      "label": "tap:next→phone"
+    },
+    {
+      "t": 19.11,
+      "label": "step:phone"
+    },
+    {
+      "t": 21.36,
+      "label": "typed:phone"
+    },
+    {
+      "t": 23.64,
+      "label": "tap:send-code"
+    },
+    {
+      "t": 27.05,
+      "label": "tap:sms-banner"
+    },
+    {
+      "t": 29.83,
+      "label": "tap:confirm-code"
+    },
+    {
+      "t": 32.87,
+      "label": "phone:confirmed"
+    },
+    {
+      "t": 36.04,
+      "label": "tap:next→outlook"
+    },
+    {
+      "t": 37.45,
+      "label": "step:outlook"
+    },
+    {
+      "t": 40.56,
+      "label": "tap:sign-in-with-microsoft"
+    },
+    {
+      "t": 43.57,
+      "label": "outlook:consent-dialog"
+    },
+    {
+      "t": 45.36,
+      "label": "tap:accept-consent"
+    },
+    {
+      "t": 48.97,
+      "label": "outlook:connected"
+    },
+    {
+      "t": 51.17,
+      "label": "outlook:connected-banner"
+    },
+    {
+      "t": 52.7,
+      "label": "outlook:events-imported"
+    },
+    {
+      "t": 63.92,
+      "label": "outlook:events-read"
+    },
+    {
+      "t": 69.28,
+      "label": "tap:next→preferences"
+    },
+    {
+      "t": 70.68,
+      "label": "step:preferences"
+    },
+    {
+      "t": 73.26,
+      "label": "CHANGED:1st-class"
+    },
+    {
+      "t": 79.11,
+      "label": "CHANGED:quiet-zone-on"
+    },
+    {
+      "t": 83.51,
+      "label": "preferences:reviewed"
+    },
+    {
+      "t": 85.29,
+      "label": "tap:next→home"
+    },
+    {
+      "t": 86.69,
+      "label": "step:home"
+    },
+    {
+      "t": 89.29,
+      "label": "typed:home-station"
+    },
+    {
+      "t": 91.87,
+      "label": "tap:station-suggestion"
+    },
+    {
+      "t": 97.11,
+      "label": "CHANGED:hotel-ok-on"
+    },
+    {
+      "t": 103.45,
+      "label": "tap:next→notifications"
+    },
+    {
+      "t": 104.85,
+      "label": "step:notifications"
+    },
+    {
+      "t": 110.44,
+      "label": "CHANGED:autonomy-approve-each"
+    },
+    {
+      "t": 114.82,
+      "label": "tap:next→summary"
+    },
+    {
+      "t": 116.42,
+      "label": "step:summary"
+    },
+    {
+      "t": 125.52,
+      "label": "tap:finish-onboarding"
+    },
+    {
+      "t": 130.03,
+      "label": "dashboard:reached"
+    },
+    {
+      "t": 136.83,
+      "label": "dashboard:reviewed"
+    },
+    {
+      "t": 140.18,
+      "label": "tap:profile-tab"
+    },
+    {
+      "t": 141.99,
+      "label": "step:profile"
+    },
+    {
+      "t": 144.93,
+      "label": "tap:manage-automation"
+    },
+    {
+      "t": 146.74,
+      "label": "step:automation-veto"
+    },
+    {
+      "t": 148.9,
+      "label": "CHANGED:rebooking-always-ask"
+    },
+    {
+      "t": 152.94,
+      "label": "tap:save-automation"
+    },
+    {
+      "t": 157.35,
+      "label": "END"
+    }
+  ]
+}

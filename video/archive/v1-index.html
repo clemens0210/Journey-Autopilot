@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <title>Journey Autopilot — Showcase</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "InterLocal"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "InterLocal"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "InterLocal"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "InterLocal"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+      @font-face { font-family: "InterLocal"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+
+      :root {
+        --cream: #eff0e8;
+        --ink: #16181a;
+        --ink-soft: #5a5f66;
+        --violet: #533cfe;
+        --red: #ec0016;
+        --yellow: #fed508;
+        --card: #16181a;
+        --card-line: #2b2f34;
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; }
+      body { font-family: "InterLocal", sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+
+      /* Full-bleed backdrop — deliberately NOT a clip: it exists for the whole film. */
+      #backdrop { position: absolute; inset: 0; background: var(--cream); }
+
+      .clip { position: absolute; inset: 0; }
+
+      /* Paint order. Scene clips carry their own opaque cream so a cut is always clean,
+         even on the single frame where two inclusive time windows touch. */
+      #hook, #arch, #demo-chrome, #outro { background: var(--cream); }
+      #hook { z-index: 5; }
+      #arch { z-index: 5; }
+      #demo-chrome { z-index: 5; }
+      #demo-video { z-index: 6; }
+      #demo-copy-wrap { z-index: 7; }
+      #outro { z-index: 8; }
+      #flash-a { z-index: 20; }
+
+      /* ---------- shared type ---------- */
+      .mono {
+        font-size: 21px; font-weight: 600; letter-spacing: 0.22em;
+        text-transform: uppercase; color: var(--ink-soft);
+      }
+      .hero { font-size: 116px; font-weight: 800; letter-spacing: -0.035em; line-height: 0.94; }
+      .sub { font-size: 38px; font-weight: 500; letter-spacing: -0.01em; color: var(--ink-soft); }
+
+      /* ---------- scene 1 : hook ---------- */
+      /* the 300px numeral overflows its 0.86 line box by ~21px, so the label
+         needs real clearance, not just a non-overlapping declared box */
+      #hook-label { position: absolute; left: 160px; top: 230px; }
+      #hook-num-wrap { position: absolute; left: 160px; top: 320px; display: flex; align-items: baseline; gap: 26px; }
+      #hook-num { font-size: 300px; font-weight: 900; letter-spacing: -0.05em; color: var(--red); line-height: 0.86; }
+      #hook-unit { font-size: 62px; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); }
+      #hook-l2 { position: absolute; left: 160px; top: 668px; }
+      #hook-l3 { position: absolute; left: 160px; top: 792px; color: var(--violet); }
+      #hook-rule { position: absolute; left: 160px; top: 636px; width: 1600px; height: 3px; background: var(--ink); transform-origin: left center; }
+
+      /* ---------- scene 2 : architecture ---------- */
+      #arch-stage { position: absolute; inset: 0; transform-origin: 50% 55%; }
+      #arch-label { position: absolute; left: 90px; top: 58px; }
+      #arch-svg { position: absolute; inset: 0; }
+      /* initial hidden state lives in CSS, not in a zero-duration set at t=0 */
+      #arch-svg path {
+        fill: none; stroke: #a8adb4; stroke-width: 2.5; stroke-linecap: round;
+        stroke-dasharray: 1; stroke-dashoffset: 1;
+      }
+      #arch-svg path.hot { stroke: var(--violet); stroke-width: 3.5; }
+      #arch-svg path.dim { stroke: #c3c7cc; stroke-dasharray: 1; }
+
+      .node {
+        position: absolute; border-radius: 20px; background: var(--card);
+        box-shadow: 0 26px 60px rgba(20, 22, 26, 0.22), 0 3px 10px rgba(20, 22, 26, 0.14);
+        color: #fff; padding: 26px 28px; display: flex; flex-direction: column; justify-content: center;
+      }
+      .node .n-title { font-size: 33px; font-weight: 700; letter-spacing: -0.02em; }
+      .node .n-sub { font-size: 19px; font-weight: 500; color: #9aa1aa; margin-top: 7px; letter-spacing: 0.01em; }
+      .node.light { background: #fff; color: var(--ink); box-shadow: 0 20px 44px rgba(20, 22, 26, 0.16); }
+      .node.light .n-title { font-size: 27px; }
+      .node.light .n-sub { color: var(--ink-soft); }
+
+      .chip {
+        position: absolute; height: 54px; border-radius: 27px; background: #fff;
+        border: 2px solid #d8dad3; display: flex; align-items: center; justify-content: center;
+        font-size: 20px; font-weight: 700; letter-spacing: 0.02em; color: var(--ink);
+        box-shadow: 0 8px 20px rgba(20, 22, 26, 0.08);
+      }
+      .tools {
+        position: absolute; font-size: 19px; font-weight: 500; color: var(--ink-soft);
+        letter-spacing: 0.005em; line-height: 1.45;
+      }
+      .band {
+        position: absolute; height: 58px; border-radius: 29px; display: flex; align-items: center;
+        justify-content: center; font-size: 20px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase;
+      }
+      #band-read { background: #dfe1d9; color: #4a4f55; }
+      #band-veto { background: var(--yellow); color: var(--ink); box-shadow: 0 14px 34px rgba(190, 160, 6, 0.35); }
+      /* must fit the 110px gap between the Monitoring and Planner cards */
+      #risk-pill {
+        position: absolute; width: 106px; height: 54px; border-radius: 14px;
+        background: var(--violet); color: #fff;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        font-size: 15px; font-weight: 800; letter-spacing: 0.05em; line-height: 1.2;
+        text-transform: uppercase;
+      }
+      #arch-payoff {
+        position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 22px; opacity: 0;
+      }
+      #arch-payoff .p1 { font-size: 148px; font-weight: 900; letter-spacing: -0.045em; color: var(--violet); }
+      #arch-payoff .p2 { font-size: 34px; font-weight: 600; letter-spacing: 0.02em; color: var(--ink); }
+      #arch-veil { position: absolute; inset: 0; background: var(--cream); }
+
+      /* ---------- scene 3 : demo ---------- */
+      #phone-shadow {
+        position: absolute; left: 368px; top: 88px; width: 430px; height: 904px;
+        border-radius: 46px; background: #0a0c0f;
+        box-shadow: 0 50px 90px rgba(20, 22, 26, 0.3), 0 12px 26px rgba(20, 22, 26, 0.18);
+      }
+      /* id beats .clip on specificity; right/bottom:auto cancels the .clip inset */
+      #demo-video {
+        position: absolute; left: 380px; top: 100px; right: auto; bottom: auto;
+        width: 406px; height: 880px;
+        border-radius: 34px; object-fit: cover; display: block;
+      }
+      #demo-copy { position: absolute; left: 940px; top: 0; width: 840px; height: 1080px; }
+      .shot { position: absolute; left: 0; width: 840px; opacity: 0; }
+      .shot .s-kicker { font-size: 20px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--violet); margin-bottom: 22px; }
+      .shot .s-head { font-size: 92px; font-weight: 800; letter-spacing: -0.035em; line-height: 0.98; }
+      .shot .s-body { font-size: 32px; font-weight: 500; color: var(--ink-soft); margin-top: 26px; line-height: 1.35; }
+
+      /* ---------- scene 4 : outro ---------- */
+      #outro-wrap { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      #outro-mark { font-size: 132px; font-weight: 900; letter-spacing: -0.05em; }
+      #outro-tag { font-size: 52px; font-weight: 700; letter-spacing: -0.02em; margin-top: 18px; }
+      #outro-tag b { color: var(--violet); font-weight: 900; }
+      #outro-meta { font-size: 23px; font-weight: 500; letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink-soft); margin-top: 46px; }
+      #outro-rule { width: 0; height: 3px; background: var(--ink); margin-top: 40px; }
+
+      /* ---------- cut flash ---------- */
+      #flash { position: absolute; inset: 0; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-lsf4" id="root" data-composition-id="main" data-start="0" data-duration="60" data-width="1920" data-height="1080" data-fps="30">
+      <div data-hf-id="hf-mwvj" id="backdrop"></div>
+
+      <!-- ============ 1 · HOOK  (beats 0-16) ============ -->
+      <section data-hf-id="hf-u7ib" id="hook" class="clip" data-start="0" data-duration="7.059" data-track-index="1">
+        <div data-hf-id="hf-vz2o" id="hook-label" class="mono">Munich&#160;→&#160;Berlin · ICE&#160;528 · 21:00</div>
+        <div data-hf-id="hf-cves" id="hook-num-wrap">
+          <span data-hf-id="hf-rh3n" id="hook-num">+0</span>
+          <span data-hf-id="hf-9cfa" id="hook-unit">min late</span>
+        </div>
+        <div data-hf-id="hf-pe77" id="hook-rule"></div>
+        <div data-hf-id="hf-uzzn" id="hook-l2" class="hero">Connection missed.</div>
+        <div data-hf-id="hf-lhho" id="hook-l3" class="hero">Who replans it?</div>
+      </section>
+
+      <!-- ============ 2 · ARCHITECTURE  (beats 16-64) ============ -->
+      <section data-hf-id="hf-0kgk" id="arch" class="clip" data-start="7.059" data-duration="21.176" data-track-index="2">
+        <!-- non-timed wrapper: safe to transform, and it keeps the connectors
+             locked to the cards when the graph pushes in -->
+        <div data-hf-id="hf-v21w" id="arch-stage">
+        <div data-hf-id="hf-o791" id="arch-label" class="mono">The system · five agents</div>
+
+        <svg data-hf-id="hf-cjl7" id="arch-svg" viewBox="0 0 1920 1080" preserveAspectRatio="none">
+          <!-- trigger -> orchestrator -->
+          <path data-hf-id="hf-hugc" id="e-trig" d="M 340 310 H 430" pathLength="1" />
+          <!-- orchestrator -> model / memory chips -->
+          <path data-hf-id="hf-g1vd" id="e-llm" d="M 545 200 V 174" pathLength="1" />
+          <path data-hf-id="hf-pfsv" id="e-mem" d="M 725 200 V 174" pathLength="1" />
+          <!-- orchestrator -> the two outputs -->
+          <path data-hf-id="hf-mtqf" id="e-wa" d="M 810 268 C 950 268 1040 220 1180 220" pathLength="1" />
+          <path data-hf-id="hf-d5lz" id="e-chat" d="M 810 348 C 950 348 1040 360 1180 360" pathLength="1" />
+          <!-- orchestrator -> tool bus -> the four specialists -->
+          <path data-hf-id="hf-gfhb" id="e-bus" d="M 620 420 V 530 M 300 530 H 1530" pathLength="1" />
+          <path data-hf-id="hf-ytji" id="e-d1" d="M 300 530 V 600" pathLength="1" />
+          <path data-hf-id="hf-6euu" id="e-d2" d="M 710 530 V 600" pathLength="1" />
+          <path data-hf-id="hf-4e1v" id="e-d3" d="M 1120 530 V 600" pathLength="1" />
+          <path data-hf-id="hf-5ev7" id="e-d4" d="M 1530 530 V 600" pathLength="1" />
+          <!-- monitoring -> planner, through the risk gate -->
+          <path data-hf-id="hf-rv3s" id="e-risk" class="hot" d="M 450 685 H 560" pathLength="1" />
+        </svg>
+
+        <div data-hf-id="hf-b42x" id="n-trigger" class="node light" style="left: 90px; top: 250px; width: 250px; height: 120px">
+          <div data-hf-id="hf-qyz9" class="n-title">Trip opened</div>
+          <div data-hf-id="hf-vmj5" class="n-sub">the autopilot runs</div>
+        </div>
+
+        <div data-hf-id="hf-hkjz" id="chip-llm" class="chip" style="left: 470px; top: 120px; width: 150px">LLM</div>
+        <div data-hf-id="hf-xjhs" id="chip-mem" class="chip" style="left: 640px; top: 120px; width: 170px">Memory</div>
+
+        <div data-hf-id="hf-v2hn" id="n-orch" class="node" style="left: 430px; top: 200px; width: 380px; height: 220px">
+          <div data-hf-id="hf-hm0j" class="n-title">Orchestrator</div>
+          <div data-hf-id="hf-n2ro" class="n-sub">ReAct loop · agents as tools</div>
+        </div>
+
+        <div data-hf-id="hf-vzm8" id="n-wa" class="node light" style="left: 1180px; top: 170px; width: 330px; height: 100px">
+          <div data-hf-id="hf-7ckn" class="n-title">WhatsApp notice</div>
+        </div>
+        <div data-hf-id="hf-bgmi" id="n-chat" class="node light" style="left: 1180px; top: 310px; width: 330px; height: 100px">
+          <div data-hf-id="hf-juei" class="n-title">Reply in chat</div>
+        </div>
+
+        <div data-hf-id="hf-f6z4" id="n-mon" class="node" style="left: 150px; top: 600px; width: 300px; height: 170px">
+          <div data-hf-id="hf-gwn9" class="n-title">Monitoring</div>
+          <div data-hf-id="hf-72cc" class="n-sub">scores disruption risk</div>
+        </div>
+        <div data-hf-id="hf-97nd" id="t-mon" class="tools" style="left: 150px; top: 790px; width: 300px">Live DB data · Delay history<br data-hf-id="hf-x5px">Risk model</div>
+
+        <div data-hf-id="hf-qu5i" id="risk-pill" style="left: 452px; top: 658px"><span data-hf-id="hf-e5cl">risk ≥</span><span data-hf-id="hf-gwbe">medium</span></div>
+
+        <div data-hf-id="hf-8l6c" id="n-plan" class="node" style="left: 560px; top: 600px; width: 300px; height: 170px">
+          <div data-hf-id="hf-uadt" class="n-title">Planner</div>
+          <div data-hf-id="hf-2y9d" class="n-sub">ranks reroutes</div>
+        </div>
+        <div data-hf-id="hf-cao5" id="t-plan" class="tools" style="left: 560px; top: 790px; width: 300px">Reroutes · Calendar · Hotels<br data-hf-id="hf-rsrt">Passenger-rights RAG</div>
+
+        <div data-hf-id="hf-s8vi" id="n-comm" class="node" style="left: 970px; top: 600px; width: 300px; height: 170px">
+          <div data-hf-id="hf-m8dg" class="n-title">Communicator</div>
+          <div data-hf-id="hf-b4jj" class="n-sub">drafts the heads-up</div>
+        </div>
+        <div data-hf-id="hf-616z" id="t-comm" class="tools" style="left: 970px; top: 790px; width: 300px">Outlook mail</div>
+
+        <div data-hf-id="hf-twkx" id="n-exec" class="node" style="left: 1380px; top: 600px; width: 300px; height: 170px">
+          <div data-hf-id="hf-s0dq" class="n-title">Executor</div>
+          <div data-hf-id="hf-yvo0" class="n-sub">carries out the plan</div>
+        </div>
+        <div data-hf-id="hf-aq1m" id="t-exec" class="tools" style="left: 1380px; top: 790px; width: 300px">Booking · Reschedule<br data-hf-id="hf-szow">Compensation</div>
+
+        <div data-hf-id="hf-tse3" id="band-read" class="band" style="left: 150px; top: 890px; width: 710px">read only · cannot write</div>
+        <div data-hf-id="hf-b052" id="band-veto" class="band" style="left: 970px; top: 890px; width: 710px">veto gate · every write asks first</div>
+        </div><!-- /#arch-stage -->
+
+        <div data-hf-id="hf-vj1n" id="arch-payoff">
+          <div data-hf-id="hf-ir8g" class="p1">You keep the veto.</div>
+          <div data-hf-id="hf-9k9o" class="p2">Nothing is booked, sent or cancelled without you.</div>
+        </div>
+      </section>
+
+      <!-- ============ 3 · DEMO  (beats 64-120) ============ -->
+      <!-- chrome first so the bezel paints behind the video, video second, copy last -->
+      <section data-hf-id="hf-6ymm" id="demo-chrome" class="clip" data-start="28.235" data-duration="24.706" data-track-index="3">
+        <div data-hf-id="hf-iuec" id="phone-shadow"></div>
+      </section>
+
+      <video data-hf-id="hf-hlpz" id="demo-video" class="clip" src="assets/demo.mp4" muted playsinline data-start="28.235" data-duration="24.706" data-track-index="0"></video>
+
+      <section data-hf-id="hf-nelv" id="demo-copy-wrap" class="clip" data-start="28.235" data-duration="24.706" data-track-index="4">
+        <div data-hf-id="hf-nnfa" id="demo-copy">
+          <div data-hf-id="hf-978w" class="shot" id="sh1" style="top: 430px">
+            <div data-hf-id="hf-f0xg" class="s-kicker">Live demo</div>
+            <div data-hf-id="hf-04sm" class="s-head">The real app.</div>
+            <div data-hf-id="hf-vzmg" class="s-body">Not a mockup — the running system.</div>
+          </div>
+          <div data-hf-id="hf-gs09" class="shot" id="sh2" style="top: 430px">
+            <div data-hf-id="hf-kpbd" class="s-kicker">Dashboard</div>
+            <div data-hf-id="hf-a4v8" class="s-head">Trips, watched<br data-hf-id="hf-sldv">live.</div>
+          </div>
+          <div data-hf-id="hf-dmjo" class="shot" id="sh3" style="top: 380px">
+            <div data-hf-id="hf-xfzy" class="s-kicker">Disruption</div>
+            <div data-hf-id="hf-lgmq" class="s-head">Signal failure.<br data-hf-id="hf-qluq">+55 minutes.</div>
+            <div data-hf-id="hf-fe8p" class="s-body">The Nuremberg connection is gone.</div>
+          </div>
+          <div data-hf-id="hf-1821" class="shot" id="sh4" style="top: 450px">
+            <div data-hf-id="hf-f5fy" class="s-kicker">Agents running</div>
+            <div data-hf-id="hf-diie" class="s-head">It replans<br data-hf-id="hf-q7jp">by itself.</div>
+          </div>
+          <div data-hf-id="hf-ce1m" class="shot" id="sh5" style="top: 380px">
+            <div data-hf-id="hf-0q6t" class="s-kicker">Planner</div>
+            <div data-hf-id="hf-dbg5" class="s-head">Two reroutes.<br data-hf-id="hf-regs">Rights checked.</div>
+            <div data-hf-id="hf-48pe" class="s-body">Ticket still valid. No extra cost.</div>
+          </div>
+          <div data-hf-id="hf-u68r" class="shot" id="sh6" style="top: 380px">
+            <div data-hf-id="hf-z7vu" class="s-kicker">Veto gate</div>
+            <div data-hf-id="hf-z57o" class="s-head">“Shall I go<br data-hf-id="hf-r05r">ahead?”</div>
+            <div data-hf-id="hf-h6st" class="s-body">It asks before it books. Every time.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 4 · OUTRO  (beats 120-136) ============ -->
+      <section data-hf-id="hf-bhte" id="outro" class="clip" data-start="52.941" data-duration="7.059" data-track-index="5">
+        <div data-hf-id="hf-mx6f" id="outro-wrap">
+          <div data-hf-id="hf-axin" id="outro-mark">Journey Autopilot</div>
+          <div data-hf-id="hf-ofva" id="outro-tag">Detects. Replans. <b data-hf-id="hf-bgbt">Asks first.</b></div>
+          <div data-hf-id="hf-odhl" id="outro-rule"></div>
+          <div data-hf-id="hf-q7dj" id="outro-meta">Multi-agent system · Google ADK · Deutsche Bahn</div>
+        </div>
+      </section>
+
+      <!-- cut flashes, on their own track so they can overlay any scene -->
+      <section data-hf-id="hf-uo04" id="flash-a" class="clip" data-start="7.059" data-duration="0.3" data-track-index="8">
+        <div data-hf-id="hf-hmg5" id="flash"></div>
+      </section>
+
+      <!-- data-media-start is set so the track's drop transient (measured at source
+           t=10.2625s, sample-accurate) lands exactly on video beat 16 = 7.0588s,
+           where the architecture cut is. The beat detector's reported phase was
+           131 ms off; this offset is measured from the rendered audio, not inferred. -->
+      <audio data-hf-id="hf-u56g" id="bgm" src="1234.mp3" data-timeline-role="music" data-start="0" data-duration="60" data-media-start="3.204" data-track-index="10" data-volume="0.9"></audio>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // 136 BPM. One beat = 0.4411765 s; the music is offset so video t=0 is a downbeat.
+      const B = 0.44117647;
+      const b = (n) => n * B;
+
+      const OUT = "power3.out";
+      const INOUT = "power2.inOut";
+
+      /* ================= 1 · HOOK ================= */
+      tl.fromTo("#hook-label", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.5, ease: OUT }, b(1));
+
+      // count 0 -> 55, driven by the timeline so it is identical every render
+      const counter = { v: 0 };
+      tl.fromTo(
+        "#hook-num-wrap",
+        { opacity: 0, y: 60, scale: 0.94 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: OUT },
+        b(4)
+      );
+      tl.to(
+        counter,
+        {
+          v: 55,
+          duration: b(3),
+          ease: "power2.out",
+          onUpdate: () => {
+            document.getElementById("hook-num").textContent = "+" + Math.round(counter.v);
+          },
+        },
+        b(4)
+      );
+      tl.fromTo("#hook-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: INOUT }, b(8));
+      tl.fromTo("#hook-l2", { opacity: 0, y: 46 }, { opacity: 1, y: 0, duration: 0.5, ease: OUT }, b(9));
+      tl.fromTo("#hook-l3", { opacity: 0, y: 46 }, { opacity: 1, y: 0, duration: 0.5, ease: OUT }, b(12));
+      // a slow drift so the hold never reads as a freeze
+      tl.fromTo("#hook-num-wrap", { x: 0 }, { x: 14, duration: b(8), ease: "none" }, b(8));
+
+      /* ================= cut flash ================= */
+      tl.fromTo("#flash", { opacity: 0.85 }, { opacity: 0, duration: 0.26, ease: "power2.in" }, b(16));
+
+      /* ================= 2 · ARCHITECTURE (beats 16-64) ================= */
+      const A = (n) => b(n);
+
+      // every path declares pathLength="1", so the draw-on needs no DOM measurement
+      const draw = (sel, at, dur = 0.42) =>
+        tl.fromTo(sel, { strokeDashoffset: 1 }, { strokeDashoffset: 0, duration: dur, ease: INOUT }, at);
+      // hidden start state is authored in CSS (stroke-dasharray/offset = 1)
+
+      // always resolves x/y/scale, so a custom `from` can never leave an axis stranded
+      const pop = (sel, at, from = {}, dur = 0.46) =>
+        tl.fromTo(
+          sel,
+          Object.assign({ opacity: 0, x: 0, y: 40, scale: 0.93 }, from),
+          { opacity: 1, x: 0, y: 0, scale: 1, duration: dur, ease: OUT },
+          at
+        );
+      const strip = (sel, at) =>
+        tl.fromTo(sel, { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4, ease: OUT }, at);
+
+      tl.fromTo("#arch-label", { opacity: 0 }, { opacity: 1, duration: 0.4, ease: OUT }, A(16));
+      pop("#n-trigger", A(16.2), { x: -46, y: 0 });
+      draw("#e-trig", A(17.5), 0.34);
+      pop("#n-orch", A(18.5));
+      draw("#e-llm", A(20.3), 0.26);
+      draw("#e-mem", A(20.5), 0.26);
+      pop("#chip-llm", A(21), { y: 20, scale: 0.78 }, 0.38);
+      pop("#chip-mem", A(21.35), { y: 20, scale: 0.78 }, 0.38);
+
+      draw("#e-bus", A(23), 0.8);
+      draw("#e-d1", A(24.5), 0.22);
+      pop("#n-mon", A(25));
+      strip("#t-mon", A(26));
+
+      draw("#e-risk", A(27.6), 0.28);
+      pop("#risk-pill", A(28), { y: 0, scale: 0.66 }, 0.38);
+      draw("#e-d2", A(28.6), 0.22);
+      pop("#n-plan", A(29));
+      strip("#t-plan", A(30));
+
+      draw("#e-d3", A(31.6), 0.22);
+      pop("#n-comm", A(32));
+      strip("#t-comm", A(33));
+
+      draw("#e-d4", A(34.6), 0.22);
+      pop("#n-exec", A(35));
+      strip("#t-exec", A(36));
+
+      // the read / write split — the point of the whole diagram
+      tl.fromTo("#band-read", { opacity: 0, scaleX: 0.86 }, { opacity: 1, scaleX: 1, duration: 0.45, ease: OUT }, A(38));
+      tl.fromTo("#band-veto", { opacity: 0, scaleX: 0.7 }, { opacity: 1, scaleX: 1, duration: 0.38, ease: "power4.out" }, A(40));
+      tl.fromTo("#n-comm", { scale: 1 }, { scale: 1.05, duration: 0.17, ease: "power2.out", yoyo: true, repeat: 1 }, A(40));
+      tl.fromTo("#n-exec", { scale: 1 }, { scale: 1.05, duration: 0.17, ease: "power2.out", yoyo: true, repeat: 1 }, A(40));
+
+      // both outputs leave from the ORCHESTRATOR — never from the executor
+      draw("#e-wa", A(43), 0.42);
+      draw("#e-chat", A(43.4), 0.42);
+      pop("#n-wa", A(43.9), { x: 34, y: 0 });
+      pop("#n-chat", A(44.3), { x: 34, y: 0 });
+
+      // payoff: dim the whole graph, punch the line, bring it back
+      // #arch-payoff starts at opacity 0 in CSS
+      tl.set("#arch-payoff", { opacity: 1 }, A(47));
+      tl.to("#arch-stage", { opacity: 0.1, duration: 0.3, ease: INOUT }, A(47));
+      tl.fromTo("#arch-payoff .p1", { opacity: 0, y: 52, scale: 0.95 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: OUT }, A(47.1));
+      tl.fromTo("#arch-payoff .p2", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.45, ease: OUT }, A(48));
+      tl.to("#arch-payoff", { opacity: 0, duration: 0.3, ease: INOUT }, A(52));
+      tl.to("#arch-stage", { opacity: 1, duration: 0.35, ease: INOUT }, A(52.3));
+      tl.fromTo("#band-veto", { scale: 1 }, { scale: 1.035, duration: 0.2, ease: "power2.out", yoyo: true, repeat: 1 }, A(53));
+
+      // slow push-in across the hold, so the last two bars never read as a freeze
+      tl.fromTo("#arch-stage", { scale: 1 }, { scale: 1.03, duration: b(11), ease: "none" }, A(53));
+      // no fade-out here: the graph holds to the last frame and the demo scene
+      // hard-cuts over it, matching the reference's cut language. Fading it early
+      // left ~0.7 s of empty cream before the cut.
+
+      /* ================= 3 · DEMO ================= */
+      const shots = [
+        ["#sh1", 64, 70],
+        ["#sh2", 70, 78],
+        ["#sh3", 78, 90],
+        ["#sh4", 90, 96],
+        ["#sh5", 96, 108],
+        ["#sh6", 108, 120],
+      ];
+      // .shot starts hidden in CSS. Shots 2 and 4 are headline-only, so the
+      // body tween is only scheduled where the element actually exists —
+      // a build-time DOM read, identical on every render.
+      shots.forEach(([sel, inB, outB]) => {
+        tl.set(sel, { opacity: 1 }, b(inB));
+        tl.fromTo(sel + " .s-kicker", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.34, ease: OUT }, b(inB + 0.15));
+        tl.fromTo(sel + " .s-head", { opacity: 0, y: 44 }, { opacity: 1, y: 0, duration: 0.44, ease: OUT }, b(inB + 0.35));
+        if (document.querySelector(sel + " .s-body")) {
+          tl.fromTo(sel + " .s-body", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: OUT }, b(inB + 0.8));
+        }
+        tl.to(sel, { opacity: 0, duration: 0.18, ease: "power2.in" }, b(outB - 0.4));
+      });
+
+      /* ================= 4 · OUTRO ================= */
+      tl.fromTo("#outro-mark", { opacity: 0, y: 60, scale: 0.96 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: OUT }, b(120.2));
+      tl.fromTo("#outro-tag", { opacity: 0, y: 36 }, { opacity: 1, y: 0, duration: 0.5, ease: OUT }, b(122));
+      tl.fromTo("#outro-rule", { width: 0 }, { width: 520, duration: 0.6, ease: INOUT }, b(124));
+      tl.fromTo("#outro-meta", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.5, ease: OUT }, b(126));
+      tl.to("#outro-wrap", { scale: 1.02, duration: b(8), ease: "none" }, b(128));
+
+      // music tail
+      tl.to("#bgm", { volume: 0, duration: 1.4, ease: INOUT }, b(132.8));
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

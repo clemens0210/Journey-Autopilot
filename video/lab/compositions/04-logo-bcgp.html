@@ -1,0 +1,95 @@
+<!-- IDEA 04 — BCG Platinion's mark is a folded prism, so let it FOLD.
+     logo_split.py segments the real mark by colour into its five facets
+     (emerald, mint, black, graphite, silver). Each facet flies back to its own
+     face of the solid along the direction that face points, so the mark looks
+     assembled rather than revealed. The wordmark then wipes in, line by line.
+
+     Facet origins come from parts.json, so each shard pivots about itself. -->
+<template>
+  <div data-hf-id="hf-pujk" data-composition-id="logo-bcgp" data-start="0" data-duration="7" data-width="1920" data-height="1080" style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "LabInter"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+
+      #bp-bg { position: absolute; inset: 0; background: #eff0e8; }
+      #bp-root { position: absolute; inset: 0; font-family: "LabInter", system-ui, sans-serif; }
+
+      /* 1024×286 native → 1240×346 on screen, centred */
+      #bp-stage { position: absolute; left: 340px; top: 368px; width: 1240px; height: 346px; }
+      #bp-stage img { position: absolute; inset: 0; width: 100%; height: 100%; }
+      /* each shard pivots about its own centre, not the canvas centre */
+      #bp-green  { transform-origin: 14.75% 9.97%; }
+      #bp-mint   { transform-origin: 14.75% 59.44%; }
+      #bp-black  { transform-origin: 8.11% 59.97%; }
+      #bp-grey   { transform-origin: 10.45% 59.97%; }
+      #bp-silver { transform-origin: 21.78% 59.62%; }
+
+      /* the wordmark lines wipe rather than fade — a wipe has a direction, and
+         direction is what carries the eye into the next beat */
+      #bp-bcg, #bp-platinion { clip-path: inset(0 100% 0 0); }
+
+      #bp-stage img, #bp-kicker, #bp-role { opacity: 0; }
+
+      #bp-kicker { position: absolute; left: 0; right: 0; top: 232px; text-align: center; font-size: 21px; font-weight: 700; letter-spacing: 0.26em; text-transform: uppercase; color: #6f757d; }
+      #bp-role { position: absolute; left: 0; right: 0; top: 790px; text-align: center; font-size: 34px; font-weight: 500; letter-spacing: -0.01em; color: #5a5f66; }
+    </style>
+
+    <div data-hf-id="hf-zem9" id="bp-bg"></div>
+    <div data-hf-id="hf-if4g" id="bp-root">
+      <div data-hf-id="hf-di6b" id="bp-kicker">Built with</div>
+      <div data-hf-id="hf-34ky" id="bp-stage">
+        <img data-hf-id="hf-8nky" id="bp-mint" src="assets/logos/bcgp/mark-mint.png" alt="">
+        <img data-hf-id="hf-mxb2" id="bp-silver" src="assets/logos/bcgp/mark-silver.png" alt="">
+        <img data-hf-id="hf-c4cu" id="bp-grey" src="assets/logos/bcgp/mark-grey.png" alt="">
+        <img data-hf-id="hf-cnda" id="bp-black" src="assets/logos/bcgp/mark-black.png" alt="">
+        <img data-hf-id="hf-1skm" id="bp-green" src="assets/logos/bcgp/mark-green.png" alt="">
+        <img data-hf-id="hf-8amk" id="bp-bcg" src="assets/logos/bcgp/bcg-black.png" alt="">
+        <img data-hf-id="hf-ebio" id="bp-platinion" src="assets/logos/bcgp/platinion-black.png" alt="">
+      </div>
+      <div data-hf-id="hf-1o1p" id="bp-role">Technology &amp; engineering partner</div>
+    </div>
+
+    <script>
+      (() => {
+        const tl = gsap.timeline({ paused: true });
+
+        tl.fromTo("#bp-kicker", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.42, ease: "power3.out" }, 0.2);
+
+        // 1 — the five faces fold in. Each travels along the axis its own face
+        //     of the solid points down, and they land back-to-front so the
+        //     bright top facet is the last thing to seat.
+        const shards = [
+          ["#bp-black", { x: -180, y: 120, rotate: -22 }, 0.55],
+          ["#bp-grey", { x: -140, y: 150, rotate: -14 }, 0.63],
+          ["#bp-silver", { x: 170, y: 130, rotate: 18 }, 0.71],
+          ["#bp-mint", { x: 40, y: 200, rotate: 10 }, 0.79],
+          ["#bp-green", { x: 0, y: -190, rotate: -8 }, 0.9],
+        ];
+        shards.forEach(([sel, from, at]) => {
+          tl.fromTo(
+            sel,
+            Object.assign({ opacity: 0, scale: 0.86 }, from),
+            { opacity: 1, x: 0, y: 0, rotate: 0, scale: 1, duration: 0.6, ease: "power4.out" },
+            at
+          );
+        });
+
+        // 2 — the solid seats: one sharp settle on the last facet's impact.
+        tl.fromTo("#bp-stage", { scale: 1 }, { scale: 1.03, duration: 0.14, ease: "power2.out", yoyo: true, repeat: 1 }, 1.52);
+
+        // 3 — stillness, then the name arrives as two wipes travelling right.
+        tl.set("#bp-bcg", { opacity: 1 }, 2.05);
+        tl.fromTo("#bp-bcg", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 0.46, ease: "power3.out" }, 2.05);
+        tl.set("#bp-platinion", { opacity: 1 }, 2.24);
+        tl.fromTo("#bp-platinion", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 0.56, ease: "power3.out" }, 2.24);
+
+        tl.fromTo("#bp-role", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.44, ease: "power3.out" }, 3.05);
+
+        tl.to("#bp-root", { x: -80, duration: 1.9, ease: "power2.in" }, 5.1);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["logo-bcgp"] = tl;
+      })();
+    </script>
+  </div>
+</template>

@@ -1,0 +1,375 @@
+<!-- IDEA 07 — the architecture, ASSEMBLED.
+     This is not a redrawn approximation of slide 8: the markup between the
+     pptx markers is generated straight out of Status_Update_BCG_DB.pptx by
+     tools/pptx_extract.py, so every card, wire, icon and label sits at the
+     coordinate the deck actually puts it at. Re-run tools/build_arch.py after
+     the slide changes and this scene follows.
+
+     The motion tells the system's story in the order it runs: trigger → the
+     orchestrator wakes → its brain and memory attach → the tool bus drops →
+     each agent lands with its own tools → the two ways it talks to you.
+     Nothing wobbles: every second something new is arriving. -->
+<template>
+  <div data-hf-id="hf-bli9" data-composition-id="arch-build" data-start="0" data-duration="16" data-width="1920" data-height="1080" style="position: relative; width: 1920px; height: 1080px; overflow: hidden">
+    <style>
+      @font-face { font-family: "LabInter"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "LabInter"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+
+      #ab-bg { position: absolute; inset: 0; background: #f7f8f5; }
+      #ab-root { position: absolute; inset: 0; font-family: "LabInter", system-ui, sans-serif; }
+
+      /* The deck is laid out for a 4:3-ish text slide, so the graph sits high
+         with a wide right margin. One static reframe pulls it onto the video
+         frame; the camera tween below rides a separate wrapper so the two
+         never fight over the same transform. */
+      #ab-fit { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform: translate(28px, 58px) scale(0.94); transform-origin: 50% 50%; }
+      #ab-cam { position: absolute; inset: 0; }
+
+      /* --- generated-markup styling (matches pptx_to_html.py's classes) --- */
+      .pp-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+      .pp-shape, .pp-text, .pp-img { position: absolute; }
+      .pp-text { display: flex; flex-direction: column; line-height: 1.15; color: #3e4148; }
+      .pp-img { object-fit: contain; }
+      /* Slide furniture the video does not need. */
+      #ab-cam [data-part="chrome"] { display: none; }
+
+      /* Hidden start states live in CSS, not in a set() at t=0 — a seek to any
+         frame before an entrance must land on the same picture as playback. */
+      #ab-cam [data-part] { opacity: 0; }
+      #ab-kicker, #ab-title, #ab-source { opacity: 0; }
+
+      /* Graph wires draw on. pathLength="1" is stamped by the extractor, so
+         the whole reveal is one strokeDashoffset 1 -> 0 tween with no measuring. */
+      /* opacity as well as the dash: an SVG marker-end arrowhead is NOT clipped
+         by stroke-dasharray, so a dash-hidden wire still parks its arrow on the
+         canvas from frame 0 unless the whole path is hidden. */
+      #ab-cam .pp-wires path { stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; }
+      /* …except the dark hairlines, which are detail *inside* an icon (a robot's
+         antenna, the risk dial's needle). Those belong to their card and just
+         come up with it. */
+      #ab-cam .pp-wires path[stroke="#3e4148"] { stroke-dasharray: none; stroke-dashoffset: 0; }
+
+      /* --- scene furniture --- */
+      #ab-kicker { position: absolute; left: 96px; top: 74px; font-size: 21px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: #6f757d; }
+      #ab-title { position: absolute; left: 96px; top: 112px; font-size: 58px; font-weight: 800; letter-spacing: -0.03em; color: #16181a; }
+      #ab-title b { color: #533cfe; font-weight: 800; }
+      #ab-source { position: absolute; right: 96px; top: 84px; font-size: 18px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: #6b7079; }
+    </style>
+
+    <div data-hf-id="hf-cy6o" id="ab-bg"></div>
+    <div data-hf-id="hf-iydl" id="ab-root">
+      <div data-hf-id="hf-jwlp" id="ab-kicker">Journey Autopilot</div>
+      <div data-hf-id="hf-atfn" id="ab-title">Five agents, <b data-hf-id="hf-uuxd">one orchestrator</b></div>
+      <div data-hf-id="hf-11i1" id="ab-source">Status update · slide 8</div>
+
+      <div data-hf-id="hf-2b4a" id="ab-fit">
+        <div data-hf-id="hf-v8ua" id="ab-cam">
+          <!-- pptx:slide8 begin -->
+    <svg data-hf-id="hf-efp1" id="arch-wires" class="pp-wires" viewBox="0 0 1920 1080">
+      <defs data-hf-id="hf-mh0t">
+        <marker data-hf-id="hf-4zgi" id="arch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path data-hf-id="hf-tkcb" d="M 0 0 L 10 5 L 0 10 z" fill="#a9adb5" />
+        </marker>
+      </defs>
+      <path data-hf-id="hf-7iw0" id="arch-connector-26" d="M 1546.8 717.0 L 1439.2 811.5" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-e1ko" id="arch-connector-27" d="M 1546.8 717.0 L 1546.8 811.5" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-q0l1" id="arch-connector-28" d="M 1546.8 717.0 L 1654.4 811.5" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-9h7u" id="arch-connector-122" d="M 1479.9 620.5 L 1479.9 630.3" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#3e4148" stroke-width="1.62" fill="none" stroke-linecap="round" />
+      <path data-hf-id="hf-0uby" id="arch-connector-7" d="M 295.5 401.4 L 459.9 402.3" pathLength="1" data-wire="trigger>orchestrator" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path data-hf-id="hf-dixu" id="arch-connector-8" d="M 387.2 653.7 L 469.5 653.7" pathLength="1" data-wire="monitoring>branch" data-part="monitoring" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path data-hf-id="hf-4f5j" id="arch-connector-10" d="M 624.1 681.3 C 542.0 681.3 624.1 541.8 542.0 541.8 C 459.9 541.8 542.0 402.3 459.9 402.3" pathLength="1" data-wire="branch>orchestrator" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path data-hf-id="hf-zqc8" id="arch-connector-11" d="M 623.3 295.3 L 612.8 258.5" pathLength="1" data-wire="chat-model>chat-model" data-part="chat-model" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-ld24" id="arch-connector-13" d="M 750.7 250.6 L 737.5 292.6" pathLength="1" data-wire="memory>memory" data-part="memory" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-sk0n" id="arch-connector-14" d="M 268.4 588.1 L 819.9 511.3" pathLength="1" data-wire="monitoring>orchestrator" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-30z9" id="arch-connector-15" d="M 820.1 511.3 L 840.1 586.5" pathLength="1" data-wire="orchestrator>planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-zjlh" id="arch-connector-16" d="M 820.1 511.3 L 1224.5 589.1" pathLength="1" data-wire="orchestrator>communicator" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-cscc" id="arch-connector-38" d="M 543.2 365.1 L 543.2 380.9" pathLength="1" data-wire="chat-model>orchestrator" data-part="orchestrator" stroke="#3e4148" stroke-width="2.62" fill="none" stroke-linecap="round" />
+      <path data-hf-id="hf-oaoz" id="arch-connector-89" d="M 206.1 621.8 L 206.1 631.6" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#3e4148" stroke-width="1.62" fill="none" stroke-linecap="round" />
+      <path data-hf-id="hf-wf4q" id="arch-connector-17" d="M 272.5 720.5 L 164.9 815.0" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-r8sb" id="arch-connector-18" d="M 272.4 720.5 L 272.4 815.0" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-rbgs" id="arch-connector-19" d="M 272.4 720.5 L 380.0 815.0" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-eitd" id="arch-connector-146" d="M 380.0 874.3 L 394.4 855.8" pathLength="1" data-wire="mon-tools>mon-tools" data-part="mon-tools" stroke="#3e4148" stroke-width="3.0" fill="none" stroke-linecap="round" />
+      <path data-hf-id="hf-4k8s" id="arch-connector-24" d="M 1224.3 723.0 L 1231.2 820.5" pathLength="1" data-wire="communicator>comm-tools" data-part="communicator" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-w2g0" id="arch-connector-111" d="M 1157.4 622.8 L 1157.4 632.6" pathLength="1" data-wire="communicator>communicator" data-part="communicator" stroke="#3e4148" stroke-width="1.62" fill="none" stroke-linecap="round" />
+      <path data-hf-id="hf-fkgd" id="arch-connector-9" d="M 624.2 631.5 C 676.8 631.5 676.8 630.9 729.3 630.9" pathLength="1" data-wire="branch>branch" data-part="branch" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path data-hf-id="hf-scn3" id="arch-connector-16-2" d="M 820.1 511.3 L 1550.1 583.6" pathLength="1" data-wire="orchestrator>executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-661q" id="arch-connector-9-2" d="M 859.3 402.3 C 1132.4 402.3 1132.4 315.6 1405.5 315.6" pathLength="1" data-wire="orchestrator>outputs" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path data-hf-id="hf-9j8b" id="arch-connector-9-3" d="M 864.4 401.2 C 1134.9 401.2 1134.9 469.3 1405.4 469.3" pathLength="1" data-wire="orchestrator>outputs" stroke="#a9adb5" stroke-width="2.1" fill="none" stroke-linecap="round" marker-end="url(#arch-arrow)" />
+      <path data-hf-id="hf-0bxc" id="arch-connector-11-2" d="M 164.2 729.9 L 199.7 721.5" pathLength="1" data-wire="monitoring>monitoring" data-part="monitoring" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-8m5e" id="arch-connector-21" d="M 843.1 723.0 L 691.5 813.6" pathLength="1" data-wire="planner>branch" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-qvut" id="arch-connector-22" d="M 843.2 723.0 L 798.2 813.6" pathLength="1" data-wire="planner>planner" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-8ols" id="arch-connector-23" d="M 843.2 723.0 L 907.3 816.9" pathLength="1" data-wire="planner>plan-tools" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-ztc9" id="arch-connector-100" d="M 776.2 623.2 L 776.2 633.0" pathLength="1" data-wire="planner>planner" data-part="planner" stroke="#3e4148" stroke-width="1.62" fill="none" stroke-linecap="round" />
+      <path data-hf-id="hf-4qu5" id="arch-connector-11-3" d="M 727.0 729.8 L 762.5 722.2" pathLength="1" data-wire="branch>planner" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-j5jp" id="arch-connector-11-4" d="M 1111.2 729.8 L 1147.7 722.2" pathLength="1" data-wire="communicator>communicator" data-part="communicator" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-xh6g" id="arch-connector-11-5" d="M 1437.6 729.9 L 1473.1 719.8" pathLength="1" data-wire="executor>executor" data-part="executor" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+      <path data-hf-id="hf-yajy" id="arch-connector-23-2" d="M 841.1 725.7 L 1011.8 813.8" pathLength="1" data-wire="planner>planner" data-part="planner" stroke="#a9adb5" stroke-width="1.8" fill="none" stroke-linecap="round" class="dashed" />
+    </svg>
+    <div data-hf-id="hf-cktl" id="arch-abgerundetes-rechteck-62" class="pp-shape" data-part="exec-tools" style="left:1613.2px;top:816.9px;width:180.4px;height:86.7px;background:#f0f1f3;border-radius:13.9px;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-f1lf" id="arch-textbox-163" class="pp-text" data-part="exec-tools" style="left:1689.0px;top:839.4px;width:144.3px;height:39.8px;text-align:left;justify-content:flex-start;font-size:18.0px;color:#3e4148"><span data-hf-id="hf-h9lz">Passenger </span><span data-hf-id="hf-ea50">Rights RAG</span></div>
+    <img data-hf-id="hf-p9n5" id="arch-grafik-84" class="pp-img" data-part="exec-tools" src="assets/arch/media/image18.png" alt="" style="left:1629.3px;top:835.2px;width:49.9px;height:49.9px">
+    <img data-hf-id="hf-dhjl" id="arch-picture-152" class="pp-img" data-part="exec-tools" src="assets/arch/media/image19.png" alt="" style="left:1627.1px;top:834.4px;width:27.3px;height:19.0px;transform:rotate(344.11deg)">
+    <div data-hf-id="hf-g56v" id="arch-fu-zeilenplatzhalter-5" class="pp-text" data-part="chrome" style="left:1587.3px;top:994.9px;width:124.9px;height:38.5px;text-align:left;justify-content:center;font-size:12px"><span data-hf-id="hf-tqdk">22.07.2026</span></div>
+    <div data-hf-id="hf-2i03" id="arch-rounded-rectangle-120" class="pp-shape" data-part="executor" style="left:1437.9px;top:587.0px;width:217.8px;height:124.8px;background:#ffffff;border-radius:20.0px;border:1.88px solid #e0e2e7"></div>
+    <div data-hf-id="hf-aech" id="arch-oval-202" class="pp-shape" data-part="executor" style="left:1542.1px;top:582.3px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-45mo" id="arch-oval-204" class="pp-shape" data-part="executor" style="left:1476.4px;top:614.2px;width:6.9px;height:6.9px;background:#3e4148;border-radius:50%"></div>
+    <div data-hf-id="hf-t2jm" id="arch-rounded-rectangle-124" class="pp-shape" data-part="executor" style="left:1456.3px;top:630.3px;width:47.1px;height:35.8px;background:#3e4148;border-radius:5.7px"></div>
+    <div data-hf-id="hf-kpav" id="arch-oval-206" class="pp-shape" data-part="executor" style="left:1466.8px;top:640.0px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-v16e" id="arch-oval-207" class="pp-shape" data-part="executor" style="left:1484.4px;top:640.0px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-9o4o" id="arch-rounded-rectangle-127" class="pp-shape" data-part="executor" style="left:1472.1px;top:654.8px;width:15.5px;height:4.5px;background:#ffffff;border-radius:0.7px"></div>
+    <div data-hf-id="hf-ldb0" id="arch-textbox-128" class="pp-text" data-part="executor" style="left:1516.7px;top:624.9px;width:135.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;font-weight:700;color:#3e4148"><span data-hf-id="hf-rla8">Executor</span><span data-hf-id="hf-ijtm">Agent</span></div>
+    <div data-hf-id="hf-8ffk" id="arch-diamond-130" class="pp-shape" data-part="executor" style="left:1538.2px;top:703.2px;width:17.1px;height:17.1px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-jlih" id="arch-oval-211" class="pp-shape" data-part="exec-tools" style="left:1395.9px;top:814.2px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-au96" id="arch-oval-212" class="pp-shape" data-part="exec-tools" style="left:1434.6px;top:809.6px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-smte" id="arch-textbox-186" class="pp-text" data-part="exec-tools" style="left:1367.1px;top:908.7px;width:144.3px;height:19.4px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-pxus">Booking</span></div>
+    <div data-hf-id="hf-j0r0" id="arch-oval-216" class="pp-shape" data-part="exec-tools" style="left:1503.4px;top:814.2px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-r1ci" id="arch-oval-217" class="pp-shape" data-part="exec-tools" style="left:1542.1px;top:809.6px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-24v6" id="arch-textbox-191" class="pp-text" data-part="exec-tools" style="left:1474.7px;top:908.7px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-pr3d">Reschedule</span></div>
+    <div data-hf-id="hf-eizp" id="arch-textbox-196" class="pp-text" data-part="exec-tools" style="left:1621.4px;top:910.7px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-8a1v">Compensation</span></div>
+    <div data-hf-id="hf-30hb" id="arch-oval-221" class="pp-shape" data-part="exec-tools" style="left:1649.7px;top:809.6px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img data-hf-id="hf-2jo4" id="arch-grafik-197" class="pp-img" data-part="exec-tools" src="assets/arch/media/image20.png" alt="" style="left:1526.1px;top:835.5px;width:45.9px;height:46.0px">
+    <img data-hf-id="hf-k0l4" id="arch-picture-29" class="pp-img" data-part="trigger" src="assets/arch/media/image21.png" alt="" style="left:144.4px;top:332.0px;width:146.9px;height:147.1px">
+    <div data-hf-id="hf-lfyp" id="arch-rounded-rectangle-30" class="pp-shape" data-part="trigger" style="left:181.2px;top:376.6px;width:68.2px;height:48.6px;background:#3e4148;border-radius:7.8px"></div>
+    <div data-hf-id="hf-b32e" id="arch-isosceles-triangle-31" class="pp-shape" data-part="trigger" style="left:187.8px;top:418.7px;width:21.0px;height:18.5px;background:#3e4148;clip-path:polygon(50% 0,100% 100%,0 100%);transform:rotate(195.0deg)"></div>
+    <div data-hf-id="hf-pekh" id="arch-rounded-rectangle-32" class="pp-shape" data-part="trigger" style="left:229.8px;top:406.2px;width:39.3px;height:30.2px;background:#3e4148;border-radius:4.8px;border:2.1px solid #ffffff"></div>
+    <div data-hf-id="hf-qne8" id="arch-oval-194" class="pp-shape" data-part="trigger" style="left:285.5px;top:399.6px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-b7gh" id="arch-textbox-35" class="pp-text" data-part="trigger" style="left:108.6px;top:486.8px;width:216.6px;height:53.2px;text-align:center;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span data-hf-id="hf-86sh">On start of the autopilot</span></div>
+    <div data-hf-id="hf-bid2" id="arch-rounded-rectangle-37" class="pp-shape" data-part="orchestrator" style="left:465.9px;top:303.8px;width:393.5px;height:197.0px;background:#ffffff;border-radius:31.5px;border:1.88px solid #e0e2e7"></div>
+    <div data-hf-id="hf-5fs9" id="arch-oval-175" class="pp-shape" data-part="orchestrator" style="left:537.6px;top:354.9px;width:11.1px;height:11.1px;background:#3e4148;border-radius:50%"></div>
+    <div data-hf-id="hf-maxw" id="arch-rounded-rectangle-40" class="pp-shape" data-part="orchestrator" style="left:505.2px;top:380.9px;width:76.1px;height:57.8px;background:#3e4148;border-radius:9.2px"></div>
+    <div data-hf-id="hf-gttc" id="arch-oval-177" class="pp-shape" data-part="orchestrator" style="left:522.3px;top:396.6px;width:13.8px;height:13.8px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-egt8" id="arch-oval-178" class="pp-shape" data-part="orchestrator" style="left:550.5px;top:396.6px;width:13.8px;height:13.8px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-ntlh" id="arch-rounded-rectangle-43" class="pp-shape" data-part="orchestrator" style="left:530.7px;top:420.2px;width:24.9px;height:7.2px;background:#ffffff;border-radius:1.2px"></div>
+    <div data-hf-id="hf-0nqk" id="arch-textbox-44" class="pp-text" data-part="orchestrator" style="left:603.6px;top:353.5px;width:249.1px;height:77.6px;text-align:left;justify-content:flex-start;font-size:31.99px;font-weight:700;color:#3e4148"><span data-hf-id="hf-9slp">Orchestrator</span><span data-hf-id="hf-3ugu">Agent</span></div>
+    <div data-hf-id="hf-sxm4" id="arch-textbox-45" class="pp-text" data-part="orchestrator" style="left:601.5px;top:437.7px;width:255.8px;height:26.7px;text-align:left;justify-content:flex-start;font-size:22.0px;color:#686a6d"><span data-hf-id="hf-isnj">Orchestrator · ReAct</span></div>
+    <div data-hf-id="hf-ukzb" id="arch-rounded-rectangle-46" class="pp-shape" data-part="orchestrator" style="left:459.9px;top:391.8px;width:7.2px;height:21.0px;background:#8f939c;border-radius:1.2px"></div>
+    <div data-hf-id="hf-y3wh" id="arch-diamond-48" class="pp-shape" data-part="memory" style="left:728.1px;top:295.4px;width:21.0px;height:21.0px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-r18g" id="arch-diamond-49" class="pp-shape" data-part="chat-model" style="left:612.8px;top:295.4px;width:21.0px;height:21.0px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-c7lg" id="arch-diamond-50" class="pp-shape" data-part="orchestrator" style="left:809.6px;top:490.3px;width:21.0px;height:21.0px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-lnpx" id="arch-textbox-51" class="pp-text" data-part="chat-model" style="left:508.7px;top:275.5px;width:131.1px;height:17.0px;text-align:center;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span data-hf-id="hf-j56q">Chat Model</span></div>
+    <div data-hf-id="hf-tsgv" id="arch-textbox-52" class="pp-text" data-part="memory" style="left:709.8px;top:276.9px;width:131.1px;height:15.5px;text-align:center;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span data-hf-id="hf-isre">Memory</span></div>
+    <div data-hf-id="hf-1eoa" id="arch-textbox-53" class="pp-text" data-part="orchestrator" style="left:737.5px;top:518.0px;width:131.1px;height:17.0px;text-align:center;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span data-hf-id="hf-1cls">Tools</span></div>
+    <div data-hf-id="hf-j8uk" id="arch-rounded-rectangle-54" class="pp-shape" data-part="branch" style="left:471.5px;top:582.8px;width:146.9px;height:147.1px;background:#ffffff;border-radius:23.5px;border:1.88px solid #e0e2e7"></div>
+    <div data-hf-id="hf-ahjv" id="arch-rectangle-55" class="pp-shape" data-part="branch" style="left:541.7px;top:619.7px;width:6.6px;height:73.5px;background:#12a150"></div>
+    <div data-hf-id="hf-i5yr" id="arch-pentagon-56" class="pp-shape" data-part="branch" style="left:524.0px;top:624.9px;width:45.9px;height:21.0px;background:#12a150;clip-path:polygon(0 0,72% 0,100% 50%,72% 100%,0 100%)"></div>
+    <div data-hf-id="hf-0lwe" id="arch-pentagon-57" class="pp-shape" data-part="branch" style="left:519.9px;top:655.0px;width:45.9px;height:21.0px;background:#12a150;clip-path:polygon(0 0,72% 0,100% 50%,72% 100%,0 100%);transform:rotate(180.0deg)"></div>
+    <div data-hf-id="hf-bmyz" id="arch-rounded-rectangle-58" class="pp-shape" data-part="branch" style="left:465.9px;top:641.4px;width:7.2px;height:21.0px;background:#8f939c;border-radius:1.2px"></div>
+    <div data-hf-id="hf-otnx" id="arch-oval-22" class="pp-shape" data-part="branch" style="left:612.5px;top:625.5px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-0nxl" id="arch-oval-23" class="pp-shape" data-part="branch" style="left:612.5px;top:675.5px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-ige6" id="arch-textbox-61" class="pp-text" data-part="branch" style="left:628.8px;top:607.8px;width:59.1px;height:15.5px;text-align:left;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span data-hf-id="hf-4sq1">true</span></div>
+    <div data-hf-id="hf-4cyt" id="arch-textbox-62" class="pp-text" data-part="branch" style="left:628.8px;top:689.2px;width:59.1px;height:15.5px;text-align:left;justify-content:flex-start;font-size:14.0px;color:#686a6d"><span data-hf-id="hf-ch50">false</span></div>
+    <div data-hf-id="hf-hnl2" id="arch-textbox-63" class="pp-text" data-part="branch" style="left:410.4px;top:737.2px;width:262.4px;height:22.0px;text-align:center;justify-content:flex-start;font-size:20.0px;color:#3e4148"><span data-hf-id="hf-owfr">If risk of disruption </span></div>
+    <div data-hf-id="hf-5h1g" id="arch-textbox-68" class="pp-text" data-part="outputs" style="left:1551.6px;top:295.8px;width:187.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span data-hf-id="hf-hcw8">Send WhatsApp Message</span></div>
+    <img data-hf-id="hf-mc83" id="arch-picture-29-2" class="pp-img" data-part="outputs" src="assets/arch/media/image21.png" alt="" style="left:1408.9px;top:402.9px;width:132.4px;height:132.9px">
+    <div data-hf-id="hf-wwb7" id="arch-rounded-rectangle-71" class="pp-shape" data-part="outputs" style="left:1438.2px;top:443.2px;width:61.5px;height:44.0px;background:#3e4148;border-radius:7.0px"></div>
+    <div data-hf-id="hf-kq1v" id="arch-isosceles-triangle-72" class="pp-shape" data-part="outputs" style="left:1444.2px;top:481.2px;width:18.9px;height:16.6px;background:#3e4148;clip-path:polygon(50% 0,100% 100%,0 100%);transform:rotate(195.0deg)"></div>
+    <div data-hf-id="hf-fvu5" id="arch-rounded-rectangle-73" class="pp-shape" data-part="outputs" style="left:1482.0px;top:470.0px;width:35.4px;height:27.3px;background:#3e4148;border-radius:4.4px;border:2.1px solid #ffffff"></div>
+    <div data-hf-id="hf-n6di" id="arch-rounded-rectangle-74" class="pp-shape" data-part="outputs" style="left:1405.5px;top:459.9px;width:6.4px;height:19.0px;background:#8f939c;border-radius:1.0px"></div>
+    <div data-hf-id="hf-hit5" id="arch-textbox-75" class="pp-text" data-part="outputs" style="left:1551.6px;top:459.3px;width:175.5px;height:26.7px;text-align:left;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span data-hf-id="hf-7e7c">Reply in chat</span></div>
+    <div data-hf-id="hf-yza2" id="arch-oval-166" class="pp-shape" data-part="chat-model" style="left:544.7px;top:176.1px;width:86.7px;height:86.8px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img data-hf-id="hf-dggk" id="arch-picture-78" class="pp-img" data-part="chat-model" src="assets/arch/media/image22.png" alt="" style="left:563.5px;top:195.0px;width:48.9px;height:49.1px">
+    <div data-hf-id="hf-4iho" id="arch-textbox-80" class="pp-text" data-part="chat-model" style="left:424.2px;top:192.9px;width:139.9px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span data-hf-id="hf-zxlu">Claude Sonnet 4.6</span></div>
+    <div data-hf-id="hf-f9h8" id="arch-oval-32" class="pp-shape" data-part="chat-model" style="left:608.1px;top:252.0px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-yc1p" id="arch-rounded-rectangle-87" class="pp-shape" data-part="monitoring" style="left:164.1px;top:588.2px;width:217.8px;height:124.8px;background:#ffffff;border-radius:20.0px;border:1.88px solid #e0e2e7"></div>
+    <div data-hf-id="hf-7hyg" id="arch-oval-156" class="pp-shape" data-part="monitoring" style="left:268.4px;top:583.5px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-5bm7" id="arch-oval-158" class="pp-shape" data-part="monitoring" style="left:202.6px;top:615.5px;width:6.9px;height:6.9px;background:#3e4148;border-radius:50%"></div>
+    <div data-hf-id="hf-fps7" id="arch-rounded-rectangle-91" class="pp-shape" data-part="monitoring" style="left:182.6px;top:631.5px;width:47.1px;height:35.8px;background:#3e4148;border-radius:5.7px"></div>
+    <div data-hf-id="hf-0uvg" id="arch-oval-160" class="pp-shape" data-part="monitoring" style="left:193.0px;top:641.2px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-r4kd" id="arch-oval-161" class="pp-shape" data-part="monitoring" style="left:210.6px;top:641.2px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-apak" id="arch-rounded-rectangle-94" class="pp-shape" data-part="monitoring" style="left:198.3px;top:656.0px;width:15.5px;height:4.5px;background:#ffffff;border-radius:0.7px"></div>
+    <div data-hf-id="hf-4k1n" id="arch-textbox-95" class="pp-text" data-part="monitoring" style="left:242.9px;top:624.9px;width:135.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;font-weight:700;color:#3e4148"><span data-hf-id="hf-61qj">Monitoring</span><span data-hf-id="hf-48rv">Agent</span></div>
+    <div data-hf-id="hf-4ra6" id="arch-diamond-97" class="pp-shape" data-part="monitoring" style="left:264.5px;top:704.4px;width:17.1px;height:17.1px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-97w7" id="arch-oval-165" class="pp-shape" data-part="monitoring" style="left:375.3px;top:647.7px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-94e8" id="arch-oval-136" class="pp-shape" data-part="mon-tools" style="left:121.5px;top:817.7px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-bbn9" id="arch-oval-137" class="pp-shape" data-part="mon-tools" style="left:160.2px;top:813.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img data-hf-id="hf-5ju7" id="arch-picture-133" class="pp-img" data-part="mon-tools" src="assets/arch/media/image19.png" alt="" style="left:142.5px;top:845.4px;width:44.5px;height:31.2px">
+    <div data-hf-id="hf-b9z4" id="arch-textbox-134" class="pp-text" data-part="mon-tools" style="left:92.7px;top:912.3px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-axfh">DB Live Data</span></div>
+    <div data-hf-id="hf-hix8" id="arch-oval-141" class="pp-shape" data-part="mon-tools" style="left:229.0px;top:817.7px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-obab" id="arch-oval-142" class="pp-shape" data-part="mon-tools" style="left:267.8px;top:813.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-wasq" id="arch-rounded-rectangle-138" class="pp-shape" data-part="mon-tools" style="left:252.0px;top:868.9px;width:10.5px;height:14.4px;background:#3e4148;border-radius:1.7px"></div>
+    <div data-hf-id="hf-ibd4" id="arch-rounded-rectangle-139" class="pp-shape" data-part="mon-tools" style="left:267.1px;top:858.4px;width:10.5px;height:24.9px;background:#3e4148;border-radius:1.7px"></div>
+    <div data-hf-id="hf-kssr" id="arch-rounded-rectangle-140" class="pp-shape" data-part="mon-tools" style="left:282.1px;top:847.9px;width:10.5px;height:35.4px;background:#3e4148;border-radius:1.7px"></div>
+    <div data-hf-id="hf-tzqy" id="arch-textbox-141" class="pp-text" data-part="mon-tools" style="left:200.2px;top:912.3px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-ag0c">Delay History</span></div>
+    <div data-hf-id="hf-l5tk" id="arch-oval-148" class="pp-shape" data-part="mon-tools" style="left:336.6px;top:817.7px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-byjt" id="arch-oval-149" class="pp-shape" data-part="mon-tools" style="left:375.3px;top:813.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-q5q9" id="arch-block-arc-145" class="pp-shape" data-part="mon-tools" style="left:357.6px;top:840.3px;width:44.5px;height:41.7px;border-radius:50%;border:9.2px solid #3e4148;border-bottom-color:transparent;background:none"></div>
+    <div data-hf-id="hf-v2zi" id="arch-oval-152" class="pp-shape" data-part="mon-tools" style="left:376.0px;top:870.2px;width:7.8px;height:7.9px;background:#3e4148;border-radius:50%"></div>
+    <div data-hf-id="hf-8jm9" id="arch-textbox-148" class="pp-text" data-part="mon-tools" style="left:307.8px;top:912.3px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-lmbz">Risk Model</span></div>
+    <div data-hf-id="hf-d5ke" id="arch-rounded-rectangle-109" class="pp-shape" data-part="communicator" style="left:1115.6px;top:589.2px;width:217.8px;height:124.8px;background:#ffffff;border-radius:20.0px;border:1.88px solid #e0e2e7"></div>
+    <div data-hf-id="hf-4jhf" id="arch-oval-114" class="pp-shape" data-part="communicator" style="left:1219.8px;top:584.5px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-f9tm" id="arch-oval-116" class="pp-shape" data-part="communicator" style="left:1153.9px;top:616.5px;width:6.9px;height:6.9px;background:#3e4148;border-radius:50%"></div>
+    <div data-hf-id="hf-jw0v" id="arch-rounded-rectangle-113" class="pp-shape" data-part="communicator" style="left:1133.8px;top:632.5px;width:47.1px;height:35.8px;background:#3e4148;border-radius:5.7px"></div>
+    <div data-hf-id="hf-ndvw" id="arch-oval-118" class="pp-shape" data-part="communicator" style="left:1144.3px;top:642.3px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-5bew" id="arch-oval-119" class="pp-shape" data-part="communicator" style="left:1161.9px;top:642.3px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-1jx9" id="arch-rounded-rectangle-116" class="pp-shape" data-part="communicator" style="left:1149.8px;top:657.0px;width:15.5px;height:4.5px;background:#ffffff;border-radius:0.7px"></div>
+    <div data-hf-id="hf-by8l" id="arch-textbox-117" class="pp-text" data-part="communicator" style="left:1188.2px;top:628.8px;width:135.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;font-weight:700;color:#3e4148"><span data-hf-id="hf-w584">Communi-cator Agent</span></div>
+    <div data-hf-id="hf-tx99" id="arch-diamond-119" class="pp-shape" data-part="communicator" style="left:1215.9px;top:705.5px;width:17.1px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-tcdr" id="arch-oval-123" class="pp-shape" data-part="comm-tools" style="left:1186.9px;top:816.4px;width:86.6px;height:86.8px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-dsna" id="arch-oval-124" class="pp-shape" data-part="comm-tools" style="left:1226.7px;top:811.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img data-hf-id="hf-v8wq" id="arch-picture-175" class="pp-img" data-part="comm-tools" src="assets/arch/media/image23.png" alt="" style="left:1210.5px;top:841.3px;width:40.2px;height:37.3px">
+    <div data-hf-id="hf-avwg" id="arch-textbox-176" class="pp-text" data-part="comm-tools" style="left:1164.4px;top:910.9px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-zuj3">Outlook Mail</span></div>
+    <div data-hf-id="hf-tubp" id="arch-oval-109" class="pp-shape" data-part="memory" style="left:728.4px;top:176.1px;width:86.7px;height:86.8px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img data-hf-id="hf-39c0" id="arch-picture-83" class="pp-img" data-part="memory" src="assets/arch/media/image25.png" alt="" style="left:741.6px;top:205.2px;width:60.3px;height:28.7px">
+    <div data-hf-id="hf-r758" id="arch-textbox-85" class="pp-text" data-part="memory" style="left:765.6px;top:204.6px;width:209.9px;height:26.7px;text-align:center;justify-content:flex-start;font-size:22.0px;color:#3e4148"><span data-hf-id="hf-v1ha">Memory</span></div>
+    <div data-hf-id="hf-ktm8" id="arch-oval-38" class="pp-shape" data-part="memory" style="left:743.4px;top:252.8px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img data-hf-id="hf-bgyy" id="arch-picture-29-3" class="pp-img" data-part="outputs" src="assets/arch/media/image21.png" alt="" style="left:1408.9px;top:254.4px;width:132.8px;height:132.9px">
+    <img data-hf-id="hf-okbo" id="arch-picture-66" class="pp-img" data-part="outputs" src="assets/arch/media/image24.png" alt="" style="left:1434.6px;top:281.5px;width:78.4px;height:78.6px">
+    <div data-hf-id="hf-srmo" id="arch-rounded-rectangle-74-2" class="pp-shape" data-part="outputs" style="left:1405.5px;top:306.1px;width:6.4px;height:19.0px;background:#8f939c;border-radius:1.0px"></div>
+    <div data-hf-id="hf-45pm" id="arch-oval-78" class="pp-shape" data-part="orchestrator" style="left:852.6px;top:395.4px;width:11.9px;height:11.9px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-y1y7" id="arch-oval-104" class="pp-shape" data-part="monitoring" style="left:113.7px;top:721.2px;width:59.1px;height:59.2px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img data-hf-id="hf-vrpw" id="arch-picture-78-2" class="pp-img" data-part="monitoring" src="assets/arch/media/image22.png" alt="" style="left:126.6px;top:734.1px;width:33.3px;height:33.5px">
+    <div data-hf-id="hf-i1w8" id="arch-diamond-49-2" class="pp-shape" data-part="monitoring" style="left:190.9px;top:704.0px;width:17.5px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-8pgh" id="arch-rounded-rectangle-98" class="pp-shape" data-part="planner" style="left:734.4px;top:589.7px;width:217.8px;height:124.8px;background:#ffffff;border-radius:20.0px;border:1.88px solid #e0e2e7"></div>
+    <div data-hf-id="hf-it34" id="arch-oval-45" class="pp-shape" data-part="planner" style="left:838.7px;top:585.0px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-rb3f" id="arch-oval-47" class="pp-shape" data-part="planner" style="left:772.8px;top:617.0px;width:6.9px;height:6.9px;background:#3e4148;border-radius:50%"></div>
+    <div data-hf-id="hf-9g2j" id="arch-rounded-rectangle-102" class="pp-shape" data-part="planner" style="left:752.7px;top:633.0px;width:47.1px;height:35.8px;background:#3e4148;border-radius:5.7px"></div>
+    <div data-hf-id="hf-bmpk" id="arch-oval-49" class="pp-shape" data-part="planner" style="left:763.2px;top:642.8px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-jzfp" id="arch-oval-50" class="pp-shape" data-part="planner" style="left:780.8px;top:642.8px;width:8.6px;height:8.6px;background:#ffffff;border-radius:50%"></div>
+    <div data-hf-id="hf-8wkp" id="arch-rounded-rectangle-105" class="pp-shape" data-part="planner" style="left:768.6px;top:657.5px;width:15.5px;height:4.5px;background:#ffffff;border-radius:0.7px"></div>
+    <div data-hf-id="hf-mx8q" id="arch-textbox-106" class="pp-text" data-part="planner" style="left:813.0px;top:629.1px;width:135.1px;height:53.2px;text-align:left;justify-content:flex-start;font-size:22.0px;font-weight:700;color:#3e4148"><span data-hf-id="hf-i6uv">Planner</span><span data-hf-id="hf-4n2w">Agent</span></div>
+    <div data-hf-id="hf-l73z" id="arch-diamond-108" class="pp-shape" data-part="planner" style="left:834.6px;top:705.9px;width:17.1px;height:17.1px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-fl7h" id="arch-oval-54" class="pp-shape" data-part="plan-tools" style="left:644.1px;top:816.9px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img data-hf-id="hf-meo4" id="arch-picture-152-2" class="pp-img" data-part="plan-tools" src="assets/arch/media/image19.png" alt="" style="left:665.1px;top:844.7px;width:44.5px;height:31.2px">
+    <div data-hf-id="hf-ywtd" id="arch-textbox-153" class="pp-text" data-part="plan-tools" style="left:615.3px;top:911.4px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-dy7e">DB Reroutes</span></div>
+    <div data-hf-id="hf-0dfo" id="arch-oval-58" class="pp-shape" data-part="plan-tools" style="left:751.7px;top:816.9px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-r1cg" id="arch-oval-59" class="pp-shape" data-part="plan-tools" style="left:790.3px;top:812.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-9oy8" id="arch-textbox-158" class="pp-text" data-part="plan-tools" style="left:722.8px;top:911.4px;width:144.3px;height:17.7px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-lf8r">Calendar</span></div>
+    <div data-hf-id="hf-ddi4" id="arch-oval-63" class="pp-shape" data-part="plan-tools" style="left:683.7px;top:812.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-ar2e" id="arch-oval-66" class="pp-shape" data-part="plan-tools" style="left:859.3px;top:816.9px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-x6zw" id="arch-oval-67" class="pp-shape" data-part="plan-tools" style="left:898.1px;top:812.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <div data-hf-id="hf-xg7g" id="arch-textbox-171" class="pp-text" data-part="plan-tools" style="left:830.6px;top:911.4px;width:144.3px;height:19.4px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-8jnn">Train Alternatives</span></div>
+    <div data-hf-id="hf-3jy5" id="arch-rounded-rectangle-67" class="pp-shape" data-part="branch" style="left:729.5px;top:620.4px;width:7.2px;height:21.0px;background:#8f939c;border-radius:1.2px"></div>
+    <img data-hf-id="hf-n259" id="arch-grafik-79" class="pp-img" data-part="plan-tools" src="assets/arch/media/image20.png" alt="" style="left:771.6px;top:835.5px;width:45.9px;height:45.9px">
+    <div data-hf-id="hf-u0j8" id="arch-oval-99" class="pp-shape" data-part="branch" style="left:676.5px;top:721.2px;width:59.1px;height:59.2px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img data-hf-id="hf-qec3" id="arch-picture-78-3" class="pp-img" data-part="branch" src="assets/arch/media/image22.png" alt="" style="left:689.4px;top:734.1px;width:33.3px;height:33.5px">
+    <div data-hf-id="hf-gia7" id="arch-diamond-49-3" class="pp-shape" data-part="planner" style="left:753.9px;top:704.7px;width:17.5px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-3gga" id="arch-oval-94" class="pp-shape" data-part="communicator" style="left:1060.7px;top:721.2px;width:59.1px;height:59.2px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img data-hf-id="hf-m8xb" id="arch-picture-78-4" class="pp-img" data-part="communicator" src="assets/arch/media/image22.png" alt="" style="left:1073.6px;top:734.1px;width:33.3px;height:33.5px">
+    <div data-hf-id="hf-95fo" id="arch-diamond-49-4" class="pp-shape" data-part="communicator" style="left:1138.8px;top:704.7px;width:17.5px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-lu36" id="arch-oval-89" class="pp-shape" data-part="executor" style="left:1387.1px;top:721.2px;width:59.1px;height:59.2px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <img data-hf-id="hf-o19u" id="arch-picture-78-5" class="pp-img" data-part="executor" src="assets/arch/media/image22.png" alt="" style="left:1399.9px;top:734.1px;width:33.3px;height:33.5px">
+    <div data-hf-id="hf-o4d9" id="arch-diamond-49-5" class="pp-shape" data-part="executor" style="left:1464.4px;top:702.3px;width:17.5px;height:17.5px;background:#7b79b8;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+    <div data-hf-id="hf-b7r4" id="arch-oval-233" class="pp-shape" data-part="plan-tools" style="left:967.7px;top:816.9px;width:86.6px;height:86.7px;background:#f0f1f3;border-radius:50%;border:1.88px solid #dbdde3"></div>
+    <div data-hf-id="hf-u4a3" id="arch-textbox-171-2" class="pp-text" data-part="plan-tools" style="left:960.4px;top:911.4px;width:99.8px;height:19.4px;text-align:center;justify-content:flex-start;font-size:16.0px;color:#3e4148"><span data-hf-id="hf-6p7a">Hotels</span></div>
+    <img data-hf-id="hf-xblw" id="arch-grafik-240" class="pp-img" data-part="plan-tools" src="assets/arch/media/image26.svg" alt="" style="left:990.0px;top:840.3px;width:44.0px;height:45.0px">
+    <img data-hf-id="hf-8imq" id="arch-grafik-247" class="pp-img" data-part="trigger" src="assets/arch/media/image27.svg" alt="" style="left:121.9px;top:377.5px;width:50.1px;height:61.5px">
+    <img data-hf-id="hf-i5jn" id="arch-grafik-250" class="pp-img" data-part="exec-tools" src="assets/arch/media/image28.png" alt="" style="left:1418.6px;top:837.3px;width:47.1px;height:45.9px">
+    <div data-hf-id="hf-z814" id="arch-oval-252" class="pp-shape" data-part="plan-tools" style="left:1010.4px;top:812.2px;width:9.1px;height:9.1px;background:#8f939c;border-radius:50%"></div>
+    <img data-hf-id="hf-chec" id="arch-grafik-258" class="pp-img" data-part="memory" src="assets/arch/media/image29.png" alt="" style="left:704.0px;top:284.0px;width:0.0px;height:0.0px">
+    <img data-hf-id="hf-beam" id="arch-grafik-257" class="pp-img" data-part="plan-tools" src="assets/arch/media/image30.png" alt="" style="left:880.3px;top:863.7px;width:46.0px;height:21.0px">
+    <img data-hf-id="hf-zpxb" id="arch-grafik-261" class="pp-img" data-part="plan-tools" src="assets/arch/media/image29.png" alt="" style="left:880.3px;top:835.5px;width:46.0px;height:29.5px">
+      <!-- pptx:slide8 end -->
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        const tl = gsap.timeline({ paused: true });
+        const OUT = "power3.out";
+        const INOUT = "power2.inOut";
+        const cam = document.getElementById("ab-cam");
+
+        // ---- handles -------------------------------------------------------
+        // Two build-time tags do all the addressing work, so nothing here has
+        // to know a PowerPoint shape name:
+        //   data-part="monitoring"                 which block of the diagram
+        //   data-wire="orchestrator>communicator"  which two blocks a wire joins
+        // Selectors are assembled by concatenation, never by template literal —
+        // the HTML bundler's CSS parser chokes on interpolated selectors.
+        const part = (name) => '#ab-cam [data-part="' + name + '"]';
+        const WIRES = "#ab-cam .pp-wires path";
+        // several wires per beat: one selector list, so they draw as one stagger
+        const wires = function () {
+          const list = Array.prototype.map
+            .call(arguments, function (s) {
+              return WIRES + s;
+            })
+            .join(", ");
+          return cam.querySelector(list) ? list : null;
+        };
+        const wire = (s) => wires(s);
+
+        // ---- reusable moves ------------------------------------------------
+        // Cards arrive on the axis the diagram already flows along: the top row
+        // travels left to right, the agent row drops out of the bus above it.
+        const land = (sel, at, from, dur = 0.5) =>
+          tl.fromTo(
+            sel,
+            Object.assign({ opacity: 0, x: 0, y: 0, scale: 0.94 }, from),
+            { opacity: 1, x: 0, y: 0, scale: 1, duration: dur, ease: OUT, stagger: 0.026 },
+            at
+          );
+
+        const draw = (sel, at, dur = 0.45) => {
+          if (!sel) return;
+          tl.set(sel, { opacity: 1 }, at);
+          tl.fromTo(sel, { strokeDashoffset: 1 }, { strokeDashoffset: 0, duration: dur, ease: INOUT, stagger: 0.06 }, at);
+        };
+
+        // ---- opening -------------------------------------------------------
+        tl.fromTo("#ab-kicker", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, ease: OUT }, 0.15);
+        tl.fromTo("#ab-title", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: OUT }, 0.3);
+        tl.fromTo("#ab-source", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 0.6);
+
+        // 1 — the trigger. Everything downstream is caused by this one event.
+        land(part("trigger"), 0.9, { x: -70, scale: 1 });
+        draw(wire('[data-wire="trigger>orchestrator"]'), 1.45, 0.34);
+
+        // 2 — the orchestrator wakes; its model and its memory clip on.
+        land(part("orchestrator"), 1.75, { y: 26 }, 0.55);
+        draw(wires('[data-wire="chat-model>chat-model"]', '[data-wire="memory>memory"]'), 2.4, 0.26);
+        land(part("chat-model"), 2.55, { y: 26, scale: 0.86 }, 0.42);
+        land(part("memory"), 2.72, { y: 26, scale: 0.86 }, 0.42);
+
+        // 3 — the tool bus drops out of the orchestrator. This is where the
+        //     diagram stops being one box and becomes a system.
+        land(part("bus"), 3.45, { y: -20, scale: 0.6 }, 0.34);
+        draw(
+          wires(
+            '[data-wire="monitoring>orchestrator"]',
+            '[data-wire="orchestrator>planner"]',
+            '[data-wire="orchestrator>communicator"]',
+            '[data-wire="orchestrator>executor"]'
+          ),
+          3.62,
+          0.8
+        );
+
+        // 4 — the four agents land in the order a real run visits them, each
+        //     pulling its own tool row down behind it.
+        [
+          ["monitoring", "mon-tools", 4.6],
+          ["planner", "plan-tools", 6.3],
+          ["communicator", "comm-tools", 7.7],
+          ["executor", "exec-tools", 9.0],
+        ].forEach(([name, tools, at]) => {
+          land(part(name), at, { y: -34 }, 0.46);
+          draw(wire('.dashed[data-wire^="' + name + '>"]'), at + 0.42, 0.34);
+          land(part(tools), at + 0.6, { y: -24, scale: 0.88 }, 0.42);
+        });
+
+        // 5 — the risk branch, between Monitoring and Planner: the gate that
+        //     decides whether the rest of the system does anything at all.
+        land(part("branch"), 5.5, { x: -44, scale: 1 }, 0.44);
+        draw(wire('[data-wire="monitoring>branch"]'), 5.42, 0.3);
+        draw(wire('[data-wire="branch>planner"]'), 6.0, 0.3);
+        draw(wire('[data-wire="branch>orchestrator"]'), 6.15, 0.55);
+
+        // 6 — the two ways it reaches the passenger, last, and straight off the
+        //     orchestrator — never off the executor.
+        draw(wire('[data-wire="orchestrator>outputs"]'), 10.3, 0.55);
+        land(part("outputs"), 10.75, { x: 52, scale: 1 }, 0.5);
+
+        // 7 — hold on the finished system, still travelling left, so whatever
+        //     cuts in next is picking up a move already underway.
+        tl.to("#ab-cam", { x: -46, scale: 1.035, duration: 4.2, ease: "power1.in" }, 11.7);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["arch-build"] = tl;
+      })();
+    </script>
+  </div>
+</template>

@@ -1,0 +1,33 @@
+--- auto-monitor @99.8s ---
+Here is the full picture of your completed trip.
+
+Risk: HIGH
+
+This risk label describes the disruption that actually occurred — your trip has already arrived, so there is nothing left to predict or reroute.
+
+🚆 ICE 521 · Frankfurt (Main) Hbf → Munich Hbf · 11 Aug 2026
+
+Trip status: ARRIVED — 128 minutes late
+Planned arrival was 06:30; you actually arrived at ~08:38, due to overhead line damage near Würzburg causing single-track operation for several hours.
+
+✅ You Are Entitled to Compensation
+
+Because the confirmed final delay is 128 minutes (≥ 120 min), the 50% compensation tier applies:
+
+	
+Ticket price paid	€79.90
+Compensation tier	50%
+Amount due	€39.95
+
+This is calculated on what you actually paid (BahnCard 50 price) — that is already accounted for.
+
+Legal basis: EU Regulation 1371/2007, Art. 17, and §17 EVO (German implementation). Both figures and the verdict come directly from the passenger rights tool.
+
+📋 What You Should Do Now
+
+File a compensation claim for €39.95. Would you like me to go ahead and file it on your behalf? It only takes one confirmation — I'll handle the rest via the policy gate and report back on the outcome.
+
+Agent trace (15)
+
+complaint detail: 21:37 Journey Autopilot Travel Assistant Lucas ‹ Complaints Claim details Draft — review & submit Route Frankfurt (Main) Hbf → Munich Hbf Train ICE 521 Travel date Tuesday, August 11, 2026 Delay 128 min Est. compensation €39.95 Why this claim applies Single ticket, 128 min delay → 50% of 79.9€ = 39.95€. Basis: 79.9€ × 50% = 39.95€ BahnCard BC50 detected — compensation is based on the actual price paid (79.9€), not the full price. This is a draft prepared by the autopilot. Nothing is filed until you tap Submit below. Submit complaint Dismiss draft Book Surroundings Trips Profile
+after submit: 21:37 Journey Autopilot Travel Assistant Lucas ‹ Complaints Claim details Submitted Route Frankfurt (Main) Hbf → Munich Hbf Train ICE 521 Travel date Tuesday, August 11, 2026 Delay 128 min Est. compensation €39.95 Why this claim applies Single ticket, 128 min delay → 50% of 79.9€ = 39.95€. Basis: 79.9€ × 50% = 39.95€ BahnCard BC50 detected — compensation is based on the actual price paid (79.9€), not the full price. ✓ Complaint submitted on 11/08/2026 (simulated) Book Surroundings Trips Profile

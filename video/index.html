@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Journey Autopilot — product film</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "JA"; src: url("assets/inter-400.woff2") format("woff2"); font-weight: 400; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-800.woff2") format("woff2"); font-weight: 800; font-display: block; }
+      @font-face { font-family: "JA"; src: url("assets/inter-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #101215; }
+      body { font-family: "JA", system-ui, sans-serif; }
+
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+
+      /* Opaque floor. No seam between two scenes may ever show white through. */
+      #ground { position: absolute; inset: 0; background: #101215; }
+
+      #root > div[data-composition-src] { position: absolute; inset: 0; }
+
+      /* ---------------------------------------------------------------
+         Act seams live here, on the MAIN timeline, as full-frame panels.
+         A sub-composition timeline cannot reach across its own boundary,
+         so anything that has to span two scenes has to be owned by the
+         host — which is also the only way to guarantee the wipe lands on
+         the same frame as the cut underneath it.
+         --------------------------------------------------------------- */
+      .swipe { position: absolute; inset: 0; will-change: transform, opacity; }
+      #flash-paper { background: #eff0e8; opacity: 0; }
+      /* A wipe is driven in PIXELS, never in xPercent: a clip is display:none
+         when its window is shut, so the percentage resolves against a zero
+         width and the panel never leaves its start position. Both wipes were
+         silently doing nothing in v2 for exactly that reason. */
+      #wipe-paper { background: #eff0e8; transform: translateX(-1920px); }
+      #wipe-night { background: #101215; transform: translateX(1920px); }
+      /* the leading edge — the only part of the wipe that is ever seen, since
+         each panel lands on a scene of its own colour */
+      .swipe-edge { position: absolute; top: 0; bottom: 0; width: 12px; background: #533cfe; }
+      #wipe-paper .swipe-edge { right: 0; box-shadow: 6px 0 34px rgba(83,60,254,0.55); }
+      #wipe-night .swipe-edge { left: 0; box-shadow: -6px 0 34px rgba(83,60,254,0.55); }
+
+      /* One grain + vignette pass over the whole film, so eighteen stock
+         clips, four screen recordings and the vector scenes all sit in the
+         same air. */
+      #finish { position: absolute; inset: 0; pointer-events: none; }
+      #vig {
+        position: absolute; inset: 0;
+        background: radial-gradient(ellipse 92% 86% at 50% 46%, rgba(0,0,0,0) 54%, rgba(0,0,0,0.20) 100%);
+        mix-blend-mode: multiply;
+      }
+      #grain {
+        position: absolute; inset: -6%;
+        opacity: 0.055;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' seed='7'/><feColorMatrix type='saturate' values='0'/></filter><rect width='180' height='180' filter='url(%23n)'/></svg>");
+        background-repeat: repeat;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="film"
+         data-start="0" data-duration="174.3"
+         data-width="1920" data-height="1080" data-fps="30">
+
+      <div id="ground"></div>
+
+      <!-- ============================================================
+           Six acts. Every slot boundary is a bar line of the 95 BPM
+           grid (bar = 2.526316 s), so a cut can only ever happen where
+           the music already has an edge.
+           ============================================================ -->
+
+      <!-- bars 0–4 · the problem, on a departure board -->
+      <div id="sc-coldopen" data-composition-id="coldopen"
+           data-composition-src="compositions/s1-coldopen.html"
+           data-start="0" data-duration="10.105263" data-track-index="1"></div>
+
+      <!-- bars 4–7 · the drop, the name, the promise -->
+      <div id="sc-title" data-composition-id="title"
+           data-composition-src="compositions/s2-title.html"
+           data-start="10.105263" data-duration="7.578947" data-track-index="1"></div>
+
+      <!-- bars 7–28 · one journey, front to back, on one phone -->
+      <div id="sc-journey" data-composition-id="journey"
+           data-composition-src="compositions/s3-journey.html"
+           data-start="17.684211" data-duration="53.052631" data-track-index="1"></div>
+
+      <!-- bars 28–40 · under the hood: the whole system, then one request
+           walked through it. This act also carries the second music track. -->
+      <div id="sc-arch" data-composition-id="arch"
+           data-composition-src="compositions/s4-arch.html"
+           data-start="70.736842" data-duration="30.315789" data-track-index="1"></div>
+
+      <!-- bars 40–65 · the machinery, and everything else it does. One bar
+           longer than v3: the outro gave it back so the app footage in here
+           could run in six-bar blocks instead of one-bar fragments. -->
+      <div id="sc-depth" data-composition-id="depth"
+           data-composition-src="compositions/s5-depth.html"
+           data-start="101.052632" data-duration="63.157894" data-track-index="1"></div>
+
+      <!-- bars 65–69 · who built it -->
+      <div id="sc-outro" data-composition-id="outro"
+           data-composition-src="compositions/s6-outro.html"
+           data-start="164.210526" data-duration="10.089474" data-track-index="1"></div>
+
+      <!-- ---- act seams ---- -->
+      <div id="flash-paper" class="swipe clip" data-start="9.8" data-duration="0.8" data-track-index="12"></div>
+      <div id="wipe-paper" class="swipe clip" data-start="70.2" data-duration="1.3" data-track-index="12">
+        <div class="swipe-edge"></div>
+      </div>
+      <div id="wipe-night" class="swipe clip" data-start="100.5" data-duration="1.3" data-track-index="12">
+        <div class="swipe-edge"></div>
+      </div>
+
+      <div id="finish">
+        <div id="vig"></div>
+        <div id="grain"></div>
+      </div>
+
+      <!-- 95.00 BPM throughout, and TWO tracks: 1234.mp3 for the film, with
+           Death of a Bluebird time-stretched onto the same grid under the
+           middle act (bars 28–40). tools/build_music.py does the stretch, the
+           downbeat alignment, the loudness match, both seams and the ending
+           fade — the pickup trim is baked in too, so this element needs no
+           data-media-start and no volume tween (the renderer does not honour
+           GSAP volume tweens on <audio> anyway). -->
+      <audio id="bgm" src="assets/audio/film-music.mp3" data-timeline-role="music"
+             data-start="0" data-duration="174.3" data-media-start="0"
+             data-track-index="20" data-volume="0.92"></audio>
+
+      <!-- ---- sound effects ----
+           Four sounds, used sparingly and mixed well under the track: a
+           tick when the departure board settles, a whoosh on each of the
+           three act seams, a riser whose own climax lands exactly on the
+           second drop, one confirm when the claim is filed, and a quiet
+           tick under each section label so the cue that a new capability
+           is coming is heard as well as seen. -->
+      <audio id="sfx-flap" src="assets/sfx/click-soft.mp3" data-timeline-role="sfx"
+             data-start="7.578947" data-duration="0.365000"
+             data-track-index="21" data-volume="0.30"></audio>  <!-- bar 3 · the flaps land -->
+      <audio id="sfx-w4" src="assets/sfx/whoosh.mp3" data-timeline-role="sfx"
+             data-start="9.755263" data-duration="0.574000"
+             data-track-index="22" data-volume="0.34"></audio>  <!-- bar 4 · into the white flash -->
+      <audio id="sfx-w28" src="assets/sfx/whoosh.mp3" data-timeline-role="sfx"
+             data-start="70.436842" data-duration="0.574000"
+             data-track-index="23" data-volume="0.44"></audio>  <!-- bar 28 · the paper wipe -->
+      <audio id="sfx-w40" src="assets/sfx/whoosh.mp3" data-timeline-role="sfx"
+             data-start="100.752632" data-duration="0.574000"
+             data-track-index="24" data-volume="0.44"></audio>  <!-- bar 40 · the night wipe -->
+      <audio id="sfx-riser" src="assets/sfx/riser.mp3" data-timeline-role="sfx"
+             data-start="88.421053" data-duration="2.526000" data-media-start="7.505"
+             data-track-index="25" data-volume="0.26"></audio>  <!-- bars 35–36 · the swell, peaking on the ignite -->
+      <audio id="sfx-ping" src="assets/sfx/ping.mp3" data-timeline-role="sfx"
+             data-start="131.368421" data-duration="1.320000"
+             data-track-index="26" data-volume="0.24"></audio>  <!-- bar 52 · the claim goes in -->
+      <audio id="sfx-sec1" src="assets/sfx/click-soft.mp3" data-timeline-role="sfx"
+             data-start="17.554211" data-duration="0.365000"
+             data-track-index="27" data-volume="0.16"></audio>  <!-- section label — Setup -->
+      <audio id="sfx-sec2" src="assets/sfx/click-soft.mp3" data-timeline-role="sfx"
+             data-start="35.238421" data-duration="0.365000"
+             data-track-index="28" data-volume="0.16"></audio>  <!-- section label — Disruption -->
+      <audio id="sfx-sec3" src="assets/sfx/click-soft.mp3" data-timeline-role="sfx"
+             data-start="42.817368" data-duration="0.365000"
+             data-track-index="29" data-volume="0.16"></audio>  <!-- section label — Replanning -->
+      <audio id="sfx-sec4" src="assets/sfx/click-soft.mp3" data-timeline-role="sfx"
+             data-start="52.922632" data-duration="0.365000"
+             data-track-index="30" data-volume="0.16"></audio>  <!-- section label — Your call -->
+      <audio id="sfx-sec5" src="assets/sfx/click-soft.mp3" data-timeline-role="sfx"
+             data-start="60.501579" data-duration="0.365000"
+             data-track-index="31" data-volume="0.16"></audio>  <!-- section label — Rebooked -->
+      <audio id="sfx-sec6" src="assets/sfx/click-soft.mp3" data-timeline-role="sfx"
+             data-start="100.922632" data-duration="0.365000"
+             data-track-index="32" data-volume="0.16"></audio>  <!-- section label — Under the hood -->
+      <audio id="sfx-sec7" src="assets/sfx/click-soft.mp3" data-timeline-role="sfx"
+             data-start="118.606842" data-duration="0.365000"
+             data-track-index="33" data-volume="0.16"></audio>  <!-- section label — After the trip -->
+      <audio id="sfx-sec8" src="assets/sfx/click-soft.mp3" data-timeline-role="sfx"
+             data-start="136.291053" data-duration="0.365000"
+             data-track-index="34" data-volume="0.16"></audio>  <!-- section label — Booking on live data -->
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      const BAR = 2.5263157894736843;
+      const bar = (n) => n * BAR;
+
+      // ---- seam 1: bar 4, the drop. Night to paper through one white frame.
+      tl.fromTo("#flash-paper", { opacity: 0 },
+        { opacity: 1, duration: 0.18, ease: "power4.in" }, bar(4) - 0.19);
+      tl.to("#flash-paper", { opacity: 0, duration: 0.30, ease: "power2.out" }, bar(4) + 0.02);
+
+      // ---- seam 2: bar 28, the kick stops. A paper panel led by a violet edge
+      // runs left to right and covers the frame ON the bar, so the cut happens
+      // underneath it. It then keeps going and clears — and because the act it
+      // lands on is paper too, the only thing the eye follows out of frame is
+      // the violet edge. The wipe hands the film over rather than interrupting.
+      tl.fromTo("#wipe-paper", { x: -1920 },
+        { x: 0, duration: 0.30, ease: "power2.in" }, bar(28) - 0.30);
+      tl.to("#wipe-paper", { x: 1920, duration: 0.40, ease: "power2.out" }, bar(28) + 0.02);
+
+      // ---- seam 3: bar 36 is drop B, and s4-arch fires its own full-frame
+      // ignite on that downbeat. One flash is a hit; two stacked is a fault.
+
+      // ---- seam 4: bar 40, the same move mirrored — night comes in from the
+      // right over the paper act and clears onto the night act behind it.
+      tl.fromTo("#wipe-night", { x: 1920 },
+        { x: 0, duration: 0.30, ease: "power2.in" }, bar(40) - 0.30);
+      tl.to("#wipe-night", { x: -1920, duration: 0.40, ease: "power2.out" }, bar(40) + 0.02);
+
+      // ---- the grain drifts a little so it reads as emulsion rather than a
+      // static PNG stuck to the lens. One slow move, no repeat.
+      tl.fromTo("#grain", { xPercent: -2.5, yPercent: -1.6 },
+        { xPercent: 2.5, yPercent: 1.6, duration: 174.3, ease: "none" }, 0);
+
+      window.__timelines["film"] = tl;
+    </script>
+  </body>
+</html>

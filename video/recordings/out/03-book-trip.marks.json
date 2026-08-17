@@ -1,0 +1,142 @@
+{
+  "take": "03-book-trip",
+  "durationSeconds": 206.02,
+  "marks": [
+    {
+      "t": 0,
+      "label": "START"
+    },
+    {
+      "t": 1.1,
+      "label": "welcome-screen"
+    },
+    {
+      "t": 3.02,
+      "label": "tap:lets-go"
+    },
+    {
+      "t": 6.28,
+      "label": "typed:email"
+    },
+    {
+      "t": 8.13,
+      "label": "typed:password"
+    },
+    {
+      "t": 10.28,
+      "label": "tap:sign-in"
+    },
+    {
+      "t": 11.54,
+      "label": "dashboard"
+    },
+    {
+      "t": 14.56,
+      "label": "tap:book-tab"
+    },
+    {
+      "t": 16.36,
+      "label": "book:screen"
+    },
+    {
+      "t": 19.13,
+      "label": "typed:from"
+    },
+    {
+      "t": 22.88,
+      "label": "tap:from-suggestion"
+    },
+    {
+      "t": 26.13,
+      "label": "typed:to"
+    },
+    {
+      "t": 28.76,
+      "label": "tap:to-suggestion"
+    },
+    {
+      "t": 32.4,
+      "label": "tap:search-connections"
+    },
+    {
+      "t": 33.6,
+      "label": "book:searching"
+    },
+    {
+      "t": 40.41,
+      "label": "book:results"
+    },
+    {
+      "t": 49.98,
+      "label": "tap:choose-connection"
+    },
+    {
+      "t": 51.78,
+      "label": "book:confirm-panel"
+    },
+    {
+      "t": 55.17,
+      "label": "typed:purpose"
+    },
+    {
+      "t": 58.56,
+      "label": "tap:ADD-TRIP"
+    },
+    {
+      "t": 61.76,
+      "label": "trip:added"
+    },
+    {
+      "t": 63.77,
+      "label": "dashboard"
+    },
+    {
+      "t": 67.34,
+      "label": "tap:open-new-trip"
+    },
+    {
+      "t": 71.34,
+      "label": "trip-detail:new-trip"
+    },
+    {
+      "t": 81.3,
+      "label": "tap:ask-the-autopilot"
+    },
+    {
+      "t": 83.5,
+      "label": "chat:open"
+    },
+    {
+      "t": 177.33,
+      "label": "replied:autopilot-on-new-trip"
+    },
+    {
+      "t": 177.36,
+      "label": "read:verdict"
+    },
+    {
+      "t": 183.34,
+      "label": "verdict:read"
+    },
+    {
+      "t": 187.05,
+      "label": "typed:follow-up"
+    },
+    {
+      "t": 189.16,
+      "label": "send:follow-up"
+    },
+    {
+      "t": 200.69,
+      "label": "replied:follow-up"
+    },
+    {
+      "t": 200.71,
+      "label": "read:follow-up"
+    },
+    {
+      "t": 205.62,
+      "label": "END"
+    }
+  ]
+}
