@@ -7,14 +7,14 @@ ADR 0004 promises.
 
 Usage
 -----
-    python -m eval.run                     # full matrix (~30 runs)
-    python -m eval.run --reps 1 --no-sweeps  # 6-run smoke test first
+    python -m eval.run                     # full matrix (18 runs: 10 core + 8 sweep)
+    python -m eval.run --reps 1 --no-sweeps  # 5-run smoke test first
     python -m eval.run --aggregate-only    # rebuild tables from existing CSV
 
 Outputs land in ``eval/output/``:
 
     calls.csv          one row per *model call* (role-attributed)
-    runs.csv           one row per run (tokens, cost, latency, transcript path)
+    runs.csv           one row per run (tokens, cost, latency, live-data counts)
     scoring_sheet.csv  one row per run with blank check columns, to fill by hand
     transcripts/       full trace per run — the evidence the checks are scored from
     tables.md          the aggregated Markdown tables, ready to paste
@@ -44,6 +44,7 @@ import os
 import ssl as _ssl
 import subprocess
 import sys
+import time
 import uuid
 from collections import defaultdict
 from pathlib import Path
@@ -61,11 +62,29 @@ OUTPUT_DIR = _ROOT / "eval" / "output"
 RAW_DIR = OUTPUT_DIR / "raw"
 TRANSCRIPT_DIR = OUTPUT_DIR / "transcripts"
 
+# Per-run facts that no model call carries, so they cannot come from the
+# per-call log: the wall clock, the run's own failure, and how much live DB
+# data it consumed. Written per run and merged back into ``runs.csv``.
+META_FIELDS = (
+    "wall_clock_s",
+    "error",
+    "db_requests",
+    "db_errors",
+    "db_blocked",
+    "db_endpoints",
+)
+
 # Pinned so every run sees the same relative timeline (trip departed 90 min
 # ago, hard meeting ~4.5 h out). Without this the scenario's difficulty drifts
 # with whatever the environment happens to hold, and repeated runs stop being
 # repeats. See demo/__init__.py for the clock contract.
 DEMO_TRIP_LEAD_MIN = "90"
+
+# The demo account every run travels as (demo/accounts.py). Named here because
+# both the per-run reset and the agent turns need the same identity.
+DEMO_USER_ID = "u-lucas-wild"
+DEMO_EMAIL = "lucas.wild@example.com"
+DEMO_PASSWORD = "demo123"
 
 # --- The matrix ---------------------------------------------------------------
 
@@ -80,6 +99,12 @@ SCENARIOS: dict[str, dict[str, str]] = {
 }
 
 ARMS = ("agent", "baseline")
+
+# The baseline reads no live source, so removing the sidecar cannot change its
+# input by a single token — running it here would re-run `happy_path` under a
+# second name and invite the reader to treat one condition as two. The agent
+# arm still runs it, because for the agent the fallback is the whole point.
+NO_BASELINE_SCENARIOS = {"sidecar_offline"}
 
 # Trade-off sweeps. Agent arm, happy path only — stated as a limitation in the
 # report rather than silently generalised.
@@ -168,9 +193,28 @@ def _seed_demo_state() -> None:
     A full ``scripts/reset_demo.py`` would be wrong: it deletes the profile too,
     and the Planner ranks options against that profile.
     """
+    from journey_autopilot.persistence import store
     from journey_autopilot.ui.routes.auth import LoginRequest, db_login
 
-    db_login(LoginRequest(email="lucas.wild@example.com", password="demo123"))
+    # Drop the account's own bookings first, so the login re-imports them
+    # pristine. ``db_login`` deliberately PRESERVES a trip the traveler already
+    # rerouted — right for the product, wrong for a repeated experiment: turn 2
+    # of every agent run books a reroute, so without this run 1 leaves the demo
+    # trip rewritten onto its replacement trains and every later run inherits
+    # that. ``rerouted_at`` then makes ``get_live_trip_status`` skip the
+    # scripted disruption entirely, and runs 2..N quietly measure a punctual
+    # live journey instead of the scenario. Deleting rather than un-stamping,
+    # because a reroute rewrites the trip's ``legs`` as well as its markers.
+    # Only ``DB-…`` ids: locally booked ``BK-…`` trips and the onboarded
+    # profile are the login's to keep.
+    imported = [
+        trip["trip_id"]
+        for trip in store.get_trips(DEMO_USER_ID) or []
+        if str(trip.get("trip_id", "")).startswith("DB-")
+    ]
+    store.delete_trips(DEMO_USER_ID, imported)
+
+    db_login(LoginRequest(email=DEMO_EMAIL, password=DEMO_PASSWORD))
 
 
 def _agent_prompt() -> str:
@@ -187,51 +231,95 @@ def _agent_prompt() -> str:
     )
 
 
-def _describe(event: Any, out: list[str]) -> None:
-    """Render one ADK event into the transcript.
+def _render_trace(entries: Any, out: list[str]) -> None:
+    """Append ``chat_turn``'s trace to the transcript.
 
     Tool calls and their results are kept, not just the final text: three of
     the six checks are decided by what the agent *did*, which the answer text
     alone cannot show.
     """
-    author = getattr(event, "author", "?")
-    content = getattr(event, "content", None)
-    if content is None or not getattr(content, "parts", None):
-        return
-    for part in content.parts:
-        if (call := getattr(part, "function_call", None)) is not None:
-            out.append(f"[{author}] -> calls: {call.name}({dict(call.args or {})})")
-        elif (resp := getattr(part, "function_response", None)) is not None:
-            out.append(f"[{author}] <- result of: {resp.name}: {resp.response}")
-        elif (text := getattr(part, "text", None)) and text.strip():
-            out.append(f"[{author}] {text.strip()}")
+    for entry in entries or []:
+        if isinstance(entry, dict):
+            out.append(
+                " | ".join(f"{k}={v}" for k, v in entry.items() if v not in (None, "", [], {}))
+            )
+        else:
+            out.append(str(entry))
 
 
 async def _run_agent() -> tuple[str, list[str]]:
-    from google.adk.runners import InMemoryRunner
-    from google.genai import types
+    """Two turns through the product's own chat entry point.
 
-    from journey_autopilot.agent import root_agent
+    A single turn stops where the design says it should: the Planner presents a
+    shortlist and the traveler is asked to pick. ``book_alternative_connection``
+    needs the server-issued ``proposal_id`` that only a selection carries, so a
+    one-turn run never reaches the Executor — the whole write path, the policy
+    gate, and therefore the autonomy trade-off go unmeasured while the numbers
+    still look complete. The second turn selects the recommended option, which
+    is what the browser does when the traveler taps a card.
 
-    runner = InMemoryRunner(agent=root_agent, app_name="journey_autopilot")
-    session = await runner.session_service.create_session(
-        app_name="journey_autopilot", user_id="lucas"
-    )
-    prompt = _agent_prompt()
-    transcript: list[str] = [f"USER: {prompt}", "--- trace ---"]
-    final = ""
-    message = types.Content(role="user", parts=[types.Part(text=prompt)])
-    async for event in runner.run_async(
-        user_id="lucas", session_id=session.id, new_message=message
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            final = "".join(p.text for p in event.content.parts if getattr(p, "text", None))
-            continue
-        _describe(event, transcript)
-    # Inside the loop on purpose: the async success hooks are tasks on *this*
-    # loop, and returning here lets asyncio.run tear it down before they run.
+    ``ui.chat.chat_turn`` rather than a bespoke ``InMemoryRunner``: it is the
+    path the product actually runs — it seeds the trip/account context, binds
+    the request identity the booking authority requires, and carries the
+    proposal between turns. Evaluating it means evaluating the real system.
+    """
+    from journey_autopilot.demo.mock_data import DEMO_TRIP
+    from journey_autopilot.persistence import store
+    from journey_autopilot.ui import chat
+
     from eval import instrumentation as inst
 
+    user_id = DEMO_USER_ID
+    account = store.get_account(user_id)
+    profile = store.get_profile(user_id) or {}
+    notify_phone = (profile.get("notifications") or {}).get("phone")
+    trip = next(
+        (t for t in (store.get_trips(user_id) or []) if t.get("trip_id") == DEMO_TRIP["trip_id"]),
+        None,
+    )
+
+    transcript: list[str] = []
+    prompt = _agent_prompt()
+    transcript += [f"USER (turn 1): {prompt}", "--- trace ---"]
+    first = await chat.chat_turn(
+        None, prompt, trip, account, notify_phone=notify_phone, user_id=user_id
+    )
+    _render_trace(first.get("trace"), transcript)
+    final = first.get("reply") or ""
+    transcript += ["--- turn 1 answer ---", final]
+
+    # Turn 2 — the card tap. Without a finalized proposal there is nothing to
+    # select, which is itself worth recording: it means the Planner produced no
+    # executable shortlist and the run cannot exercise the write path.
+    proposal_id = first.get("proposal_id")
+    option_id = first.get("recommended_option_id") or next(
+        (o.get("option_id") for o in (first.get("options") or []) if o.get("option_id")), None
+    )
+    if proposal_id and option_id:
+        follow_up = f"Yes, please book option {option_id}."
+        transcript += ["", f"USER (turn 2): {follow_up}", "--- trace ---"]
+        second = await chat.chat_turn(
+            first.get("session_id"),
+            follow_up,
+            None,
+            account,
+            notify_phone=notify_phone,
+            user_id=user_id,
+            proposal_id=proposal_id,
+            selected_option_id=option_id,
+        )
+        _render_trace(second.get("trace"), transcript)
+        final = second.get("reply") or final
+        transcript += ["--- turn 2 answer ---", second.get("reply") or "(none)"]
+    else:
+        transcript += [
+            "",
+            f"NO SELECTION MADE — proposal_id={proposal_id!r} option_id={option_id!r}; "
+            "the write path was not exercised in this run.",
+        ]
+
+    # Inside the loop on purpose: the async success hooks are tasks on *this*
+    # loop, and returning here lets asyncio.run tear it down before they run.
     await inst.async_drain()
     return final, transcript
 
@@ -262,6 +350,7 @@ def run_once(scenario: str, arm: str, run_id: str, variant: str) -> int:
     from eval import instrumentation as inst
 
     inst.install()
+    inst.install_db_probe()
 
     if variant == "llm_risk" and arm == "agent":
         _apply_llm_risk_variant()
@@ -274,6 +363,7 @@ def run_once(scenario: str, arm: str, run_id: str, variant: str) -> int:
         print(f"  [!] {run_id}: {seed_error}", file=sys.stderr)
 
     error = ""
+    started = time.monotonic()
     with inst.run_context(run_id, scenario, arm, variant):
         try:
             if arm == "agent":
@@ -296,6 +386,23 @@ def run_once(scenario: str, arm: str, run_id: str, variant: str) -> int:
         encoding="utf-8",
     )
     inst.write_csv(RAW_DIR / f"{run_id}.csv")
+    # Wall clock is what the traveler actually waits. Summing the per-call
+    # latencies would overstate it wherever the Orchestrator issues calls in
+    # parallel, and understate the gaps between them — so both are reported,
+    # under names that say which is which.
+    with (RAW_DIR / f"{run_id}.meta.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["run_id", *META_FIELDS])
+        writer.writeheader()
+        writer.writerow({
+            "run_id": run_id,
+            "wall_clock_s": round(time.monotonic() - started, 2),
+            "error": error or seed_error,
+            # How much live DB this run actually consumed, and whether it got
+            # it: a run with db_errors > 0 answered from the fixtures for at
+            # least one tool, which is the scenario for `sidecar_offline` and a
+            # contaminated measurement anywhere else. See instrumentation.
+            **inst.db_stats(),
+        })
     if error:
         print(f"  [!] {run_id}: {error}", file=sys.stderr)
     return 1 if error else 0
@@ -348,9 +455,21 @@ def _spawn(scenario: str, arm: str, run_id: str, variant: str) -> int:
 # --- Aggregation ---------------------------------------------------------------
 
 
+def _load_meta() -> dict[str, dict[str, Any]]:
+    """The per-run meta rows (wall clock, error, live-data counts), by run_id."""
+    meta: dict[str, dict[str, Any]] = {}
+    for path in sorted(RAW_DIR.glob("*.meta.csv")):
+        with path.open(encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                meta[row["run_id"]] = row
+    return meta
+
+
 def _load_calls() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for path in sorted(RAW_DIR.glob("*.csv")):
+    # `*.meta.csv` sits in the same directory and has different columns —
+    # sweeping it in here would inject junk rows into every aggregate.
+    for path in sorted(p for p in RAW_DIR.glob("*.csv") if not p.name.endswith(".meta.csv")):
         with path.open(encoding="utf-8") as handle:
             for row in csv.DictReader(handle):
                 for key in ("input_tokens", "output_tokens"):
@@ -368,15 +487,26 @@ def _per_run(calls: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             row["run_id"],
             {"run_id": row["run_id"], "scenario": row["scenario"], "arm": row["arm"],
              "variant": row["variant"], "calls": 0, "input_tokens": 0,
-             "output_tokens": 0, "cost_usd": 0.0, "latency_s": 0.0, "unpriced_calls": 0},
+             "output_tokens": 0, "cost_usd": 0.0, "model_time_s": 0.0,
+             "wall_clock_s": 0.0, "unpriced_calls": 0,
+             # Seeded so runs.csv keeps stable columns even for a run whose
+             # meta row is missing (a child killed before it wrote one).
+             "db_requests": 0, "db_errors": 0, "db_blocked": 0, "db_endpoints": ""},
         )
         agg["calls"] += 1
         agg["input_tokens"] += row["input_tokens"]
         agg["output_tokens"] += row["output_tokens"]
         agg["cost_usd"] += row["cost_usd"]
-        agg["latency_s"] += row["latency_s"]
+        agg["model_time_s"] += row["latency_s"]
         if row["cost_usd"] == 0.0:
             agg["unpriced_calls"] += 1
+    for run_id, meta in _load_meta().items():
+        if run_id not in runs:
+            continue
+        runs[run_id]["wall_clock_s"] = float(meta.get("wall_clock_s") or 0.0)
+        for field in ("db_requests", "db_errors", "db_blocked"):
+            runs[run_id][field] = int(meta.get(field) or 0)
+        runs[run_id]["db_endpoints"] = meta.get("db_endpoints") or ""
     return runs
 
 
@@ -439,9 +569,15 @@ def aggregate() -> str:
                 _fmt(mean(r["calls"] for r in group), 1),
                 _fmt(mean(r["input_tokens"] + r["output_tokens"] for r in group), 0),
                 "$" + _fmt(mean(r["cost_usd"] for r in group), 4),
-                _fmt(mean(r["latency_s"] for r in group), 1),
+                _fmt(mean(r["wall_clock_s"] for r in group), 1),
             ])
-    parts += [_table(["scenario", "arm", "n", "calls/run", "tokens/run", "cost/run", "latency s"], rows), ""]
+    parts += [
+        _table(
+            ["scenario", "arm", "n", "calls/run", "tokens/run", "cost/run", "wall clock s"],
+            rows,
+        ),
+        "",
+    ]
 
     parts += ["## Table 2 — Where the tokens go (agent arm, core runs)", ""]
     by_role: dict[str, dict[str, float]] = defaultdict(lambda: {"calls": 0, "in": 0, "out": 0, "cost": 0.0})
@@ -485,10 +621,33 @@ def aggregate() -> str:
         parts += [_table(["variant", "n", "tokens/run", "cost/run", "Δ cost"], rows), ""]
 
     unpriced = sum(r["unpriced_calls"] for r in run_rows)
+    # Live-data provenance. `sidecar_offline` is *supposed* to appear here (its
+    # sidecar is unreachable by design); any OTHER scenario in this count
+    # answered from the fixtures without saying so, and its row in Table 1 is
+    # measuring the fallback rather than the condition it is named after.
+    degraded = sorted(
+        {r["scenario"] for r in run_rows if r["db_errors"]} - NO_BASELINE_SCENARIOS
+    )
+    blocked = sum(r["db_blocked"] for r in run_rows)
+    live_note = (
+        f"Live DB requests: {sum(r['db_requests'] for r in run_rows)} "
+        f"({sum(r['db_errors'] for r in run_rows)} failed"
+        + (f", {blocked} anti-bot blocked" if blocked else "")
+        + "). "
+    )
+    live_note += (
+        "Scenarios that fell back to fixtures unexpectedly: "
+        + ", ".join(f"`{name}`" for name in degraded)
+        + " — those runs measure the fallback, not the live path."
+        if degraded
+        else "No unexpected fixture fallbacks."
+    )
     parts += [
         f"_{len(run_rows)} runs, {len(calls)} model calls. "
         f"Total measured spend: ${_fmt(sum(r['cost_usd'] for r in run_rows), 4)}. "
         f"Unpriced calls (model absent from LiteLLM's cost map): {unpriced}._",
+        "",
+        f"_{live_note}_",
         "",
         "_Quality and capability checks are scored by hand into "
         "`eval/output/scoring_sheet.csv` from the transcripts._",
@@ -518,7 +677,11 @@ def main() -> None:
     parser.add_argument("--arm", default="agent", choices=ARMS)
     parser.add_argument("--run-id", default="")
     parser.add_argument("--variant", default="default")
-    parser.add_argument("--reps", type=int, default=3, help="runs per scenario per arm")
+    parser.add_argument("--reps", type=int, default=2, help="core runs per scenario per arm")
+    parser.add_argument(
+        "--sweep-reps", type=int, default=None,
+        help="runs per sweep variant (defaults to --reps); sweeps are not hand-scored",
+    )
     parser.add_argument("--no-sweeps", action="store_true", help="core matrix only")
     parser.add_argument("--aggregate-only", action="store_true")
     args = parser.parse_args()
@@ -534,10 +697,19 @@ def main() -> None:
         (scenario, arm, "default")
         for scenario in SCENARIOS
         for arm in ARMS
+        if not (arm == "baseline" and scenario in NO_BASELINE_SCENARIOS)
         for _ in range(args.reps)
     ]
     if not args.no_sweeps:
-        plan += [("happy_path", "agent", variant) for variant in SWEEP_VARIANTS for _ in range(args.reps)]
+        # Sweeps carry their own rep count: they are read off the aggregated
+        # numbers, never hand-scored, so adding one costs machine time only —
+        # unlike a core run, which costs a transcript someone has to read.
+        sweep_reps = args.sweep_reps if args.sweep_reps is not None else args.reps
+        plan += [
+            ("happy_path", "agent", variant)
+            for variant in SWEEP_VARIANTS
+            for _ in range(sweep_reps)
+        ]
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Planned runs: {len(plan)}  (reps={args.reps}, sweeps={'no' if args.no_sweeps else 'yes'})")

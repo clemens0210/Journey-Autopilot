@@ -1,5 +1,9 @@
 """Per-call token, cost, and latency capture for the evaluation runs.
 
+Plus one non-model measurement, at the bottom: ``install_db_probe`` counts the
+run's live Deutsche Bahn requests, which is what lets a run state whether it
+answered from live data or from the fixture fallback.
+
 Every model call in this system goes through LiteLLM — the ADK agents via
 ``google.adk.models.lite_llm.LiteLlm``, the naive baseline via ``litellm``
 directly. So one global LiteLLM success callback sees *all* of it, including
@@ -19,10 +23,10 @@ import csv
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Generator
 
 import litellm
 from litellm.integrations.custom_logger import CustomLogger
@@ -118,7 +122,7 @@ async def async_drain(timeout: float = 20.0, quiet: float = 0.5) -> int:
 
 
 @contextmanager
-def run_context(run_id: str, scenario: str, arm: str, variant: str = "default") -> Iterator[None]:
+def run_context(run_id: str, scenario: str, arm: str, variant: str = "default") -> Generator[None]:
     """Label every model call made inside the block as belonging to this run.
 
     Deliberately does **not** restore the previous label on exit: a callback
@@ -229,6 +233,84 @@ def install() -> None:
 def rows() -> list[dict[str, Any]]:
     with _lock:
         return list(_rows)
+
+
+# --- Live-data probe ----------------------------------------------------------
+
+# Per-endpoint request tallies for this process. One run = one process, so
+# these never need resetting — and never span two runs the way the LiteLLM
+# rows can.
+_db_counts: dict[str, int] = {}
+_db_probe_installed = False
+
+
+def _bump(key: str) -> None:
+    with _lock:
+        _db_counts[key] = _db_counts.get(key, 0) + 1
+
+
+def install_db_probe() -> None:
+    """Count this run's DB sidecar requests. Idempotent.
+
+    Every live read reaches Deutsche Bahn through ``integrations.db.ops._get``,
+    so wrapping that one function measures the whole live dependency without
+    touching shipped code — the same rule the variants follow.
+
+    It is recorded because a DB block is *silent*: each tool catches
+    ``DBServiceError`` and answers from the fixture instead (see
+    ``tools/read/monitoring.py`` and ``tools/read/reroute.py``), so a blocked
+    run still completes and still produces a full, plausible-looking row — only
+    the data source changed underneath it. Without these counts a block partway
+    through the matrix quietly turns the remaining ``happy_path`` runs into
+    ``sidecar_offline`` runs, shifting their tokens and cost with the
+    differently sized payloads, and nothing in the output says so.
+
+    Not counted: the Overpass hotel lookup, a separate service with its own
+    rate limit. Its DB half — the station geocode — is.
+    """
+    global _db_probe_installed
+    if _db_probe_installed:
+        return
+    from journey_autopilot.integrations.db import ops as db_ops
+
+    original = db_ops._get
+
+    def counted(path: str, params: dict | None = None) -> Any:
+        _bump("requests")
+        _bump(f"endpoint:{path.strip('/').split('/')[0] or 'root'}")
+        try:
+            return original(path, params)
+        except db_ops.DBServiceError as exc:
+            _bump("errors")
+            # The sidecar maps DB's anti-bot HTTP 452 to a 503 carrying
+            # "db_blocked" (db_service/index.mjs). Separating that from an
+            # ordinary outage is the difference between "the sidecar wasn't
+            # running" and "DB sidelined us mid-matrix".
+            if "db_blocked" in str(exc):
+                _bump("blocked")
+            raise
+
+    # Patching the module attribute is enough: ops' own functions resolve
+    # ``_get`` as a module global at call time, and every consumer imports the
+    # module (``from ...integrations.db import ops``), never the function.
+    db_ops._get = counted
+    _db_probe_installed = True
+
+
+def db_stats() -> dict[str, Any]:
+    """The probe's tallies, as meta-CSV columns."""
+    with _lock:
+        counts = dict(_db_counts)
+    return {
+        "db_requests": counts.get("requests", 0),
+        "db_errors": counts.get("errors", 0),
+        "db_blocked": counts.get("blocked", 0),
+        "db_endpoints": ";".join(
+            f"{key.split(':', 1)[1]}={value}"
+            for key, value in sorted(counts.items())
+            if key.startswith("endpoint:")
+        ),
+    }
 
 
 def reset() -> None:
