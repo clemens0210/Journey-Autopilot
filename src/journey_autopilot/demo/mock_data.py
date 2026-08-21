@@ -98,7 +98,10 @@ def _rebase_fixture(fx: dict) -> dict:
 # behind, the line reopening and both reroutes just ahead, and the hard
 # meeting ~4.5 h in the future. Every fixture datetime moves by the same
 # delta, so all relative gaps stay exactly as authored. Set
-# JA_DEMO_TRIP_LEAD_MIN=0 to keep the authored wall-clock times.
+# JA_DEMO_TRIP_LEAD_MIN=0 to keep the authored wall-clock times, or a NEGATIVE
+# value to put departure that many minutes in the *future* — a PRE-TRIP
+# scenario, where the journey has not started and the punctuality forecast is
+# the only thing there is to go on.
 
 _DATETIME_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)\b")
 
@@ -133,6 +136,10 @@ def _shift_datetimes(node, delta: timedelta):
 def _anchor_times_to_start(fx: dict) -> tuple[dict, timedelta]:
     """Shift all fixture datetimes so the demo trip departed LEAD minutes ago.
 
+    A negative LEAD puts departure that many minutes ahead instead, which is
+    what a pre-trip scenario needs; only LEAD == 0 means "leave the authored
+    wall-clock times alone".
+
     The target departure is rounded down to a 5-minute grid so the shifted
     timetable still looks like a timetable. Returns the shifted fixture and
     the applied delta — ``demo/accounts.py`` adds the same delta to its
@@ -142,7 +149,7 @@ def _anchor_times_to_start(fx: dict) -> tuple[dict, timedelta]:
         lead = int(os.getenv("JA_DEMO_TRIP_LEAD_MIN", "90"))
     except ValueError:
         lead = 0
-    if lead <= 0:
+    if lead == 0:
         return fx, timedelta(0)
     try:
         dep = datetime.fromisoformat(fx.get("demo_trip", {}).get("planned_departure") or "")

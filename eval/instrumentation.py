@@ -1,8 +1,10 @@
 """Per-call token, cost, and latency capture for the evaluation runs.
 
-Plus one non-model measurement, at the bottom: ``install_db_probe`` counts the
+Plus two non-model measurements, at the bottom: ``install_db_probe`` counts the
 run's live Deutsche Bahn requests, which is what lets a run state whether it
-answered from live data or from the fixture fallback.
+answered from live data or from the fixture fallback, and
+``install_policy_probe`` counts the veto gate's auto/ask decisions, which is the
+only place the autonomy trade-off is observable.
 
 Every model call in this system goes through LiteLLM — the ADK agents via
 ``google.adk.models.lite_llm.LiteLlm``, the naive baseline via ``litellm``
@@ -44,6 +46,13 @@ CSV_FIELDS = [
     "model",
     "input_tokens",
     "output_tokens",
+    # Prompt-caching split of `input_tokens`, not an addition to it: Bedrock
+    # reports cache tokens separately and LiteLLM folds them back into the
+    # input total, so these two are *part of* `input_tokens`. They are what
+    # explains a cost drop the token columns cannot show. Zero on the Uni-GPT
+    # endpoint and on any call whose prefix was too short to cache.
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
     "cost_usd",
     "latency_s",
 ]
@@ -150,13 +159,21 @@ def _role_of(kwargs: dict) -> str:
     return "baseline" if _ctx.arm == "baseline" else "untagged"
 
 
-def _usage_of(response: Any) -> tuple[int, int]:
+def _usage_of(response: Any) -> tuple[int, int, int, int]:
+    """(input, output, cache read, cache write) tokens for one call.
+
+    The cache fields are absent on providers without prompt caching, so they
+    read as zero rather than failing — the same call shape works for the
+    Uni-GPT endpoint and the naive baseline.
+    """
     usage = getattr(response, "usage", None)
     if usage is None:
-        return 0, 0
+        return 0, 0, 0, 0
     return (
         int(getattr(usage, "prompt_tokens", 0) or 0),
         int(getattr(usage, "completion_tokens", 0) or 0),
+        int(getattr(usage, "cache_read_input_tokens", 0) or 0),
+        int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
     )
 
 
@@ -178,7 +195,7 @@ def _record(kwargs: dict, response: Any, start_time: Any, end_time: Any) -> None
     """Record one completed model call. Must never raise — it runs inside the SDK."""
     try:
         model = str(kwargs.get("model") or getattr(response, "model", "") or "unknown")
-        prompt_tokens, completion_tokens = _usage_of(response)
+        prompt_tokens, completion_tokens, cache_read, cache_write = _usage_of(response)
         try:
             latency = (end_time - start_time).total_seconds()
         except Exception:
@@ -193,6 +210,8 @@ def _record(kwargs: dict, response: Any, start_time: Any, end_time: Any) -> None
             "model": model,
             "input_tokens": prompt_tokens,
             "output_tokens": completion_tokens,
+            "cache_read_input_tokens": cache_read,
+            "cache_creation_input_tokens": cache_write,
             "cost_usd": round(_cost_of(response, model), 6),
             "latency_s": round(latency, 3),
         }
@@ -309,6 +328,66 @@ def db_stats() -> dict[str, Any]:
             f"{key.split(':', 1)[1]}={value}"
             for key, value in sorted(counts.items())
             if key.startswith("endpoint:")
+        ),
+    }
+
+
+# --- Policy gate probe ---------------------------------------------------------
+
+_gate_counts: dict[str, int] = {}
+_policy_probe_installed = False
+
+
+def _bump_gate(key: str) -> None:
+    with _lock:
+        _gate_counts[key] = _gate_counts.get(key, 0) + 1
+
+
+def install_policy_probe() -> None:
+    """Count this run's veto-gate decisions. Idempotent.
+
+    The autonomy trade-off is a claim about how often the *traveler* is asked,
+    and nothing else in the harness can see that. Cost barely moves between
+    autonomy levels — the gate changes who decides, not how many tokens the
+    decision takes — and the transcript cannot show it either: a write that ran
+    on "auto" and a write the traveler approved leave the same tool call behind.
+    ``policy.resolve`` is the single point every gate decision passes through.
+
+    Counted per tool as well as in total, because "three asks" means something
+    different when all three are hotel bookings than when one is a booking and
+    two are emails to a client.
+    """
+    global _policy_probe_installed
+    if _policy_probe_installed:
+        return
+    from journey_autopilot import policy
+
+    original = policy.resolve
+
+    def counted(tool_name: str, **kwargs: Any) -> Any:
+        resolution = original(tool_name, **kwargs)
+        _bump_gate(str(resolution))
+        _bump_gate(f"tool:{tool_name}:{resolution}")
+        return resolution
+
+    # ``write_tools`` does ``from .. import policy`` and calls
+    # ``policy.resolve(...)``, so rebinding the module attribute is what its
+    # callers see — the same rule the DB probe relies on.
+    policy.resolve = counted
+    _policy_probe_installed = True
+
+
+def gate_stats() -> dict[str, Any]:
+    """The gate probe's tallies, as meta-CSV columns."""
+    with _lock:
+        counts = dict(_gate_counts)
+    return {
+        "gate_auto": counts.get("auto", 0),
+        "gate_ask": counts.get("ask", 0),
+        "gate_detail": ";".join(
+            f"{key.split(':', 1)[1]}={value}"
+            for key, value in sorted(counts.items())
+            if key.startswith("tool:")
         ),
     }
 

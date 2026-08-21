@@ -79,11 +79,28 @@ def _bedrock_model(model_id: str, **params: Any) -> LiteLlm:
     ``params`` are per-role tuning kwargs from settings.yaml's ``model_params``
     (e.g. ``reasoning_effort``, ``temperature``); ``drop_params`` lets LiteLLM
     silently ignore any a given Claude model doesn't support instead of erroring.
+
+    ``cache_control_injection_points`` turns on Bedrock prompt caching. Two
+    things make it worth it here: a ReAct step resends the whole prompt, and
+    every AgentTool call starts a fresh conversation that re-bills its static
+    prefix from zero. Marking the prefix and the conversation tail lets those
+    repeats bill as cache *reads*. Note this changes the price, not the token
+    count — LiteLLM folds cached tokens back into ``input_tokens``, so the
+    effect shows up in ``cost_usd``, not in the token columns.
     """
     return LiteLlm(
         model=f"bedrock/{model_id}",
         aws_region_name=_BEDROCK_REGION,
         drop_params=True,
+        cache_control_injection_points=[
+            # Static prefix: the instruction (ADK emits it as the one
+            # role="system" message) and the tool schemas.
+            {"location": "message", "role": "system"},
+            {"location": "tool_config"},
+            # Rolling: the newest message, so each ReAct step reads back the
+            # turns the previous step wrote.
+            {"location": "message", "index": -1},
+        ],
         **params,
     )
 

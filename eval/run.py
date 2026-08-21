@@ -7,7 +7,7 @@ ADR 0004 promises.
 
 Usage
 -----
-    python -m eval.run                     # full matrix (18 runs: 10 core + 8 sweep)
+    python -m eval.run                     # full matrix (1 warm-up + 10 core + 8 sweep)
     python -m eval.run --reps 1 --no-sweeps  # 5-run smoke test first
     python -m eval.run --aggregate-only    # rebuild tables from existing CSV
 
@@ -28,11 +28,23 @@ relative setup — the trip always departed ``JA_DEMO_TRIP_LEAD_MIN`` minutes
 before that run started — which is what makes repeated runs comparable even
 though the absolute wall clock moves.
 
-**Variants configure, they do not fork the code.** The autonomy sweep writes a
-temporary ``policy.yaml`` and points ``JA_POLICY_PATH`` at it; the model-tier
-variant does the same with ``JA_SETTINGS_PATH``. Both hooks already existed.
-Only the deterministic-vs-agentic variant needs a patch, and it is applied in
-this process, to this run, never to the shipped agent.
+**Variants configure, they do not fork the code.** The autonomy sweep sets the
+swept level on the demo *profile* — the field ``policy._effective_level`` reads
+first — and writes the matching ``policy.yaml`` behind it so the two cannot
+disagree. Only the deterministic-vs-agentic variant needs a patch, and it is
+applied in this process, to this run, never to the shipped agent.
+
+**One discarded warm-up run.** Bedrock bills the request that first writes a
+cache prefix at 1.25x and every later read at 0.1x, so without a warm-up
+whichever run goes first subsidises the rest: in the previous matrix that made
+``happy_path-agent-default-001`` cost 53% more than its identical repeat, and
+handed every later variant a ~20% "saving" that was pure run order. The warm-up
+is spawned before the plan and its rows are deleted, so every measured run sees
+the same warm cache.
+
+No variant swaps models. Every role runs Sonnet 4.6, fixed by
+``config/settings.yaml``, so every run in the matrix is comparable on model
+choice by construction and no number here is a statement about model tier.
 """
 
 from __future__ import annotations
@@ -72,6 +84,13 @@ META_FIELDS = (
     "db_errors",
     "db_blocked",
     "db_endpoints",
+    # The veto gate's decisions (instrumentation.install_policy_probe). This is
+    # the autonomy trade-off's real metric: the level barely moves cost, what it
+    # moves is how often the traveler is asked — and the transcript cannot show
+    # that, because an "auto" write and an approved "ask" leave the same call.
+    "gate_auto",
+    "gate_ask",
+    "gate_detail",
 )
 
 # Pinned so every run sees the same relative timeline (trip departed 90 min
@@ -80,8 +99,18 @@ META_FIELDS = (
 # repeats. See demo/__init__.py for the clock contract.
 DEMO_TRIP_LEAD_MIN = "90"
 
+# The pre-trip cells run the clock the other way: departure two hours from now,
+# so the journey has not started. Monitoring picks its branch from the request
+# (agents/monitoring.py) and only the pre-trip branch reads the deterministic
+# punctuality figures, so this is the clock the `llm_risk` comparison needs.
+PRETRIP_LEAD_MIN = "-120"
+
 # The demo account every run travels as (demo/accounts.py). Named here because
 # both the per-run reset and the agent turns need the same identity.
+# The warm-up run's id. Named, not inlined, because two places have to agree
+# about which files to delete afterwards.
+_WARMUP_ID = "warmup-000"
+
 DEMO_USER_ID = "u-lucas-wild"
 DEMO_EMAIL = "lucas.wild@example.com"
 DEMO_PASSWORD = "demo123"
@@ -98,6 +127,10 @@ SCENARIOS: dict[str, dict[str, str]] = {
     "sidecar_offline": {"JA_FIXTURES": "happy_path", "DB_API_URL": "http://127.0.0.1:9"},
 }
 
+# The two arms. The baseline is data-fed and has no other setting: it receives
+# every fixture slice the agents' read tools return (baseline/prompts.py), so
+# the comparison isolates orchestration from data access instead of measuring
+# whether tools beat no tools.
 ARMS = ("agent", "baseline")
 
 # The baseline reads no live source, so removing the sidecar cannot change its
@@ -107,16 +140,56 @@ ARMS = ("agent", "baseline")
 NO_BASELINE_SCENARIOS = {"sidecar_offline"}
 
 # Trade-off sweeps. Agent arm, happy path only — stated as a limitation in the
-# report rather than silently generalised.
-SWEEP_VARIANTS = ("autonomy_conservative", "autonomy_aggressive", "monitoring_sonnet", "llm_risk")
+# report rather than silently generalised. Each variant names the group its
+# delta is measured against; "default" means the core happy_path agent runs.
+#
+# There is no model-tier variant: the system runs one model (Sonnet 4.6) on
+# every role, so a tier sweep would compare a configuration that does not
+# exist. Table 2 still attributes cost per role — with the price per token
+# held constant, that difference is purely how much work each role does.
+SWEEP_VARIANTS: dict[str, str] = {
+    "autonomy_conservative": "default",
+    "autonomy_aggressive": "default",
+    # `llm_risk` moves Monitoring's arithmetic into the model, so it can only
+    # be measured where that arithmetic happens — and in the core matrix it
+    # does not happen at all. Monitoring has two branches and picks by what the
+    # request carries: a trip_id is a running journey (live status, network
+    # disruptions, no statistics), a planned connection is a forecast
+    # (`get_historical_delay_baseline` + `get_recent_delay_history` — the
+    # deterministic figures ADR 0003 is about). The core matrix is en route, so
+    # the first sweep patched an instruction the run never reached and measured
+    # nothing. These two cells run pre-trip instead, and `pretrip_llm_risk` is
+    # compared against `pretrip_default` rather than against the en-route
+    # default: same clock, same question, one variable.
+    "pretrip_default": "default",
+    "pretrip_llm_risk": "pretrip_default",
+}
 
-# The six checks, scored by hand from each transcript. Split into two groups
+# Cells that ask the pre-departure question on the pre-departure clock.
+PRETRIP_VARIANTS = frozenset({"pretrip_default", "pretrip_llm_risk"})
+
+# The onboarding choice matching each autonomy level, so a swept profile stays
+# self-consistent instead of claiming "approve each" while resolving as
+# aggressive. policy.py maps these the other way round.
+_AUTONOMY_CHOICE = {
+    "conservative": "notify_only",
+    "balanced": "approve_each",
+    "aggressive": "auto_within_limits",
+}
+
+# The checks, scored by hand from each transcript. Split into two groups
 # because three of them are structurally unavailable to a single model call
 # with no tools: reporting those as baseline "failures" would overstate the
 # result. They are a capability difference, not a quality difference.
+#
+# ``deadline_respected`` (no proposed option arrives after the hard constraint)
+# was removed rather than left to be scored: the agent reaches the calendar
+# through Graph, so with Outlook connected it queried a real, empty calendar
+# while the baseline had the fixture's appointments handed to it in prose. The
+# check measured that access gap, not deadline reasoning. Restoring it means
+# forcing the mock calendar path for eval runs, not re-adding the column.
 CHECKS = {
     "quality": [
-        "deadline_respected",  # no proposed option arrives after the hard constraint
         "no_fabrication",  # every train/time named exists in the fixture
         "task_completed",  # a concrete, actionable recommendation was produced
     ],
@@ -161,6 +234,11 @@ def _apply_llm_risk_variant() -> None:
     'agentic vs deterministic' trade-off — it should cost more tokens and give
     up reproducibility. Patched here, before the agent graph is imported, so
     the shipped instruction is never modified.
+
+    Only meaningful on a PRE-TRIP run: the instruction it rewrites governs
+    Monitoring's forecast branch, and an en-route request never enters it. Run
+    this against an already-departed trip and the patch is inert — which is
+    exactly what the first sweep measured.
     """
     from journey_autopilot.agents import monitoring
 
@@ -216,11 +294,53 @@ def _seed_demo_state() -> None:
 
     db_login(LoginRequest(email=DEMO_EMAIL, password=DEMO_PASSWORD))
 
+    # The autonomy sweep lands here, on the profile, because that is where
+    # ``policy._effective_level`` looks FIRST: profile.policy.
+    # global_autonomy_level, then profile.autonomy, and only then the YAML that
+    # ``JA_POLICY_PATH`` points at. The seeded profile always carries a level
+    # ("balanced", persistence/store.py), so the YAML was never consulted and
+    # the first sweep ran conservative and aggressive at balanced under two
+    # different names. Set after the login, since that is what writes the
+    # profile this run will read.
+    #
+    # Written on EVERY run, not only a swept one: the profile lives in SQLite
+    # and ``db_login`` deliberately preserves it, so a sweep that set
+    # "aggressive" would otherwise leak into every run that followed it in the
+    # matrix — the same class of cross-run contamination the trip reset above
+    # exists to prevent.
+    level = os.getenv("JA_EVAL_AUTONOMY") or "balanced"
+    profile = store.get_profile(DEMO_USER_ID) or {}
+    store.update_profile(DEMO_USER_ID, {
+        "autonomy": _AUTONOMY_CHOICE[level],
+        "policy": {**(profile.get("policy") or {}), "global_autonomy_level": level},
+    })
 
-def _agent_prompt() -> str:
-    """The same request scenarios/happy_path.py sends the Orchestrator."""
+
+def _agent_prompt(variant: str = "default") -> str:
+    """The request the Orchestrator receives.
+
+    Two phrasings, because Monitoring picks its branch from what the request
+    carries (agents/monitoring.py): a ``trip_id`` is a journey already running
+    and takes the EN ROUTE branch, while a planned connection that has not
+    departed takes the PRE-TRIP branch and with it the punctuality-forecast
+    tools. The core matrix asks the en-route question — that is the product's
+    headline scenario, and the one the hand-scored checks are written for. The
+    pre-trip cells ask the other one, so that the deterministic statistics are
+    actually computed and ``llm_risk`` has something to displace.
+
+    The en-route wording is the one scenarios/happy_path.py sends.
+    """
     from journey_autopilot.demo.mock_data import DEMO_TRIP
 
+    if variant in PRETRIP_VARIANTS:
+        return (
+            f"I am booked on {DEMO_TRIP['train']} from {DEMO_TRIP['origin']} "
+            f"to {DEMO_TRIP['destination']}, scheduled to depart "
+            f"{DEMO_TRIP['planned_departure']} and arrive "
+            f"{DEMO_TRIP['planned_arrival']}. The journey has not started yet. "
+            "How likely is this connection to be delayed, and when should I "
+            "realistically expect to arrive?"
+        )
     return (
         f"Please monitor my trip with trip_id {DEMO_TRIP['trip_id']} "
         f"from {DEMO_TRIP['origin']} to {DEMO_TRIP['destination']} "
@@ -247,7 +367,7 @@ def _render_trace(entries: Any, out: list[str]) -> None:
             out.append(str(entry))
 
 
-async def _run_agent() -> tuple[str, list[str]]:
+async def _run_agent(variant: str = "default") -> tuple[str, list[str]]:
     """Two turns through the product's own chat entry point.
 
     A single turn stops where the design says it should: the Planner presents a
@@ -279,7 +399,7 @@ async def _run_agent() -> tuple[str, list[str]]:
     )
 
     transcript: list[str] = []
-    prompt = _agent_prompt()
+    prompt = _agent_prompt(variant)
     transcript += [f"USER (turn 1): {prompt}", "--- trace ---"]
     first = await chat.chat_turn(
         None, prompt, trip, account, notify_phone=notify_phone, user_id=user_id
@@ -351,8 +471,9 @@ def run_once(scenario: str, arm: str, run_id: str, variant: str) -> int:
 
     inst.install()
     inst.install_db_probe()
+    inst.install_policy_probe()
 
-    if variant == "llm_risk" and arm == "agent":
+    if variant == "pretrip_llm_risk" and arm == "agent":
         _apply_llm_risk_variant()
 
     seed_error = ""
@@ -367,7 +488,7 @@ def run_once(scenario: str, arm: str, run_id: str, variant: str) -> int:
     with inst.run_context(run_id, scenario, arm, variant):
         try:
             if arm == "agent":
-                final, transcript = asyncio.run(_run_agent())
+                final, transcript = asyncio.run(_run_agent(variant))
             else:
                 final, transcript = _run_baseline()
         except Exception as exc:  # a failed run is data, not a crash
@@ -402,6 +523,7 @@ def run_once(scenario: str, arm: str, run_id: str, variant: str) -> int:
             # least one tool, which is the scenario for `sidecar_offline` and a
             # contaminated measurement anywhere else. See instrumentation.
             **inst.db_stats(),
+            **inst.gate_stats(),
         })
     if error:
         print(f"  [!] {run_id}: {error}", file=sys.stderr)
@@ -415,27 +537,21 @@ def _variant_env(variant: str) -> dict[str, str]:
     """Config-file overrides that realise a variant, written to eval/output/."""
     import yaml
 
-    if variant in ("default", "llm_risk"):
+    if variant != "default" and variant not in SWEEP_VARIANTS:
+        raise SystemExit(f"unknown variant: {variant}")
+    if not variant.startswith("autonomy_"):
         return {}
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    if variant.startswith("autonomy_"):
-        level = variant.split("_", 1)[1]
-        source = yaml.safe_load((_ROOT / "config" / "policy.yaml").read_text(encoding="utf-8"))
-        source["global_autonomy_level"] = level
-        path = OUTPUT_DIR / f"policy.{variant}.yaml"
-        path.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
-        return {"JA_POLICY_PATH": str(path)}
-
-    if variant == "monitoring_sonnet":
-        source = yaml.safe_load((_ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
-        source.setdefault("models", {})["monitoring"] = "bedrock_claude"
-        path = OUTPUT_DIR / f"settings.{variant}.yaml"
-        path.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
-        return {"JA_SETTINGS_PATH": str(path)}
-
-    raise SystemExit(f"unknown variant: {variant}")
+    level = variant.split("_", 1)[1]
+    source = yaml.safe_load((_ROOT / "config" / "policy.yaml").read_text(encoding="utf-8"))
+    source["global_autonomy_level"] = level
+    path = OUTPUT_DIR / f"policy.{variant}.yaml"
+    path.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
+    # Both, deliberately: JA_EVAL_AUTONOMY sets the profile field that decides,
+    # and the YAML sets the config default underneath it, so the two layers
+    # cannot disagree about what this run was.
+    return {"JA_POLICY_PATH": str(path), "JA_EVAL_AUTONOMY": level}
 
 
 def _spawn(scenario: str, arm: str, run_id: str, variant: str) -> int:
@@ -443,7 +559,9 @@ def _spawn(scenario: str, arm: str, run_id: str, variant: str) -> int:
         **os.environ,
         **SCENARIOS[scenario],
         **_variant_env(variant),
-        "JA_DEMO_TRIP_LEAD_MIN": DEMO_TRIP_LEAD_MIN,
+        "JA_DEMO_TRIP_LEAD_MIN": (
+            PRETRIP_LEAD_MIN if variant in PRETRIP_VARIANTS else DEMO_TRIP_LEAD_MIN
+        ),
         "LITELLM_LOG": "CRITICAL",
         "PYTHONPATH": os.pathsep.join([str(_SRC), str(_ROOT)]),
     }
@@ -472,12 +590,50 @@ def _load_calls() -> list[dict[str, Any]]:
     for path in sorted(p for p in RAW_DIR.glob("*.csv") if not p.name.endswith(".meta.csv")):
         with path.open(encoding="utf-8") as handle:
             for row in csv.DictReader(handle):
-                for key in ("input_tokens", "output_tokens"):
-                    row[key] = int(row[key] or 0)
+                # `.get` rather than `[...]`: raw files written before the cache
+                # columns existed have no such key. Assigning it here also
+                # normalizes every row to the same key set, which the calls.csv
+                # writer below needs — it takes its fieldnames from row zero.
+                for key in ("input_tokens", "output_tokens",
+                            "cache_read_input_tokens", "cache_creation_input_tokens"):
+                    row[key] = int(row.get(key) or 0)
                 for key in ("cost_usd", "latency_s"):
                     row[key] = float(row[key] or 0.0)
                 rows.append(row)
     return rows
+
+
+# Verdict vocabulary. The sheet is filled by a human, so accept the spellings a
+# human actually types; anything else is treated as unscored rather than
+# silently counted as a pass.
+_PASS = {"pass", "y", "yes", "true", "1", "ok"}
+_FAIL = {"fail", "n", "no", "false", "0"}
+_NA = {"n/a", "na", "-", "excluded"}
+
+
+def _load_scores() -> dict[str, dict[str, str]]:
+    """The hand-filled scoring sheet, by run_id. Empty when it is not there."""
+    sheet = OUTPUT_DIR / "scoring_sheet.csv"
+    if not sheet.exists():
+        return {}
+    with sheet.open(encoding="utf-8") as handle:
+        return {row["run_id"]: row for row in csv.DictReader(handle)}
+
+
+def _tally(rows: list[dict[str, str]], check: str) -> tuple[int, int, int, int]:
+    """(passed, failed, not_applicable, unscored) for one check over some rows."""
+    passed = failed = na = unscored = 0
+    for row in rows:
+        value = (row.get(check) or "").strip().lower()
+        if value in _PASS:
+            passed += 1
+        elif value in _FAIL:
+            failed += 1
+        elif value in _NA:
+            na += 1
+        else:
+            unscored += 1
+    return passed, failed, na, unscored
 
 
 def _per_run(calls: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -487,15 +643,20 @@ def _per_run(calls: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             row["run_id"],
             {"run_id": row["run_id"], "scenario": row["scenario"], "arm": row["arm"],
              "variant": row["variant"], "calls": 0, "input_tokens": 0,
-             "output_tokens": 0, "cost_usd": 0.0, "model_time_s": 0.0,
+             "output_tokens": 0, "cache_read_input_tokens": 0,
+             "cache_creation_input_tokens": 0,
+             "cost_usd": 0.0, "model_time_s": 0.0,
              "wall_clock_s": 0.0, "unpriced_calls": 0,
              # Seeded so runs.csv keeps stable columns even for a run whose
              # meta row is missing (a child killed before it wrote one).
-             "db_requests": 0, "db_errors": 0, "db_blocked": 0, "db_endpoints": ""},
+             "db_requests": 0, "db_errors": 0, "db_blocked": 0, "db_endpoints": "",
+             "gate_auto": 0, "gate_ask": 0, "gate_detail": ""},
         )
         agg["calls"] += 1
         agg["input_tokens"] += row["input_tokens"]
         agg["output_tokens"] += row["output_tokens"]
+        agg["cache_read_input_tokens"] += row["cache_read_input_tokens"]
+        agg["cache_creation_input_tokens"] += row["cache_creation_input_tokens"]
         agg["cost_usd"] += row["cost_usd"]
         agg["model_time_s"] += row["latency_s"]
         if row["cost_usd"] == 0.0:
@@ -504,9 +665,10 @@ def _per_run(calls: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         if run_id not in runs:
             continue
         runs[run_id]["wall_clock_s"] = float(meta.get("wall_clock_s") or 0.0)
-        for field in ("db_requests", "db_errors", "db_blocked"):
+        for field in ("db_requests", "db_errors", "db_blocked", "gate_auto", "gate_ask"):
             runs[run_id][field] = int(meta.get(field) or 0)
         runs[run_id]["db_endpoints"] = meta.get("db_endpoints") or ""
+        runs[run_id]["gate_detail"] = meta.get("gate_detail") or ""
     return runs
 
 
@@ -580,7 +742,9 @@ def aggregate() -> str:
     ]
 
     parts += ["## Table 2 — Where the tokens go (agent arm, core runs)", ""]
-    by_role: dict[str, dict[str, float]] = defaultdict(lambda: {"calls": 0, "in": 0, "out": 0, "cost": 0.0})
+    by_role: dict[str, dict[str, float]] = defaultdict(
+        lambda: {"calls": 0, "in": 0, "out": 0, "cached": 0, "cost": 0.0}
+    )
     core_ids = {r["run_id"] for r in core if r["arm"] == "agent"}
     for row in calls:
         if row["run_id"] not in core_ids:
@@ -589,36 +753,131 @@ def aggregate() -> str:
         entry["calls"] += 1
         entry["in"] += row["input_tokens"]
         entry["out"] += row["output_tokens"]
+        entry["cached"] += row["cache_read_input_tokens"]
         entry["cost"] += row["cost_usd"]
     total_cost = sum(e["cost"] for e in by_role.values()) or 1.0
+    # "cached in tok" is the share of "input tok" that billed at the cache-read
+    # rate rather than the full input rate — the two are not additive.
     rows = [
-        [role, str(int(e["calls"])), _fmt(e["in"], 0), _fmt(e["out"], 0),
+        [role, str(int(e["calls"])), _fmt(e["in"], 0), _fmt(e["cached"], 0), _fmt(e["out"], 0),
          "$" + _fmt(e["cost"], 4), _fmt(100 * e["cost"] / total_cost, 1) + "%"]
         for role, e in sorted(by_role.items(), key=lambda kv: -kv[1]["cost"])
     ]
-    parts += [_table(["role", "calls", "input tok", "output tok", "cost", "share"], rows), ""]
+    parts += [
+        _table(
+            ["role", "calls", "input tok", "cached in tok", "output tok", "cost", "share"],
+            rows,
+        ),
+        "",
+    ]
 
     sweeps = [r for r in run_rows if r["variant"] != "default"]
     if sweeps:
         parts += ["## Table 3 — Trade-off sweeps (happy path, agent arm)", ""]
-        baseline_group = [r for r in core if r["scenario"] == "happy_path" and r["arm"] == "agent"]
-        rows = []
-        reference = mean(r["cost_usd"] for r in baseline_group) if baseline_group else 0.0
-        if baseline_group:
-            rows.append(["default (balanced, haiku monitoring, deterministic risk)",
-                         str(len(baseline_group)),
-                         _fmt(mean(r["input_tokens"] + r["output_tokens"] for r in baseline_group), 0),
-                         "$" + _fmt(reference, 4), "—"])
+        # Two reference groups, not one: the autonomy cells are measured
+        # against the en-route default, the pre-trip cells against each other.
+        # A single reference would compare `pretrip_llm_risk` with a run that
+        # asked a different question on a different clock, and report the
+        # scenario difference as the variant's effect.
+        groups: dict[str, list[dict[str, Any]]] = {
+            "default": [r for r in core if r["scenario"] == "happy_path" and r["arm"] == "agent"]
+        }
         for variant in SWEEP_VARIANTS:
-            group = [r for r in sweeps if r["variant"] == variant]
+            if group := [r for r in sweeps if r["variant"] == variant]:
+                groups[variant] = group
+
+        def _mean_cost(name: str) -> float:
+            group = groups.get(name) or []
+            return mean(r["cost_usd"] for r in group) if group else 0.0
+
+        labels = {"default": "default (en route, balanced autonomy, deterministic risk)"}
+        rows = []
+        for name in ("default", *SWEEP_VARIANTS):
+            group = groups.get(name)
             if not group:
                 continue
-            cost = mean(r["cost_usd"] for r in group)
-            delta = f"{100 * (cost - reference) / reference:+.0f}%" if reference else "—"
-            rows.append([variant, str(len(group)),
-                         _fmt(mean(r["input_tokens"] + r["output_tokens"] for r in group), 0),
-                         "$" + _fmt(cost, 4), delta])
-        parts += [_table(["variant", "n", "tokens/run", "cost/run", "Δ cost"], rows), ""]
+            against = SWEEP_VARIANTS.get(name, "")
+            reference = _mean_cost(against) if against else 0.0
+            cost = _mean_cost(name)
+            delta = (
+                f"{100 * (cost - reference) / reference:+.0f}%"
+                if against and reference else "—"
+            )
+            rows.append([
+                labels.get(name, name),
+                str(len(group)),
+                _fmt(mean(r["input_tokens"] + r["output_tokens"] for r in group), 0),
+                "$" + _fmt(cost, 4),
+                delta,
+                against or "—",
+                # Averaged rather than summed: it is the number of approvals
+                # ONE traveler faces per run, which is what the trade-off is
+                # about, not how many the whole matrix produced.
+                _fmt(mean(r["gate_ask"] for r in group), 1),
+            ])
+        parts += [
+            _table(
+                ["variant", "n", "tokens/run", "cost/run", "Δ cost", "vs", "asks/run"],
+                rows,
+            ),
+            "",
+            "_Costs are warm-cache: a discarded warm-up run precedes the matrix so "
+            "no measured run pays the cache-write premium the rest then read from._",
+            "",
+        ]
+
+    # Table 4 — the hand-scored checks. Read back from the sheet rather than
+    # recomputed: these verdicts come from a person reading transcripts, and
+    # this is the only place they reach the report. A check whose column is
+    # entirely "n/a" is shown as such, so a check excluded on methodological
+    # grounds stays visible instead of vanishing into a blank.
+    scores = _load_scores()
+    if scores:
+        parts += ["## Table 4 — Hand-scored checks (core runs)", ""]
+        scored_core = [
+            scores[r["run_id"]] for r in core if r["run_id"] in scores
+        ]
+        rows = []
+        pending = 0
+        for group, checks in CHECKS.items():
+            for check in checks:
+                cells = [group, check]
+                for arm in ARMS:
+                    arm_rows = [s for s in scored_core if s.get("arm") == arm]
+                    if not arm_rows:
+                        cells.append("—")
+                        continue
+                    passed, failed, na, missing = _tally(arm_rows, check)
+                    pending += missing
+                    decided = passed + failed
+                    if decided:
+                        cell = f"{passed}/{decided}"
+                        if missing:
+                            cell += f" (+{missing} unscored)"
+                    elif na:
+                        cell = "n/a"
+                    else:
+                        cell = "unscored"
+                    cells.append(cell)
+                rows.append(cells)
+        parts += [_table(["group", "check", *ARMS], rows), ""]
+        excluded = [
+            check for checks in CHECKS.values() for check in checks
+            if all(
+                (s.get(check) or "").strip().lower() in _NA
+                for s in scored_core
+            ) and scored_core
+        ]
+        if excluded:
+            parts += [
+                "_Excluded from scoring (recorded as `n/a` for every run, see the "
+                "sheet's `notes` column for why): "
+                + ", ".join(f"`{c}`" for c in excluded)
+                + "._",
+                "",
+            ]
+        if pending:
+            parts += [f"_{pending} check cells still unscored._", ""]
 
     unpriced = sum(r["unpriced_calls"] for r in run_rows)
     # Live-data provenance. `sidecar_offline` is *supposed* to appear here (its
@@ -642,6 +901,15 @@ def aggregate() -> str:
         if degraded
         else "No unexpected fixture fallbacks."
     )
+    if any(r["arm"] == "baseline" for r in run_rows):
+        # Stated on every report rather than left implicit: a baseline number
+        # only means what it means because the arm was handed the same facts.
+        parts += [
+            "_The baseline was given every fixture slice the agents' read tools "
+            "return, so the comparison isolates orchestration from data access._",
+            "",
+        ]
+
     parts += [
         f"_{len(run_rows)} runs, {len(calls)} model calls. "
         f"Total measured spend: ${_fmt(sum(r['cost_usd'] for r in run_rows), 4)}. "
@@ -650,7 +918,8 @@ def aggregate() -> str:
         f"_{live_note}_",
         "",
         "_Quality and capability checks are scored by hand into "
-        "`eval/output/scoring_sheet.csv` from the transcripts._",
+        "`eval/output/scoring_sheet.csv` from the transcripts; Table 4 "
+        "reports them once filled._",
     ]
 
     text = "\n".join(parts)
@@ -659,6 +928,30 @@ def aggregate() -> str:
 
 
 # --- Entry point ---------------------------------------------------------------
+
+
+def _warm_up() -> None:
+    """One discarded run, so no measured run pays for the others' cache.
+
+    Bedrock bills the request that first writes a cache prefix at 1.25x and
+    every later read at 0.1x, and the prefix outlives a run: it is the shared
+    instruction and tool schemas, not this run's conversation. So whichever run
+    goes first subsidises the whole matrix — in the previous set that made
+    `happy_path-agent-default-001` cost 53% more than its identical repeat,
+    dragged the Table 3 reference up with it, and gave every later variant a
+    ~20% "saving" that was nothing but run order.
+
+    A happy-path agent run warms what matters: the pre-trip cells ask a
+    different question, but the cached prefix is the instruction and the tool
+    schemas, which they share. Its rows are deleted rather than filtered at
+    aggregation time — a file that must be remembered to be excluded eventually
+    is not.
+    """
+    print("[warm-up] one discarded run to warm the prompt cache")
+    _spawn("happy_path", "agent", _WARMUP_ID, "default")
+    for path in RAW_DIR.glob(f"{_WARMUP_ID}*.csv"):
+        path.unlink()
+    (TRANSCRIPT_DIR / f"{_WARMUP_ID}.txt").unlink(missing_ok=True)
 
 
 def main() -> None:
@@ -679,10 +972,20 @@ def main() -> None:
     parser.add_argument("--variant", default="default")
     parser.add_argument("--reps", type=int, default=2, help="core runs per scenario per arm")
     parser.add_argument(
+        "--baseline-reps", type=int, default=None,
+        help="runs per baseline cell (defaults to --reps); the baseline is a "
+             "reference point, not a claim-bearing arm, so it may weigh less",
+    )
+    parser.add_argument(
         "--sweep-reps", type=int, default=None,
         help="runs per sweep variant (defaults to --reps); sweeps are not hand-scored",
     )
     parser.add_argument("--no-sweeps", action="store_true", help="core matrix only")
+    parser.add_argument(
+        "--no-warmup", action="store_true",
+        help="skip the discarded cache-warming run (leaves run 001 paying the "
+             "cache writes every later run reads)",
+    )
     parser.add_argument("--aggregate-only", action="store_true")
     args = parser.parse_args()
 
@@ -693,12 +996,13 @@ def main() -> None:
         print(aggregate())
         return
 
+    baseline_reps = args.baseline_reps if args.baseline_reps is not None else args.reps
     plan: list[tuple[str, str, str]] = [
         (scenario, arm, "default")
         for scenario in SCENARIOS
         for arm in ARMS
         if not (arm == "baseline" and scenario in NO_BASELINE_SCENARIOS)
-        for _ in range(args.reps)
+        for _ in range(baseline_reps if arm == "baseline" else args.reps)
     ]
     if not args.no_sweeps:
         # Sweeps carry their own rep count: they are read off the aggregated
@@ -712,7 +1016,14 @@ def main() -> None:
         ]
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Planned runs: {len(plan)}  (reps={args.reps}, sweeps={'no' if args.no_sweeps else 'yes'})")
+    print(
+        f"Planned runs: {len(plan)}  (reps={args.reps}, "
+        f"baseline reps={baseline_reps}, "
+        f"sweeps={'no' if args.no_sweeps else 'yes'}, "
+        f"warm-up={'no' if args.no_warmup else 'yes'})"
+    )
+    if not args.no_warmup:
+        _warm_up()
     failures = 0
     for index, (scenario, arm, variant) in enumerate(plan, start=1):
         run_id = f"{scenario}-{arm}-{variant}-{index:03d}"

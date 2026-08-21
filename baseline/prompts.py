@@ -1,12 +1,16 @@
 """Data-fed prompts for the naive baseline arm.
 
-The baseline answers the question "what does one model call achieve, given the
-same facts, without orchestration?" — so it has to *get* the same facts. The
-bare prompt in ``single_shot.py`` describes the situation in a sentence and
-supplies no data at all; beating that would prove only that tools beat no
-tools. Here every fixture slice the agents' read tools would have returned is
-serialized into the prompt as JSON, and the model is asked for the same
-deliverable the Orchestrator produces.
+The baseline answers "what does one model call achieve **given the same
+facts**, without orchestration?" — so it has to *get* the same facts. Every
+fixture slice the agents' read tools would have returned is serialized into the
+prompt as JSON, and the model is asked for the deliverable the Orchestrator
+produces. A prompt with no data would be a strawman: beating it would show only
+that tools beat no tools.
+
+An information-poor ``lean`` level, supplying the booking alone, briefly lived
+here and was removed. It answered a question nobody disputes, and having two
+levels meant every reported number had to carry a label saying which one it
+came from.
 
 What the baseline still cannot do is the point of the comparison: it cannot
 gate a write behind the traveler's approval, cannot disclose which of these
@@ -17,9 +21,8 @@ the evaluation reports them separately from answer quality.
 **Read the shifted fixture, never the raw JSON.** ``demo.mock_data`` rebases
 the authored day onto today and shifts every timestamp so the trip departed
 ``JA_DEMO_TRIP_LEAD_MIN`` minutes ago. Building the prompt from the file on
-disk would hand the baseline a different clock than the agents run on, and the
-deadline check — the single most important thing being scored — would be
-comparing two different questions.
+disk would hand the baseline a different clock than the agents run on, and
+both arms would be answering questions posed at different moments.
 """
 
 from __future__ import annotations
@@ -100,7 +103,7 @@ def _payload() -> dict[str, Any]:
 
 
 def build_prompt() -> str:
-    """The data-fed baseline prompt for whichever fixture ``JA_FIXTURES`` selects.
+    """The baseline prompt for whichever fixture ``JA_FIXTURES`` selects.
 
     One builder rather than three hand-written prompts: the scenarios differ in
     their *data*, not in what the traveller is asking for, so writing the
