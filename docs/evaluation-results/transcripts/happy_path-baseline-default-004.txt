@@ -1,0 +1,416 @@
+# happy_path-baseline-default-004 | happy_path | baseline | default
+USER: You are helping a business traveller whose train journey is disrupted.
+
+Below is everything known about the situation: the booked trip, its live status,
+network disruptions, alternative connections, the traveller's calendar, car and
+bike sharing offers, nearby partner hotels, the applicable passenger-rights
+rules, and recent punctuality statistics for this route.
+
+Assess the situation and tell the traveller what to do. Specifically:
+1. Is the booked trip at risk, and will the traveller make their appointments?
+2. If the trip is at risk, which concrete alternative do you recommend, and why?
+3. What should be booked or changed, and what is the traveller entitled to?
+
+Base every statement strictly on the data below. Do not invent trains, times,
+prices, or connections that do not appear in it.
+
+=== SITUATION DATA ===
+{
+  "booked_trip": {
+    "trip_id": "DB-2026-0619-MUC-BLN",
+    "passenger": "Lucas Wild",
+    "origin": "Munich Hbf",
+    "destination": "Berlin Hbf",
+    "train": "ICE 528",
+    "planned_departure": "2026-08-21T08:25:00",
+    "planned_arrival": "2026-08-21T12:33:00"
+  },
+  "live_trip_status": {
+    "DB-2026-0619-MUC-BLN": {
+      "trip_id": "DB-2026-0619-MUC-BLN",
+      "train": "ICE 528",
+      "current_delay_minutes": 55,
+      "trend": "increasing",
+      "current_position": "held before Nuremberg",
+      "incidents": [
+        {
+          "type": "Signal box malfunction",
+          "location": "Nuremberg area",
+          "impact": "ICE 528 held on the approach to Nuremberg — about 55 minutes late and rising; the booked onward connection in Nuremberg will be missed"
+        }
+      ],
+      "connection_risk": "The booked Nuremberg connection cannot be reached — without rebooking, the arrival slips roughly two hours behind schedule and past the confirmed on-site client meeting in Berlin (check the calendar for the exact start). Rebooking from Nuremberg Hbf is required",
+      "next_boardable_station": "Nuremberg Hbf",
+      "earliest_reroute_departure": "2026-08-21T10:28:00",
+      "itinerary_broken": true,
+      "data_timestamp": "2026-08-21T09:53:00"
+    },
+    "DB-FRA-MUC": {
+      "trip_id": "DB-FRA-MUC",
+      "train": "ICE 521",
+      "current_delay_minutes": 128,
+      "trend": "final",
+      "current_position": "arrived at Munich Hbf",
+      "arrived": true,
+      "incidents": [
+        {
+          "type": "Overhead line damage",
+          "location": "near Würzburg",
+          "impact": "Single-track operation for hours; ICE 521 arrived 128 minutes late"
+        }
+      ],
+      "connection_risk": "Trip concluded — final arrival delay 128 minutes (eligible for passenger-rights compensation).",
+      "data_timestamp": "2026-08-20T21:08:00"
+    }
+  },
+  "network_disruptions": {
+    "bavaria": [
+      {
+        "line": "Nuremberg node",
+        "type": "Signal box malfunction",
+        "severity": "medium",
+        "expected_resolution": "2026-08-21T11:08:00"
+      }
+    ],
+    "berlin": []
+  },
+  "alternative_connections": {
+    "Nürnberg Hbf -> Berlin Hbf": [
+      {
+        "option_id": "R1",
+        "description": "Next direct ICE from Nuremberg to Berlin",
+        "departure": "2026-08-21T10:54:00",
+        "new_arrival": "2026-08-21T13:59:00",
+        "transfers": 0,
+        "added_delay_minutes": 86,
+        "added_cost_eur": 0.0,
+        "trains": [
+          "ICE 1002"
+        ],
+        "legs": [
+          {
+            "train": "ICE 1002",
+            "origin": "Nuremberg Hbf",
+            "destination": "Berlin Hbf",
+            "departure": "2026-08-21T10:54:00",
+            "arrival": "2026-08-21T13:59:00"
+          }
+        ],
+        "comfort": "Earliest arrival, no further transfers; free rebooking (delay over 60 min). Arrives after the client meeting starts."
+      },
+      {
+        "option_id": "R2",
+        "description": "From Nuremberg via Leipzig to Berlin",
+        "departure": "2026-08-21T10:47:00",
+        "new_arrival": "2026-08-21T14:20:00",
+        "transfers": 1,
+        "added_delay_minutes": 107,
+        "added_cost_eur": 0.0,
+        "trains": [
+          "ICE 1704",
+          "ICE 808"
+        ],
+        "legs": [
+          {
+            "train": "ICE 1704",
+            "origin": "Nuremberg Hbf",
+            "destination": "Leipzig Hbf",
+            "departure": "2026-08-21T10:47:00",
+            "arrival": "2026-08-21T12:52:00"
+          },
+          {
+            "train": "ICE 808",
+            "origin": "Leipzig Hbf",
+            "destination": "Berlin Hbf",
+            "departure": "2026-08-21T13:05:00",
+            "arrival": "2026-08-21T14:20:00"
+          }
+        ],
+        "comfort": "One transfer via Leipzig; free rebooking. Also arrives after the client meeting starts."
+      }
+    ]
+  },
+  "planned_connections": {
+    "Munich Hbf -> Berlin Hbf": {
+      "train": "ICE 528",
+      "planned_departure": "2026-08-21T08:25:00",
+      "planned_arrival": "2026-08-21T12:33:00",
+      "transfers": 2,
+      "realtime_arrival_delay_minutes": null
+    }
+  },
+  "recent_delay_history": {
+    "Frankfurt (Main) Hbf -> Munich Hbf": {
+      "window": "30-day history (simulated)",
+      "sample_count": 38,
+      "mean_delay_minutes": 21.6,
+      "median_delay_minutes": 14.0,
+      "p90_delay_minutes": 62.0,
+      "max_delay_minutes": 128.0,
+      "on_time_rate_pct": 34,
+      "delayed_over_15_rate_pct": 46,
+      "cancellations": 1,
+      "common_causes": [
+        "Overhead line damage near Würzburg",
+        "Construction works between Würzburg and Nuremberg",
+        "High network utilisation in long-distance traffic"
+      ]
+    },
+    "Munich Hbf -> Berlin Hbf": {
+      "window": "30-day history (simulated)",
+      "sample_count": 42,
+      "mean_delay_minutes": 18.4,
+      "median_delay_minutes": 12.0,
+      "p90_delay_minutes": 47.0,
+      "max_delay_minutes": 88.0,
+      "on_time_rate_pct": 38,
+      "delayed_over_15_rate_pct": 41,
+      "cancellations": 2,
+      "common_causes": [
+        "Construction works between Nuremberg and Erfurt",
+        "Signal box malfunction in the Nuremberg area",
+        "High network utilisation in long-distance traffic"
+      ]
+    }
+  },
+  "traveller_calendar": {
+    "2026-08-21": [
+      {
+        "id": "evt-berlin-client-2026-08-21",
+        "title": "Client meeting Berlin (on-site)",
+        "location": "Berlin Mitte",
+        "start": "2026-08-21T13:08:00",
+        "hard_constraint": true,
+        "organizer_name": "Anna Client",
+        "organizer_email": "anna.client@example.com",
+        "attendee_emails": [
+          "lucas.wild@example.com"
+        ],
+        "self_organized": false,
+        "end": "2026-08-21T16:08:00",
+        "status": "confirmed",
+        "participants": [
+          "Sara Klein (client) <s.klein@kunde.example>",
+          "Tom Berger (colleague) <t.berger@firma.example>"
+        ]
+      }
+    ]
+  },
+  "passenger_rights_rules": [
+    {
+      "min_delay_minutes": 60,
+      "compensation": "25% of ticket price"
+    },
+    {
+      "min_delay_minutes": 120,
+      "compensation": "50% of ticket price"
+    }
+  ],
+  "car_sharing_offers": {
+    "Munich Hbf": [
+      {
+        "option_id": "C1",
+        "mode": "car_sharing",
+        "description": "Flinkster — BMW i3 at Munich Hbf",
+        "pickup": "Munich Hbf, Parkhaus P4 (Flinkster station)",
+        "distance_km": 595,
+        "est_duration_minutes": 360,
+        "new_arrival": "2026-08-21T14:23:00",
+        "price_eur": 89.5,
+        "remarks": [
+          "Unlimited km included",
+          "Return at Berlin Tegel Flinkster station"
+        ],
+        "source": "mock_flinkster"
+      }
+    ]
+  },
+  "bike_sharing_offers": {
+    "Munich Hbf": [
+      {
+        "option_id": "B1",
+        "mode": "bike_sharing",
+        "description": "Call-a-Bike — e-Bike near Munich Hbf",
+        "pickup": "Munich Hbf Südseite (Stand-Nr. 1234)",
+        "distance_km": 8.2,
+        "est_duration_minutes": 35,
+        "new_arrival": null,
+        "price_eur": 3.9,
+        "remarks": [
+          "Ride to U-Bahn/S-Bahn connection",
+          "Max 30 min included per ride"
+        ],
+        "source": "mock_callabike"
+      }
+    ]
+  },
+  "partner_hotels": {
+    "Berlin Hbf": [
+      {
+        "option_id": "H1",
+        "mode": "hotel",
+        "name": "Meininger Hotel Berlin Hauptbahnhof",
+        "description": "Meininger Hotel — 3 min walk from Berlin Hbf",
+        "distance_to_station_km": 0.15,
+        "price_per_night_eur": 89.0,
+        "check_in_date": null,
+        "nights": 1,
+        "remarks": [
+          "DB partner rate",
+          "Booking via bahn.de/hotels"
+        ],
+        "source": "mock_hotels"
+      },
+      {
+        "option_id": "H2",
+        "mode": "hotel",
+        "name": "ibis Berlin Hauptbahnhof",
+        "description": "ibis — 5 min walk from Berlin Hbf",
+        "distance_to_station_km": 0.35,
+        "price_per_night_eur": 72.0,
+        "check_in_date": null,
+        "nights": 1,
+        "remarks": [
+          "DB partner rate available"
+        ],
+        "source": "mock_hotels"
+      }
+    ],
+    "Munich Hbf": [
+      {
+        "option_id": "H1",
+        "mode": "hotel",
+        "name": "Hotel Excelsior Munich",
+        "description": "Hotel Excelsior — directly at Munich Hbf",
+        "distance_to_station_km": 0.05,
+        "price_per_night_eur": 115.0,
+        "check_in_date": null,
+        "nights": 1,
+        "remarks": [
+          "DB partner rate",
+          "Booking via bahn.de/hotels"
+        ],
+        "source": "mock_hotels"
+      }
+    ]
+  },
+  "traveller_profile": {
+    "preferences": {
+      "travel_class": 1,
+      "seat_location": "window",
+      "seat_area": "open_plan",
+      "quiet_zone": false,
+      "speed_vs_comfort": 50,
+      "max_transfers": 2,
+      "min_transfer_minutes": 8
+    },
+    "home": {
+      "home_station": {
+        "id": "8000207",
+        "name": "Köln Hbf"
+      },
+      "latest_arrival_home": "23:00",
+      "hotel_ok": true,
+      "taxi_ok": true
+    },
+    "mobility": {
+      "car_sharing_ok": false,
+      "bike_sharing_ok": false
+    },
+    "notifications": {
+      "phone": "+49XXXXXXXXXX",
+      "phone_verified": true,
+      "channels": [
+        "push",
+        "whatsapp",
+        "email"
+      ],
+      "quiet_hours": {
+        "from": "22:00",
+        "to": "06:30"
+      }
+    },
+    "connections": {
+      "db_account": true,
+      "outlook": true,
+      "outlook_email": "outlook-user@example.com",
+      "outlook_name": "Laurin Breuer"
+    },
+    "autonomy": "approve_each",
+    "policy": {
+      "global_autonomy_level": "balanced",
+      "book_cost_threshold_eur": 50,
+      "write_tools": {}
+    },
+    "onboarding_completed": true,
+    "user_id": "u-lucas-wild"
+  }
+}
+=== END SITUATION DATA ===
+
+Give the traveller your assessment and recommendation.
+--- single call, no tools ---
+--- final answer ---
+# Travel Alert: ICE 528 — Action Required Now
+
+## 1. Is Your Trip at Risk?
+
+**Yes — your trip is broken and you will miss your client meeting without action.**
+
+ICE 528 is currently held just outside Nuremberg due to a signal box malfunction. As of 09:53, the train is already **55 minutes late and the delay is still increasing**. Your booked onward connection in Nuremberg will be missed.
+
+Without rebooking, you would arrive in Berlin roughly **two hours behind schedule** — well after your **13:08 client meeting with Anna Client in Berlin Mitte**, which is a confirmed, hard-constraint appointment. The signal box issue is expected to clear around 11:08, but that is too late to recover your original itinerary.
+
+---
+
+## 2. What I Recommend: Option R1 — ICE 1002, direct from Nuremberg
+
+| | Details |
+|---|---|
+| **Depart Nuremberg Hbf** | 10:54 |
+| **Arrive Berlin Hbf** | 13:59 |
+| **Transfers** | 0 (direct) |
+| **Extra cost** | €0 (free rebooking applies) |
+
+**Why R1 over R2?**
+R1 arrives at 13:59 — 21 minutes earlier than R2 (14:20), with no transfer risk. Both options arrive after your meeting starts at 13:08, but R1 gets you there as soon as possible. With one direct train and no connection to miss, it is also the lower-risk choice given ongoing network disruption in the Nuremberg area.
+
+### Can you make the meeting?
+Partially. You will arrive at Berlin Hbf at **13:59**, which is **51 minutes into the meeting** (scheduled until 16:08). You should **contact the organiser Anna Client (anna.client@example.com) and the other participants now** to let them know you will be late. Joining at 14:00–14:10 is feasible — the meeting runs until 16:08, so you can participate for roughly two hours. This is far better than the ~2-hour unmanaged delay.
+
+> ⚠️ **No option in the data gets you to Berlin before 13:59.** Car sharing (C1) arrives at 14:23, even later. Bike sharing (B1) only covers a local 8 km connection and is not applicable here. Your traveller profile also marks car and bike sharing as not preferred (mobility: car_sharing_ok / bike_sharing_ok = false).
+
+---
+
+## 3. What to Book, Change, and Claim
+
+### ✅ Do immediately (you need to approve each action per your profile settings):
+
+1. **Rebook onto ICE 1002, Nuremberg Hbf → Berlin Hbf, dep. 10:54, arr. 13:59.**
+   Because ICE 528 is delayed over 60 minutes, Deutsche Bahn must allow free rebooking onto the next available train. This applies at no additional cost. You can do this at the Nuremberg Hbf service counter, via the DB Navigator app, or by calling DB Reise-Service.
+
+2. **Send a message to the meeting organiser.**
+   Notify Anna Client (anna.client@example.com), Sara Klein, and Tom Berger that you will arrive approximately at 14:00–14:10 due to a rail disruption. Your Outlook is connected — you can send this directly.
+
+### 💶 What you are entitled to (Passenger Rights):
+
+Your arrival in Berlin will be approximately **86 minutes later than booked** (original 12:33, new 13:59). This exceeds the 60-minute threshold:
+
+| Delay threshold | Compensation |
+|---|---|
+| 60–119 min delay | **25% of your ticket price** |
+| ≥ 120 min delay | 50% of ticket price |
+
+At 86 minutes of final delay, you are entitled to **25% of your ticket price**. File the claim via the [DB Fahrgastrechte form](https://www.bahn.de/service/informationen/fahrgastrechte) or at any DB Service Point — keep your ticket and this disruption as evidence.
+
+> Note: If the delay grows further and your final arrival exceeds 120 minutes, the compensation increases to **50%**. Monitor the live status.
+
+---
+
+### Summary of Actions
+
+| Priority | Action | How |
+|---|---|---|
+| 🔴 Now | Rebook onto ICE 1002 (dep. 10:54 Nuremberg) | DB app / service counter at Nuremberg Hbf |
+| 🔴 Now | Notify meeting organiser of ~50 min late arrival | Email anna.client@example.com |
+| 🟡 After travel | File 25% compensation claim | DB Fahrgastrechte form online |

@@ -1,0 +1,169 @@
+# no_train_alternative-agent-default-006 | no_train_alternative | agent | default
+USER (turn 1): Please monitor my trip with trip_id DB-2026-0619-MUC-BLN from Munich Hbf to Berlin Hbf on 2026-08-21 (train ICE 1006, planned departure 2026-08-21T08:30:00, planned arrival 2026-08-21T12:34:00) and tell me if I need to do anything.
+--- trace ---
+kind=text | author=journey_autopilot_orchestrator | text=I'll start by monitoring your trip right away!
+kind=call | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=subcall | author=monitoring_agent | name=get_live_trip_status
+kind=subresult | author=monitoring_agent | name=get_live_trip_status
+kind=subcall | author=monitoring_agent | name=get_network_disruptions
+kind=subresult | author=monitoring_agent | name=get_network_disruptions
+kind=subcall | author=monitoring_agent | name=get_network_disruptions
+kind=subresult | author=monitoring_agent | name=get_network_disruptions
+kind=subcall | author=monitoring_agent | name=get_historical_delay_baseline
+kind=subresult | author=monitoring_agent | name=get_historical_delay_baseline
+kind=subcall | author=monitoring_agent | name=get_recent_delay_history
+kind=subresult | author=monitoring_agent | name=get_recent_delay_history
+kind=result | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=text | author=journey_autopilot_orchestrator | text=The risk is HIGH and an active infrastructure incident is confirmed. Let me immediately get reroute options from the Planner and send you a WhatsApp heads-up at the same time.
+kind=call | author=journey_autopilot_orchestrator | name=planner_agent
+kind=subcall | author=planner_agent | name=get_user_profile
+kind=subresult | author=planner_agent | name=get_user_profile
+kind=subcall | author=planner_agent | name=get_passenger_rights
+kind=subresult | author=planner_agent | name=get_passenger_rights
+kind=subcall | author=planner_agent | name=find_reroute_options
+kind=subresult | author=planner_agent | name=find_reroute_options
+kind=subcall | author=planner_agent | name=check_options_against_calendar
+kind=subresult | author=planner_agent | name=check_options_against_calendar
+kind=subcall | author=planner_agent | name=finalize_reroute_options
+kind=subresult | author=planner_agent | name=finalize_reroute_options
+kind=result | author=journey_autopilot_orchestrator | name=planner_agent
+kind=call | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+kind=result | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+--- turn 1 answer ---
+⚠️ *Note: The live DB sidecar was unavailable for reroute data — demo fallback data was used. Please verify final schedules at the station or on the DB app before boarding. (Calendar data was live from Outlook.)*
+Also note: the WhatsApp delivery ran in demo mode (Twilio not configured), so no push reached your phone — all the details are here in chat instead.
+
+---
+
+**Risk: HIGH**
+This describes an active disruption on your upcoming trip — act now before heading to the platform.
+
+---
+
+### 🚨 Situation Summary
+
+A **full overhead wire failure on the Nuremberg–Erfurt high-speed section** — the spine of the Munich–Berlin ICE route — is active with no confirmed repair time. As a result:
+
+- **All direct Berlin ICE connections are cancelled**
+- Your **ICE 528** (dep. 10:32) is forecast to arrive at **~17:45** (+185 min delay)
+- The trend is still increasing
+
+---
+
+### 🎫 Your Rights
+
+✅ **Your train binding (Zugbindung) is lifted.** The expected delay exceeds the 60-minute threshold, so **your existing ticket (89.90 EUR) is valid on the alternative trains below — no rebooking or surcharge needed.** You can simply board.
+
+You also have the right to **abandon the journey entirely** and claim a full refund instead.
+
+---
+
+### 🚆 Reroute Options
+
+Both options bypass the failed section via the Hannover corridor. Please **tap a card below to choose**:
+
+**⭐ Recommended — R1: Via Würzburg & Hannover**
+ICE 596 → ICE 786 → ICE 894 | Dep. Munich **10:01** | Arr. Berlin **15:58**
+2 transfers (Würzburg 17 min, Hannover 15 min) | **~2 hrs earlier** than staying on ICE 528
+
+**R2: Via Stuttgart & Hannover**
+ICE 694 → ICE 992 → ICE 1084 | Dep. Munich **09:42** | Arr. Berlin **16:43**
+2 transfers (Stuttgart 23 min, Hannover 12 min) | ~1 hr earlier than ICE 528
+
+---
+
+**I recommend R1** — it departs only 31 minutes before your original train, arrives nearly 2 hours earlier than the disrupted ICE 528, and your existing ticket covers it fully. No calendar conflicts on either option.
+
+👉 **Please select one of the option cards (R1 or R2) to proceed, and I'll apply it for you.**
+
+USER (turn 2): Yes, please book option R1.
+--- trace ---
+kind=text | author=journey_autopilot_orchestrator | text=Great choice! To confirm what you're selecting:
+
+**R1 — Via Würzburg & Hannover**
+ICE 596 → ICE 786 → ICE 894 | Dep. Munich Hbf **10:01** | Arr. Berlin Hbf **15:58** | 2 transfers
+
+Let me apply this now.
+kind=call | author=journey_autopilot_orchestrator | name=executor_agent
+kind=subcall | author=executor_agent | name=book_alternative_connection
+kind=subresult | author=executor_agent | name=book_alternative_connection
+kind=result | author=journey_autopilot_orchestrator | name=executor_agent
+kind=text | author=journey_autopilot_orchestrator | text=Unfortunately, **R1 could not be booked** — live revalidation failed because that connection has since departed and is no longer available. Nothing was changed on your booking.
+
+We need a fresh search with currently available alternatives. Let me run Monitoring and Planner again right now to get you up-to-date options.
+kind=call | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=subcall | author=monitoring_agent | name=get_live_trip_status
+kind=subresult | author=monitoring_agent | name=get_live_trip_status
+kind=subcall | author=monitoring_agent | name=get_historical_delay_baseline
+kind=subresult | author=monitoring_agent | name=get_historical_delay_baseline
+kind=subcall | author=monitoring_agent | name=get_recent_delay_history
+kind=subresult | author=monitoring_agent | name=get_recent_delay_history
+kind=subcall | author=monitoring_agent | name=get_planned_connection
+kind=subresult | author=monitoring_agent | name=get_planned_connection
+kind=subcall | author=monitoring_agent | name=get_network_disruptions
+kind=subresult | author=monitoring_agent | name=get_network_disruptions
+kind=subcall | author=monitoring_agent | name=get_network_disruptions
+kind=subresult | author=monitoring_agent | name=get_network_disruptions
+kind=result | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=call | author=journey_autopilot_orchestrator | name=planner_agent
+kind=subcall | author=planner_agent | name=get_user_profile
+kind=subresult | author=planner_agent | name=get_user_profile
+kind=subcall | author=planner_agent | name=find_reroute_options
+kind=subresult | author=planner_agent | name=find_reroute_options
+kind=subcall | author=planner_agent | name=get_passenger_rights
+kind=subresult | author=planner_agent | name=get_passenger_rights
+kind=subcall | author=planner_agent | name=check_options_against_calendar
+kind=subresult | author=planner_agent | name=check_options_against_calendar
+kind=subcall | author=planner_agent | name=finalize_reroute_options
+kind=subresult | author=planner_agent | name=finalize_reroute_options
+kind=result | author=journey_autopilot_orchestrator | name=planner_agent
+--- turn 2 answer ---
+Here's where things stand after the fresh search:
+
+---
+
+**Risk: HIGH** — active disruption, ICE 528 still forecast +185 min delay.
+
+### What happened
+The previous proposal (R1 via Würzburg) expired and that connection's first leg (ICE 596, dep. 10:01) has since departed — so it's no longer boardable.
+
+### The one currently available option
+
+**R2 — Via Stuttgart & Hannover**
+ICE 694 → ICE 992 → ICE 1084
+**Dep. Munich Hbf ~09:42 → Arr. Berlin Hbf 16:43**
+2 transfers: Stuttgart (23 min) + Hannover (12 min)
+⚠️ This departs *before* your original train — **you'd need to head to the platform right now.**
+
+Your existing ticket still covers this fully (train binding remains lifted).
+
+⚠️ *Note: Reroute data is from demo fallback (live DB sidecar unavailable) — please verify the 09:42 departure on the DB app or at the station board before running.*
+
+---
+
+**R2 is the only currently actionable option.** Would you like me to go ahead and book R2? Just say the word and I'll execute it immediately.
+--- final answer ---
+Here's where things stand after the fresh search:
+
+---
+
+**Risk: HIGH** — active disruption, ICE 528 still forecast +185 min delay.
+
+### What happened
+The previous proposal (R1 via Würzburg) expired and that connection's first leg (ICE 596, dep. 10:01) has since departed — so it's no longer boardable.
+
+### The one currently available option
+
+**R2 — Via Stuttgart & Hannover**
+ICE 694 → ICE 992 → ICE 1084
+**Dep. Munich Hbf ~09:42 → Arr. Berlin Hbf 16:43**
+2 transfers: Stuttgart (23 min) + Hannover (12 min)
+⚠️ This departs *before* your original train — **you'd need to head to the platform right now.**
+
+Your existing ticket still covers this fully (train binding remains lifted).
+
+⚠️ *Note: Reroute data is from demo fallback (live DB sidecar unavailable) — please verify the 09:42 departure on the DB app or at the station board before running.*
+
+---
+
+**R2 is the only currently actionable option.** Would you like me to go ahead and book R2? Just say the word and I'll execute it immediately.
