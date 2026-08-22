@@ -1,0 +1,100 @@
+# happy_path-agent-pretrip_llm_risk-018 | happy_path | agent | pretrip_llm_risk
+USER (turn 1): I am booked on ICE 528 from Munich Hbf to Berlin Hbf, scheduled to depart 2026-08-21T12:20:00 and arrive 2026-08-21T16:28:00. The journey has not started yet. How likely is this connection to be delayed, and when should I realistically expect to arrive?
+--- trace ---
+kind=call | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=subcall | author=monitoring_agent | name=get_historical_delay_baseline
+kind=subresult | author=monitoring_agent | name=get_historical_delay_baseline
+kind=subcall | author=monitoring_agent | name=get_recent_delay_history
+kind=subresult | author=monitoring_agent | name=get_recent_delay_history
+kind=subcall | author=monitoring_agent | name=get_planned_connection
+kind=subresult | author=monitoring_agent | name=get_planned_connection
+kind=result | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=text | author=journey_autopilot_orchestrator | text=The risk is HIGH and the trip is PRE-TRIP, so I need to call the planner agent and send a WhatsApp notice simultaneously.
+kind=call | author=journey_autopilot_orchestrator | name=planner_agent
+kind=subcall | author=planner_agent | name=get_user_profile
+kind=subresult | author=planner_agent | name=get_user_profile
+kind=subcall | author=planner_agent | name=find_reroute_options
+kind=subresult | author=planner_agent | name=find_reroute_options
+kind=subcall | author=planner_agent | name=get_passenger_rights
+kind=subresult | author=planner_agent | name=get_passenger_rights
+kind=subcall | author=planner_agent | name=check_options_against_calendar
+kind=subresult | author=planner_agent | name=check_options_against_calendar
+kind=subcall | author=planner_agent | name=finalize_reroute_options
+kind=subresult | author=planner_agent | name=finalize_reroute_options
+kind=result | author=journey_autopilot_orchestrator | name=planner_agent
+kind=call | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+kind=result | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+--- turn 1 answer ---
+Risk: HIGH
+
+---
+
+Here's your full situation for **ICE 528, Munich Hbf → Berlin Hbf, Friday 21 August 2026** — note this is an elevated-risk pre-trip assessment, not a confirmed delay (the train hasn't departed yet).
+
+---
+
+### 🔴 Disruption Picture
+
+Today is a significantly worse-than-normal day on the Munich–Berlin corridor. Three active causes are hitting simultaneously:
+
+- 🚦 **Signal repairs** on the route
+- 🐢 **Speed restrictions** in effect
+- 🚂 **Knock-on delays** from preceding trains
+
+In live data today (25 trains), only **36% are running on time** — down from the historical norm of 67%. The mean delay today is **~26 minutes**.
+
+| Scenario | Delay | Realistic ETA |
+|---|---|---|
+| Typical today (mean) | +26 min | **~16:48** |
+| Worst 10% (P90) | +47 min | **~17:09** |
+
+---
+
+### ✅ What You Can Do — Option R1
+
+There is one strong alternative: **ICE 1508 (ICE Sprinter)**, which departs just **1 minute later** at 12:21 and arrives Berlin Hbf at **16:22** — actually **6 minutes ahead** of your original schedule and **26 minutes earlier** than the disrupted ICE 528's forecast arrival.
+
+**The key upside:** Because the expected delay on ICE 528 is ≥20 minutes, your **Zugbindung (train binding) is lifted**. Your existing €89.90 ticket is already valid on ICE 1508 — no rebooking fee required. Just board it. (The €209.20 shown is the walk-up fare for a brand-new ticket; you shouldn't need one.)
+
+Your calendar on 21 August is **completely clear**, so there's no scheduling conflict.
+
+---
+
+### Your Options
+
+👉 **R1 — ICE 1508 (ICE Sprinter), direct, departs 12:21, arrives 16:22** — *Recommended*: arrives earlier, no transfers, uses your existing ticket on the lifted Zugbindung.
+
+Or you can **stay on ICE 528** and budget for a ~16:48–17:09 arrival.
+
+**Please tap option R1 below (or let me know your choice)** and I'll lock it in for you.
+
+---
+
+*A WhatsApp notice with this alert was also sent to your phone. The live DB sidecar was unavailable and demo fallback data was used for this assessment — please verify the live situation at the station.*
+
+USER (turn 2): Yes, please book option R1.
+--- trace ---
+kind=call | author=journey_autopilot_orchestrator | name=executor_agent
+kind=subcall | author=executor_agent | name=book_alternative_connection
+kind=subresult | author=executor_agent | name=book_alternative_connection
+kind=result | author=journey_autopilot_orchestrator | name=executor_agent
+--- turn 2 answer ---
+The policy gate needs one confirmation from you, because the net added cost couldn't be automatically resolved — the quoted fare for ICE 1508 is **€209.20**, but as the Planner noted, your existing ticket should already cover this ride since the **Zugbindung is lifted** (so the real added cost may well be €0). The system can't confirm that automatically and is holding for your approval.
+
+To be clear about what you'd be approving:
+
+> **R1 — ICE 1508, direct**
+> Munich Hbf **12:21** → Berlin Hbf **16:22**
+> Quoted fare on file: €209.20 | Net added cost: **unknown** (likely €0 on your existing ticket with lifted Zugbindung, but unconfirmed)
+
+If you're happy to proceed on that basis, just say **"approve"** and I'll execute it straight away.
+--- final answer ---
+The policy gate needs one confirmation from you, because the net added cost couldn't be automatically resolved — the quoted fare for ICE 1508 is **€209.20**, but as the Planner noted, your existing ticket should already cover this ride since the **Zugbindung is lifted** (so the real added cost may well be €0). The system can't confirm that automatically and is holding for your approval.
+
+To be clear about what you'd be approving:
+
+> **R1 — ICE 1508, direct**
+> Munich Hbf **12:21** → Berlin Hbf **16:22**
+> Quoted fare on file: €209.20 | Net added cost: **unknown** (likely €0 on your existing ticket with lifted Zugbindung, but unconfirmed)
+
+If you're happy to proceed on that basis, just say **"approve"** and I'll execute it straight away.

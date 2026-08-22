@@ -1,0 +1,92 @@
+# sidecar_offline-agent-default-009 | sidecar_offline | agent | default
+USER (turn 1): Please monitor my trip with trip_id DB-2026-0619-MUC-BLN from Munich Hbf to Berlin Hbf on 2026-08-21 (train ICE 528, planned departure 2026-08-21T08:35:00, planned arrival 2026-08-21T12:43:00) and tell me if I need to do anything.
+--- trace ---
+kind=text | author=journey_autopilot_orchestrator | text=I'll start by checking the live status of your trip right away!
+kind=call | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=subcall | author=monitoring_agent | name=get_live_trip_status
+kind=subresult | author=monitoring_agent | name=get_live_trip_status
+kind=subcall | author=monitoring_agent | name=get_network_disruptions
+kind=subresult | author=monitoring_agent | name=get_network_disruptions
+kind=subcall | author=monitoring_agent | name=get_network_disruptions
+kind=subresult | author=monitoring_agent | name=get_network_disruptions
+kind=result | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=text | author=journey_autopilot_orchestrator | text=This is a HIGH risk situation — I need to get reroute options for you immediately, and alert you on WhatsApp at the same time!
+kind=call | author=journey_autopilot_orchestrator | name=planner_agent
+kind=call | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+kind=subcall | author=planner_agent | name=get_user_profile
+kind=subresult | author=planner_agent | name=get_user_profile
+kind=subcall | author=planner_agent | name=find_reroute_options
+kind=subresult | author=planner_agent | name=find_reroute_options
+kind=subcall | author=planner_agent | name=get_passenger_rights
+kind=subresult | author=planner_agent | name=get_passenger_rights
+kind=subcall | author=planner_agent | name=check_options_against_calendar
+kind=subresult | author=planner_agent | name=check_options_against_calendar
+kind=subcall | author=planner_agent | name=finalize_reroute_options
+kind=subresult | author=planner_agent | name=finalize_reroute_options
+kind=result | author=journey_autopilot_orchestrator | name=planner_agent
+kind=result | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+--- turn 1 answer ---
+Risk: HIGH
+
+> ⚠️ *Note: The live DB data sidecar was unavailable — all figures below come from demo fallback data (mock sources). Cross-check before acting on a rebooking.*
+
+---
+
+**Your ICE 528 is in trouble.** It's currently held before Nuremberg due to a signal box malfunction, running **55 minutes late and still rising**. Your onward connection at Nuremberg is **definitively missed** — a reroute is needed. I've also pushed a heads-up to your phone (demo mode, as Twilio isn't configured live).
+
+---
+
+### 🎫 Good news on your ticket
+Your **train binding (Zugbindung) is already lifted**. With a 55+ min delay your existing €89.90 ticket (BahnCard 50, 2nd class) covers **any alternative to Berlin Hbf — no rebooking fee, no extra cost.**
+
+---
+
+### Your reroute options from Nuremberg Hbf
+
+**⭐ Recommended: R1 — ICE 1002, direct**
+Departs Nuremberg 11:04 → arrives Berlin Hbf **14:09** | 0 transfers | +86 min vs. plan | **€0 extra**
+
+**R2 — ICE 1704 + ICE 808 via Leipzig**
+Departs Nuremberg 10:57 → arrives Berlin Hbf **14:30** | 1 transfer (13 min change in Leipzig) | +107 min vs. plan | **€0 extra**
+
+R1 is the clear pick: it leaves only 7 minutes later than R2 but arrives 21 minutes earlier with no transfer needed. R2 only makes sense if you urgently need to leave Nuremberg at 10:57.
+
+Your calendar is clear for the rest of today — no clashes with either option. 🎉
+
+---
+
+**Please tap one of the option cards (R1 or R2) to select your preferred reroute**, and I'll execute it straight away!
+
+USER (turn 2): Yes, please book option R1.
+--- trace ---
+kind=text | author=journey_autopilot_orchestrator | text=Great choice! To confirm: **R1 — ICE 1002, direct**, departing Nuremberg Hbf at 11:04, arriving Berlin Hbf at **14:09**, no transfers, no extra cost. Executing that now!
+kind=call | author=journey_autopilot_orchestrator | name=executor_agent
+kind=subcall | author=executor_agent | name=book_alternative_connection
+kind=subresult | author=executor_agent | name=book_alternative_connection
+kind=result | author=journey_autopilot_orchestrator | name=executor_agent
+--- turn 2 answer ---
+You're all set! ✅
+
+**Your reroute is confirmed:**
+- 🚄 **ICE 1002** — direct, no changes
+- 🕙 **Departs** Nuremberg Hbf at **11:04**
+- 🏁 **Arrives** Berlin Hbf at **14:09**
+- 💶 **Extra cost:** €0.00 — fully covered by your existing ticket
+- 📅 **Calendar:** All clear
+
+Once you arrive in Berlin and the final delay is confirmed, the app will automatically prepare a **compensation claim** for your review in the Complaints screen — no action needed from you now.
+
+Is there anything else I can help you with for this journey?
+--- final answer ---
+You're all set! ✅
+
+**Your reroute is confirmed:**
+- 🚄 **ICE 1002** — direct, no changes
+- 🕙 **Departs** Nuremberg Hbf at **11:04**
+- 🏁 **Arrives** Berlin Hbf at **14:09**
+- 💶 **Extra cost:** €0.00 — fully covered by your existing ticket
+- 📅 **Calendar:** All clear
+
+Once you arrive in Berlin and the final delay is confirmed, the app will automatically prepare a **compensation claim** for your review in the Complaints screen — no action needed from you now.
+
+Is there anything else I can help you with for this journey?

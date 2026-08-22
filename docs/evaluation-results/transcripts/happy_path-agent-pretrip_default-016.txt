@@ -1,0 +1,96 @@
+# happy_path-agent-pretrip_default-016 | happy_path | agent | pretrip_default
+USER (turn 1): I am booked on ICE 528 from Munich Hbf to Berlin Hbf, scheduled to depart 2026-08-21T12:15:00 and arrive 2026-08-21T16:23:00. The journey has not started yet. How likely is this connection to be delayed, and when should I realistically expect to arrive?
+--- trace ---
+kind=call | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=subcall | author=monitoring_agent | name=get_historical_delay_baseline
+kind=subresult | author=monitoring_agent | name=get_historical_delay_baseline
+kind=subcall | author=monitoring_agent | name=get_recent_delay_history
+kind=subresult | author=monitoring_agent | name=get_recent_delay_history
+kind=subcall | author=monitoring_agent | name=get_planned_connection
+kind=subresult | author=monitoring_agent | name=get_planned_connection
+kind=result | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=text | author=journey_autopilot_orchestrator | text=Given this is a HIGH risk assessment on an active PRE-TRIP journey, I need to call the Planner and send a WhatsApp alert simultaneously.
+kind=call | author=journey_autopilot_orchestrator | name=planner_agent
+kind=call | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+kind=subcall | author=planner_agent | name=get_user_profile
+kind=subresult | author=planner_agent | name=get_user_profile
+kind=subcall | author=planner_agent | name=find_reroute_options
+kind=subresult | author=planner_agent | name=find_reroute_options
+kind=subcall | author=planner_agent | name=get_passenger_rights
+kind=subresult | author=planner_agent | name=get_passenger_rights
+kind=subcall | author=planner_agent | name=check_options_against_calendar
+kind=subresult | author=planner_agent | name=check_options_against_calendar
+kind=subcall | author=planner_agent | name=finalize_reroute_options
+kind=subresult | author=planner_agent | name=finalize_reroute_options
+kind=result | author=journey_autopilot_orchestrator | name=planner_agent
+kind=result | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+--- turn 1 answer ---
+Risk: HIGH
+
+> *(Note: This is a forecast for a trip that hasn't started yet.)*
+
+---
+
+### 🔴 Situation — ICE 528 München → Berlin, 21 Aug
+
+Today's live performance on this corridor is significantly worse than normal:
+
+- **Only 36% of trains are running on time today** (vs. a historical 67%)
+- **Mean delay today: ~28 min** → realistic arrival **~16:50**
+- **P90 delay: ~50 min** → worst-case arrival **~17:12** (1-in-10 trains delayed 50+ min)
+- **Disruption causes:** Speed restrictions on the line, cascading delays from preceding trains, and delays propagating from abroad
+
+📱 I've sent you a heads-up on WhatsApp as well.
+
+---
+
+### ✅ Good News — There's a Better Option
+
+**Your train binding (Zugbindung) is lifted** because the expected delay already exceeds 20 minutes. Your existing €89.90 ticket is valid on alternative trains without rebooking or extra cost.
+
+The Planner found **one viable reroute option**:
+
+---
+
+**R1 — ICE 1508 (Direct, ⭐ Recommended)**
+- Departs Munich Hbf at **12:21** (only 6 min after your original train)
+- Arrives Berlin Hbf at **16:22** — essentially on schedule
+- **~28 minutes earlier** than staying on the disrupted ICE 528
+- 0 transfers, direct service with Bordrestaurant
+- No calendar conflicts on your 21 Aug calendar
+- **Your existing ticket should cover it** (train binding lifted — no surcharge expected)
+
+> *(The ~€209 fare shown is the walk-up price for a new ticket — you shouldn't need to pay this given the lifted Zugbindung. The app will confirm exact validity before executing.)*
+
+---
+
+**Please select option R1 from the card below if you'd like to switch to ICE 1508**, and I'll apply it through the policy gate. Or let me know if you'd prefer to stay on ICE 528 or explore other options.
+
+USER (turn 2): Yes, please book option R1.
+--- trace ---
+kind=call | author=journey_autopilot_orchestrator | name=executor_agent
+kind=subcall | author=executor_agent | name=book_alternative_connection
+kind=subresult | author=executor_agent | name=book_alternative_connection
+kind=result | author=journey_autopilot_orchestrator | name=executor_agent
+--- turn 2 answer ---
+The policy gate needs your explicit approval on one point: the **added cost is currently unconfirmed**. While your train binding is lifted and your existing €89.90 ticket *should* cover ICE 1508 at no extra charge, the live fare query returned €209.20 as a walk-up price and the net cost can't be guaranteed until the booking is finalised.
+
+To confirm:
+- **Train:** ICE 1508, direct
+- **Departure:** Munich Hbf 12:21
+- **Arrival:** Berlin Hbf 16:22
+- **Expected added cost:** €0 (ticket binding lifted) — but this needs to be verified at execution
+- **No calendar conflicts**
+
+Do you approve this reroute? A simple **"yes"** or **"approve"** is enough and I'll execute it right away.
+--- final answer ---
+The policy gate needs your explicit approval on one point: the **added cost is currently unconfirmed**. While your train binding is lifted and your existing €89.90 ticket *should* cover ICE 1508 at no extra charge, the live fare query returned €209.20 as a walk-up price and the net cost can't be guaranteed until the booking is finalised.
+
+To confirm:
+- **Train:** ICE 1508, direct
+- **Departure:** Munich Hbf 12:21
+- **Arrival:** Berlin Hbf 16:22
+- **Expected added cost:** €0 (ticket binding lifted) — but this needs to be verified at execution
+- **No calendar conflicts**
+
+Do you approve this reroute? A simple **"yes"** or **"approve"** is enough and I'll execute it right away.

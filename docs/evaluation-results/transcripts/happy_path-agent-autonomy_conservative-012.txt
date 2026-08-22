@@ -1,0 +1,78 @@
+# happy_path-agent-autonomy_conservative-012 | happy_path | agent | autonomy_conservative
+USER (turn 1): Please monitor my trip with trip_id DB-2026-0619-MUC-BLN from Munich Hbf to Berlin Hbf on 2026-08-21 (train ICE 528, planned departure 2026-08-21T08:40:00, planned arrival 2026-08-21T12:48:00) and tell me if I need to do anything.
+--- trace ---
+kind=call | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=subcall | author=monitoring_agent | name=get_live_trip_status
+kind=subresult | author=monitoring_agent | name=get_live_trip_status
+kind=subcall | author=monitoring_agent | name=get_network_disruptions
+kind=subresult | author=monitoring_agent | name=get_network_disruptions
+kind=subcall | author=monitoring_agent | name=get_network_disruptions
+kind=subresult | author=monitoring_agent | name=get_network_disruptions
+kind=result | author=journey_autopilot_orchestrator | name=monitoring_agent
+kind=text | author=journey_autopilot_orchestrator | text=The risk is HIGH and the itinerary is already broken — I need to get you reroute options immediately. Let me call the Planner and send you a WhatsApp heads-up at the same time.
+kind=call | author=journey_autopilot_orchestrator | name=planner_agent
+kind=call | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+kind=subcall | author=planner_agent | name=get_user_profile
+kind=subresult | author=planner_agent | name=get_user_profile
+kind=subcall | author=planner_agent | name=find_reroute_options
+kind=subresult | author=planner_agent | name=find_reroute_options
+kind=subcall | author=planner_agent | name=get_passenger_rights
+kind=subresult | author=planner_agent | name=get_passenger_rights
+kind=subcall | author=planner_agent | name=check_options_against_calendar
+kind=subresult | author=planner_agent | name=check_options_against_calendar
+kind=subcall | author=planner_agent | name=finalize_reroute_options
+kind=subresult | author=planner_agent | name=finalize_reroute_options
+kind=result | author=journey_autopilot_orchestrator | name=planner_agent
+kind=result | author=journey_autopilot_orchestrator | name=send_whatsapp_to_user
+--- turn 1 answer ---
+> ⚠️ *Note: Reroute options are based on demo fallback data (live DB sidecar was unavailable). Please cross-check times on DB Navigator or the departure boards at Nuremberg Hbf.*
+
+---
+
+Risk: HIGH
+
+Your ICE 528 is held before Nuremberg due to a **signal box malfunction**. Current delay is **+55 minutes and rising**, and your booked Nuremberg transfer is **definitively missed** — the original itinerary can no longer be completed as planned. You need to reroute from Nuremberg Hbf.
+
+The good news: **your train binding (Zugbindung) is lifted**, so your existing €89.90 ticket is valid on both alternatives below — no rebooking fee or extra cost.
+
+---
+
+### Your Reroute Options
+
+**⭐ R1 — ICE 1002 (Recommended): Direct to Berlin**
+- Departs Nuremberg Hbf **11:09** → Arrives Berlin Hbf **14:14**
+- Non-stop, no changes, zero transfer risk
+- Arrives ~86 min later than planned — **calendar is clear, no conflicts**
+
+**R2 — ICE 1704 + ICE 808 (via Leipzig)**
+- Departs Nuremberg Hbf **11:02** → Arrives Berlin Hbf **14:35**
+- One change in Leipzig (13 min transfer), arrives 21 min later than R1
+- Leaves 7 min earlier but the connection risk and later arrival make it less attractive
+
+---
+
+**I recommend R1** — it's direct, earliest arrival, and your ticket covers it as-is.
+
+👉 **Please tap one of the option cards below to choose** — once you pick one, I can lock it in for you.
+
+*(A WhatsApp heads-up was also sent to your phone. On compensation: once your trip concludes and the final delay is confirmed, the app will automatically prepare a claim for your review — nothing to do on that front right now.)*
+
+USER (turn 2): Yes, please book option R1.
+--- trace ---
+kind=text | author=journey_autopilot_orchestrator | text=R1 it is — **ICE 1002, direct from Nuremberg Hbf at 11:09, arriving Berlin Hbf at 14:14**, no changes, no extra cost. Let me action that now.
+kind=call | author=journey_autopilot_orchestrator | name=executor_agent
+kind=subcall | author=executor_agent | name=book_alternative_connection
+kind=subresult | author=executor_agent | name=book_alternative_connection
+kind=result | author=journey_autopilot_orchestrator | name=executor_agent
+--- turn 2 answer ---
+The policy gate is asking for one explicit confirmation — your autonomy setting requires approval even for free reroutes. To confirm:
+
+**Rerouting to ICE 1002** — Nuremberg Hbf 11:09 → Berlin Hbf 14:14, direct, **€0 added cost**, covered by your existing ticket.
+
+Do you approve? Just say "yes" or "approve" and I'll execute it right away.
+--- final answer ---
+The policy gate is asking for one explicit confirmation — your autonomy setting requires approval even for free reroutes. To confirm:
+
+**Rerouting to ICE 1002** — Nuremberg Hbf 11:09 → Berlin Hbf 14:14, direct, **€0 added cost**, covered by your existing ticket.
+
+Do you approve? Just say "yes" or "approve" and I'll execute it right away.

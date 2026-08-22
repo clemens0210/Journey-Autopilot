@@ -57,14 +57,17 @@ def _uni_model(**params: Any) -> LiteLlm:
 
     The provider prefix ``openai/`` tells LiteLLM: "talk to this endpoint via
     the OpenAI chat protocol". ``api_base``/``api_key`` come from .env. Per-role
-    ``model_params`` tuning is Bedrock-oriented and ignored here.
+    ``model_params`` tuning is Bedrock-oriented and ignored here — but the role
+    tag is not, so cost attribution works on this endpoint too.
     """
+    metadata = params.pop("metadata", None)
     if params:
         logger.debug("Ignoring model_params %s for the Uni-GPT endpoint.", sorted(params))
     return LiteLlm(
         model=f"openai/{_UNI_MODEL}",
         api_base=_UNI_BASE_URL,
         api_key=_UNI_API_KEY,
+        **({"metadata": metadata} if metadata else {}),
     )
 
 
@@ -76,11 +79,28 @@ def _bedrock_model(model_id: str, **params: Any) -> LiteLlm:
     ``params`` are per-role tuning kwargs from settings.yaml's ``model_params``
     (e.g. ``reasoning_effort``, ``temperature``); ``drop_params`` lets LiteLLM
     silently ignore any a given Claude model doesn't support instead of erroring.
+
+    ``cache_control_injection_points`` turns on Bedrock prompt caching. Two
+    things make it worth it here: a ReAct step resends the whole prompt, and
+    every AgentTool call starts a fresh conversation that re-bills its static
+    prefix from zero. Marking the prefix and the conversation tail lets those
+    repeats bill as cache *reads*. Note this changes the price, not the token
+    count — LiteLLM folds cached tokens back into ``input_tokens``, so the
+    effect shows up in ``cost_usd``, not in the token columns.
     """
     return LiteLlm(
         model=f"bedrock/{model_id}",
         aws_region_name=_BEDROCK_REGION,
         drop_params=True,
+        cache_control_injection_points=[
+            # Static prefix: the instruction (ADK emits it as the one
+            # role="system" message) and the tool schemas.
+            {"location": "message", "role": "system"},
+            {"location": "tool_config"},
+            # Rolling: the newest message, so each ReAct step reads back the
+            # turns the previous step wrote.
+            {"location": "message", "index": -1},
+        ],
         **params,
     )
 
@@ -162,7 +182,13 @@ def _model_for(role: str) -> LiteLlm:
         logger.warning("Unknown model alias %r for role %r; using uni_gpt.", alias, role)
         builder = _MODEL_BUILDERS["uni_gpt"]
     # `model_params` may be absent or an all-comments YAML block (parses to None).
-    params = (_SETTINGS.get("model_params") or {}).get(role) or {}
+    params = {**((_SETTINGS.get("model_params") or {}).get(role) or {})}
+    # The role tag rides along as a LiteLLM completion kwarg and comes back out
+    # on the callback (`kwargs["litellm_params"]["metadata"]`). It is the only
+    # way to attribute spend per agent: three roles share the bedrock_claude
+    # alias, so the model name alone cannot tell the Planner from the Executor,
+    # and neither can the AWS bill. See eval/instrumentation.py.
+    params["metadata"] = {**(params.get("metadata") or {}), "ja_role": role}
     return builder(**params)
 
 

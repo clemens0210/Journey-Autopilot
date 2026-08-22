@@ -1,0 +1,445 @@
+# no_train_alternative-baseline-default-008 | no_train_alternative | baseline | default
+USER: You are helping a business traveller whose train journey is disrupted.
+
+Below is everything known about the situation: the booked trip, its live status,
+network disruptions, alternative connections, the traveller's calendar, car and
+bike sharing offers, nearby partner hotels, the applicable passenger-rights
+rules, and recent punctuality statistics for this route.
+
+Assess the situation and tell the traveller what to do. Specifically:
+1. Is the booked trip at risk, and will the traveller make their appointments?
+2. If the trip is at risk, which concrete alternative do you recommend, and why?
+3. What should be booked or changed, and what is the traveller entitled to?
+
+Base every statement strictly on the data below. Do not invent trains, times,
+prices, or connections that do not appear in it.
+
+=== SITUATION DATA ===
+{
+  "booked_trip": {
+    "trip_id": "DB-2026-0619-MUC-BLN",
+    "passenger": "Lucas Wild",
+    "origin": "Munich Hbf",
+    "destination": "Berlin Hbf",
+    "train": "ICE 1006",
+    "planned_departure": "2026-08-21T08:35:00",
+    "planned_arrival": "2026-08-21T12:39:00"
+  },
+  "live_trip_status": {
+    "DB-2026-0619-MUC-BLN": {
+      "trip_id": "DB-2026-0619-MUC-BLN",
+      "train": "ICE 1006",
+      "current_delay_minutes": 185,
+      "trend": "increasing",
+      "current_position": "between Munich and Augsburg",
+      "incidents": [
+        {
+          "type": "Overhead wire failure",
+          "location": "Nuremberg–Erfurt high-speed section",
+          "impact": "Full track blockage; no trains running — repair time unknown"
+        }
+      ],
+      "connection_risk": "All direct Berlin connections cancelled. Long detour via Würzburg adds 3+ hours.",
+      "data_timestamp": "2026-08-21T10:17:00"
+    }
+  },
+  "network_disruptions": {
+    "bavaria": [
+      {
+        "line": "ICE Nuremberg–Erfurt–Berlin",
+        "type": "Overhead wire failure — full track blockage",
+        "severity": "critical",
+        "expected_resolution": "2026-08-21T18:35:00"
+      }
+    ],
+    "berlin": []
+  },
+  "alternative_connections": {
+    "Munich Hbf -> Berlin Hbf": [
+      {
+        "option_id": "R1",
+        "description": "Detour via Würzburg and Hannover — ICE 596 + ICE 894",
+        "departure": "2026-08-21T10:06:00",
+        "new_arrival": "2026-08-21T16:03:00",
+        "transfers": 2,
+        "added_delay_minutes": 204,
+        "trains": [
+          "ICE 596",
+          "ICE 786",
+          "ICE 894"
+        ],
+        "legs": [
+          {
+            "train": "ICE 596",
+            "origin": "Munich Hbf",
+            "destination": "Würzburg Hbf",
+            "departure": "2026-08-21T10:06:00",
+            "arrival": "2026-08-21T12:10:00"
+          },
+          {
+            "train": "ICE 786",
+            "origin": "Würzburg Hbf",
+            "destination": "Hannover Hbf",
+            "departure": "2026-08-21T12:27:00",
+            "arrival": "2026-08-21T14:25:00"
+          },
+          {
+            "train": "ICE 894",
+            "origin": "Hannover Hbf",
+            "destination": "Berlin Hbf",
+            "departure": "2026-08-21T14:40:00",
+            "arrival": "2026-08-21T16:03:00"
+          }
+        ],
+        "comfort": "No seat reservation; very long detour"
+      },
+      {
+        "option_id": "R2",
+        "description": "Detour via Stuttgart and Hannover — ICE 694 + ICE 1084",
+        "departure": "2026-08-21T09:47:00",
+        "new_arrival": "2026-08-21T16:48:00",
+        "transfers": 2,
+        "added_delay_minutes": 249,
+        "trains": [
+          "ICE 694",
+          "ICE 992",
+          "ICE 1084"
+        ],
+        "legs": [
+          {
+            "train": "ICE 694",
+            "origin": "Munich Hbf",
+            "destination": "Stuttgart Hbf",
+            "departure": "2026-08-21T09:47:00",
+            "arrival": "2026-08-21T12:03:00"
+          },
+          {
+            "train": "ICE 992",
+            "origin": "Stuttgart Hbf",
+            "destination": "Hannover Hbf",
+            "departure": "2026-08-21T12:26:00",
+            "arrival": "2026-08-21T15:16:00"
+          },
+          {
+            "train": "ICE 1084",
+            "origin": "Hannover Hbf",
+            "destination": "Berlin Hbf",
+            "departure": "2026-08-21T15:28:00",
+            "arrival": "2026-08-21T16:48:00"
+          }
+        ],
+        "comfort": "Extremely long journey; not recommended"
+      }
+    ]
+  },
+  "planned_connections": {
+    "Munich Hbf -> Berlin Hbf": {
+      "train": "ICE 1006",
+      "planned_departure": "2026-08-21T08:35:00",
+      "planned_arrival": "2026-08-21T12:39:00",
+      "transfers": 0,
+      "realtime_arrival_delay_minutes": null
+    }
+  },
+  "recent_delay_history": {
+    "Munich Hbf -> Berlin Hbf": {
+      "window": "30-day history (simulated)",
+      "sample_count": 42,
+      "mean_delay_minutes": 18.4,
+      "median_delay_minutes": 12.0,
+      "p90_delay_minutes": 47.0,
+      "max_delay_minutes": 185.0,
+      "on_time_rate_pct": 38,
+      "delayed_over_15_rate_pct": 41,
+      "cancellations": 2,
+      "common_causes": [
+        "Construction works between Nuremberg and Erfurt",
+        "Overhead wire failures on the high-speed section"
+      ]
+    }
+  },
+  "traveller_calendar": {
+    "2026-08-21": [
+      {
+        "title": "Client meeting Berlin (on-site)",
+        "location": "Berlin Mitte",
+        "start": "2026-08-21T14:35:00",
+        "hard_constraint": true
+      }
+    ]
+  },
+  "passenger_rights_rules": [
+    {
+      "min_delay_minutes": 60,
+      "compensation": "25% of ticket price"
+    },
+    {
+      "min_delay_minutes": 120,
+      "compensation": "50% of ticket price"
+    }
+  ],
+  "car_sharing_offers": {
+    "Munich Hbf": [
+      {
+        "option_id": "C1",
+        "mode": "car_sharing",
+        "description": "Flinkster — BMW i3 at Munich Hbf",
+        "pickup": "Munich Hbf, Parkhaus P4 (Flinkster station)",
+        "distance_km": 595,
+        "est_duration_minutes": 360,
+        "new_arrival": "2026-08-21T16:35:00",
+        "price_eur": 89.5,
+        "remarks": [
+          "Unlimited km included",
+          "Return at Berlin Tegel Flinkster station"
+        ],
+        "source": "mock_flinkster"
+      },
+      {
+        "option_id": "C2",
+        "mode": "car_sharing",
+        "description": "Flinkster — VW Golf at Munich Hbf",
+        "pickup": "Munich Hbf, Parkhaus P4 (Flinkster station)",
+        "distance_km": 595,
+        "est_duration_minutes": 345,
+        "new_arrival": "2026-08-21T16:20:00",
+        "price_eur": 79.0,
+        "remarks": [
+          "Unlimited km included",
+          "Return at Berlin Hbf Flinkster station"
+        ],
+        "source": "mock_flinkster"
+      }
+    ]
+  },
+  "bike_sharing_offers": {
+    "Munich Hbf": [
+      {
+        "option_id": "B1",
+        "mode": "bike_sharing",
+        "description": "Call-a-Bike — e-Bike near Munich Hbf",
+        "pickup": "Munich Hbf Südseite (Stand-Nr. 1234)",
+        "distance_km": 8.2,
+        "est_duration_minutes": 35,
+        "new_arrival": null,
+        "price_eur": 3.9,
+        "remarks": [
+          "Ride to a local bus/U-Bahn connection",
+          "Max 30 min included per ride"
+        ],
+        "source": "mock_callabike"
+      }
+    ]
+  },
+  "partner_hotels": {
+    "Berlin Hbf": [
+      {
+        "option_id": "H1",
+        "mode": "hotel",
+        "name": "Meininger Hotel Berlin Hauptbahnhof",
+        "description": "Meininger Hotel — 3 min walk from Berlin Hbf",
+        "distance_to_station_km": 0.15,
+        "price_per_night_eur": 89.0,
+        "check_in_date": null,
+        "nights": 1,
+        "remarks": [
+          "DB partner rate",
+          "Booking via bahn.de/hotels"
+        ],
+        "source": "mock_hotels"
+      },
+      {
+        "option_id": "H2",
+        "mode": "hotel",
+        "name": "ibis Berlin Hauptbahnhof",
+        "description": "ibis — 5 min walk from Berlin Hbf",
+        "distance_to_station_km": 0.35,
+        "price_per_night_eur": 72.0,
+        "check_in_date": null,
+        "nights": 1,
+        "remarks": [
+          "DB partner rate available"
+        ],
+        "source": "mock_hotels"
+      }
+    ],
+    "Munich Hbf": [
+      {
+        "option_id": "H1",
+        "mode": "hotel",
+        "name": "Hotel Excelsior Munich",
+        "description": "Hotel Excelsior — directly at Munich Hbf",
+        "distance_to_station_km": 0.05,
+        "price_per_night_eur": 115.0,
+        "check_in_date": null,
+        "nights": 1,
+        "remarks": [
+          "DB partner rate",
+          "Booking via bahn.de/hotels"
+        ],
+        "source": "mock_hotels"
+      }
+    ]
+  },
+  "traveller_profile": {
+    "preferences": {
+      "travel_class": 1,
+      "seat_location": "window",
+      "seat_area": "open_plan",
+      "quiet_zone": false,
+      "speed_vs_comfort": 50,
+      "max_transfers": 2,
+      "min_transfer_minutes": 8
+    },
+    "home": {
+      "home_station": {
+        "id": "8000207",
+        "name": "Köln Hbf"
+      },
+      "latest_arrival_home": "23:00",
+      "hotel_ok": true,
+      "taxi_ok": true
+    },
+    "mobility": {
+      "car_sharing_ok": false,
+      "bike_sharing_ok": false
+    },
+    "notifications": {
+      "phone": "+49XXXXXXXXXX",
+      "phone_verified": true,
+      "channels": [
+        "push",
+        "whatsapp",
+        "email"
+      ],
+      "quiet_hours": {
+        "from": "22:00",
+        "to": "06:30"
+      }
+    },
+    "connections": {
+      "db_account": true,
+      "outlook": true,
+      "outlook_email": "outlook-user@example.com",
+      "outlook_name": "Laurin Breuer"
+    },
+    "autonomy": "approve_each",
+    "policy": {
+      "global_autonomy_level": "balanced",
+      "book_cost_threshold_eur": 50,
+      "write_tools": {}
+    },
+    "onboarding_completed": true,
+    "user_id": "u-lucas-wild"
+  }
+}
+=== END SITUATION DATA ===
+
+Give the traveller your assessment and recommendation.
+--- single call, no tools ---
+--- final answer ---
+## Situation Assessment for Lucas Wild — 21 August 2026
+
+---
+
+### 1. Is Your Booked Trip at Risk? Will You Make Your Meeting?
+
+**Yes — your trip is severely disrupted and your meeting is at serious risk.**
+
+Here is what is happening right now (as of 10:17):
+
+- **ICE 1006** is currently between Munich and Augsburg with a delay of **185 minutes and growing**.
+- The cause is an **overhead wire failure on the Nuremberg–Erfurt high-speed section**, causing a **full track blockage with no repair time confirmed** (resolution estimated at 18:35 at the earliest).
+- Even via a long detour, the train would not reach Berlin before early-to-mid afternoon — and that estimate is optimistic given the "increasing" delay trend.
+- **Your client meeting in Berlin Mitte starts at 14:35 and is a hard constraint.**
+
+**Bottom line: Staying on ICE 1006 means you will miss your 14:35 meeting with certainty.**
+
+---
+
+### 2. Recommended Alternative
+
+**Neither available train alternative gets you to Berlin in time for 14:35.**
+
+Here is the full picture:
+
+| Option | Departure | Arrival Berlin | Makes 14:35 meeting? |
+|---|---|---|---|
+| ICE 1006 (current) | 08:35 (+185 min delay, rising) | Unknown / very late | ❌ No |
+| **R1 — via Würzburg & Hannover** | **10:06** | **16:03** | **❌ No** |
+| R2 — via Stuttgart & Hannover | 09:47 | 16:48 | ❌ No |
+| Car share C1 (BMW i3) | ~Now | ~16:35 | ❌ No |
+| Car share C2 (VW Golf) | ~Now | ~16:20 | ❌ No |
+
+> Note: Car sharing is marked as not OK in your travel profile, so C1/C2 are excluded from the recommendation regardless.
+
+**No option in the data gets you to Berlin before your 14:35 meeting.** You should act on two fronts simultaneously:
+
+---
+
+#### Immediate Priority: Notify Your Meeting Contact
+
+**Contact the client in Berlin Mitte right now** and inform them of the disruption. Explore whether the meeting can be:
+- **Shifted to later in the afternoon** (you could arrive ~16:03 via R1), or
+- **Conducted remotely** (video call), or
+- **Rescheduled to another date.**
+
+This is the single most important action you can take in the next few minutes.
+
+---
+
+#### If the Meeting Can Be Held Later (e.g., 17:00 or after):
+
+**Take Option R1 — ICE 596 → ICE 786 → ICE 894 via Würzburg and Hannover.**
+
+- **Depart Munich Hbf at 10:06** (you need to get to the platform immediately or very shortly)
+- Würzburg arr. 12:10 → dep. 12:27 (17-min transfer ✅ above your 8-min minimum)
+- Hannover arr. 14:25 → dep. 14:40 (15-min transfer ✅)
+- **Arrive Berlin Hbf at 16:03**
+- 2 transfers — within your stated maximum of 2 ✅
+
+R1 is preferred over R2 because it arrives **45 minutes earlier** (16:03 vs. 16:48).
+
+> ⚠️ **Time-critical:** ICE 596 departs at 10:06. Check immediately whether you can reach the platform in time. If you are still on or near ICE 1006 between Munich and Augsburg, you may need to alight at the next stop and make your way back to Munich Hbf, or check whether ICE 596 also serves an intermediate stop.
+
+---
+
+#### If the Meeting Cannot Be Rescheduled at All
+
+If the 14:35 start is truly immovable and cannot go remote, you will unfortunately **not be able to attend in person today**. In that case:
+- Consider staying in Munich and joining **by video call**
+- Or reschedule the in-person meeting entirely
+- A hotel in Munich is available if needed: **Hotel Excelsior Munich** (directly at Munich Hbf, €115/night, DB partner rate via bahn.de/hotels)
+
+---
+
+### 3. What to Book or Change — and What You Are Entitled To
+
+#### Actions to Take
+
+1. **Right now:** Call or message your Berlin contact about the delay.
+2. **If rescheduling the meeting to 17:00+:** Book R1 — use the DB app or bahn.de to rebook onto ICE 596 (dep. 10:06). Due to the network disruption, you are entitled to use any available train to your destination without a rebooking fee.
+3. **No seat reservation is available on R1** (noted in the data) — you will be travelling without a reserved seat.
+
+#### Your Passenger Rights
+
+Because your booked train (ICE 1006) will arrive **more than 120 minutes late**, you are entitled to:
+
+- ✅ **50% refund of your ticket price** — claim this via the DB Fahrgastrechte form (online, in the DB app, or at any DB service point)
+- ✅ **Free rebooking** onto alternative trains due to the disruption — you do not need to buy a new ticket for R1
+- ✅ If you had chosen to **abandon the journey entirely**, you would be entitled to a **full refund**
+- ✅ **Meals/refreshments** reimbursement (keep receipts) if the delay at your destination exceeds 60 minutes — applicable here given the scale of disruption
+
+> The delay history for this route is notably poor (only 38% on-time over the last 30 days, with overhead wire failures listed as a recurring cause). This disruption, while severe, is unfortunately consistent with known patterns on this corridor.
+
+---
+
+### Summary of Recommended Steps
+
+| Priority | Action |
+|---|---|
+| 🔴 Immediate | Contact Berlin client — inform of delay, explore late/remote meeting |
+| 🔴 Immediate | Decide whether to board ICE 596 at 10:06 (R1) |
+| 🟡 Soon | Rebook onto R1 via DB app (no extra ticket cost due to disruption) |
+| 🟡 Soon | File for 50% compensation via DB Fahrgastrechte |
+| 🟢 If staying in Munich | Book Hotel Excelsior Munich via bahn.de/hotels if overnight needed |
