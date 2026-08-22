@@ -15,15 +15,17 @@
 # If this file or PyYAML is missing, config.py falls back to these same defaults.
 
 models:
-  # One entry per agent in the graph. All roles share the Uni-GPT endpoint by
-  # default; switch individual roles to bedrock_claude (Sonnet 4.6, stronger)
-  # for higher capacity, or bedrock_haiku (Haiku 4.5, faster/cheaper) for
-  # high-frequency roles — e.g. planner: bedrock_claude, monitoring: bedrock_haiku.
-  orchestrator: bedrock_claude
-  monitoring:   bedrock_haiku  # runs frequently/in a loop -> prefer the cheap tier
-  planner:      bedrock_claude  # most demanding reasoning -> prefer the stronger tier
-  communicator: bedrock_haiku  
-  executor:     bedrock_claude  # write path -> prefer the stronger tier for reliability
+  # One entry per agent in the graph. Every role runs Sonnet 4.6 (bedrock_claude).
+  # The tier is deliberately uniform: the evaluation compares architectures, not
+  # models, so holding the model fixed makes every run comparable on model choice
+  # by construction and keeps per-role cost a statement about the role's workload
+  # rather than its price per token. The bedrock_haiku (Haiku 4.5) and uni_gpt
+  # aliases stay resolvable for ad-hoc experiments; no shipped role uses them.
+  orchestrator: uni_gpt
+  monitoring:   uni_gpt
+  planner:      uni_gpt
+  communicator: uni_gpt
+  executor:     uni_gpt
 
 model_params:
   # Optional per-role tuning, forwarded to the model as LiteLLM completion
@@ -55,4 +57,4 @@ reroute:
   # mock fallback is left untouched.)
   max_options: 6                 # hard cap on discovery and finalized selectable cards
   max_added_delay_minutes: 120   # schedule-relative fallback when no current trip ETA exists
-  proposal_ttl_seconds: 300      # finalized live cards must be revalidated after five minutes
+  proposal_ttl_seconds: 900      # finalized live cards must be revalidated after fifteen minutes
