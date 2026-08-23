@@ -72,13 +72,13 @@ class FahrgastrechteRAG:
         self.client = chromadb.PersistentClient(path=str(CHROMA_PATH))
 
         self.embedding_fn = _build_embedding_fn()
-        
+
         self.collection = self.client.get_or_create_collection(
             name="fahrgastrechte",
             embedding_function=self.embedding_fn,
             metadata={"hnsw:space": "cosine"}
         )
-    
+
     # -------------------------
     # INDEXING (daily)
     # -------------------------
@@ -91,18 +91,18 @@ class FahrgastrechteRAG:
             self.client.delete_collection("fahrgastrechte")
         except:
             pass
-        
+
         self.collection = self.client.get_or_create_collection(
             name="fahrgastrechte",
             embedding_function=self.embedding_fn,
             metadata={"hnsw:space": "cosine"}
         )
-        
+
         # Chunk and store the documents
         all_chunks = []
         all_ids = []
         all_metadata = []
-        
+
         for doc in documents:
             chunks = self._chunk_text(doc["content"])
             for i, chunk in enumerate(chunks):
@@ -113,23 +113,23 @@ class FahrgastrechteRAG:
                     "crawled_at": doc["crawled_at"],
                     "chunk_index": i
                 })
-        
+
         # Store in ChromaDB (computes embeddings automatically)
         self.collection.add(
             documents=all_chunks,
             ids=all_ids,
             metadatas=all_metadata
         )
-        
+
         print(f"Index built: {len(all_chunks)} chunks from {len(documents)} pages")
-    
+
     def _chunk_text(self, text: str, chunk_size: int = 400) -> list[str]:
         """Split text at paragraph boundaries, not mid-sentence"""
         paragraphs = [p.strip() for p in text.split("\n\n") if len(p.strip()) > 40]
-        
+
         chunks = []
         current = ""
-        
+
         for para in paragraphs:
             if len(current) + len(para) <= chunk_size:
                 current += para + "\n\n"
@@ -137,12 +137,12 @@ class FahrgastrechteRAG:
                 if current.strip():
                     chunks.append(current.strip())
                 current = para + "\n\n"
-        
+
         if current.strip():
             chunks.append(current.strip())
-        
+
         return chunks
-    
+
     # -------------------------
     # QUERY (on every delay)
     # -------------------------

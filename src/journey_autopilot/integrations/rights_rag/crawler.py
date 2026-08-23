@@ -23,22 +23,22 @@ def crawl_all() -> list[dict]:
 def _crawl_page(url: str) -> dict | None:
     headers = {"User-Agent": "Mozilla/5.0 (Journey-Autopilot-PoC)"}
     response = requests.get(url, headers=headers, timeout=10)
-    
+
     if response.status_code != 200:
         return None
-    
+
     soup = BeautifulSoup(response.text, "html.parser")
-    
+
     # Remove noise
     for tag in soup(["nav", "footer", "script", "style", "header"]):
         tag.decompose()
-    
+
     text = soup.get_text(separator="\n", strip=True)
-    
+
     # Reduce empty lines
     lines = [l for l in text.splitlines() if len(l.strip()) > 20]
     clean_text = "\n".join(lines)
-    
+
     return {
         "source": url,
         "content": clean_text,
