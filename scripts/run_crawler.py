@@ -15,18 +15,18 @@ from journey_autopilot.integrations.rights_rag.rag_store import FahrgastrechteRA
 
 def main():
     print("Starting live crawler for DB passenger rights...")
-    
+
     documents = crawl_all()
     if not documents:
         print("No documents crawled. Aborting.")
         return
-        
+
     print(f"\n{len(documents)} pages successfully cleaned in memory.")
     print("Initialising vector database and creating embeddings...")
-    
+
     try:
         rag = FahrgastrechteRAG()
-        rag.rebuild_index(documents) 
+        rag.rebuild_index(documents)
         print("ChromaDB successfully updated with live data!")
     except Exception as e:
         print(f"Error saving to ChromaDB: {e}")

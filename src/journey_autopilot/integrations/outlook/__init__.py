@@ -28,8 +28,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .auth import (
-    SCOPES,
-    acquire_credential,
     clear_token_cache,
     create_device_credential,
     is_outlook_configured,

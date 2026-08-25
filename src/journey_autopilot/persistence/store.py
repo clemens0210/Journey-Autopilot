@@ -444,18 +444,6 @@ def select_reroute_option(
     return item
 
 
-def set_reroute_proposal_status(user_id: str, proposal_id: str, status: str) -> None:
-    """Update lifecycle state after an authoritative execution decision."""
-    if status not in ("active", "selected", "executed", "expired", "superseded"):
-        raise ValueError(f"Unsupported reroute proposal status: {status}")
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE reroute_proposals SET status = ?, updated_at = ? "
-            "WHERE user_id = ? AND proposal_id = ?",
-            (status, _now(), user_id, proposal_id),
-        )
-
-
 def claim_reroute_proposal_execution(
     user_id: str, proposal_id: str, option_id: str
 ) -> bool:
